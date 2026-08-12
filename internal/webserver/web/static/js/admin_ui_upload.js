@@ -140,7 +140,11 @@ function setUploadDefaults() {
     let defaultDownloads = getLocalStorageWithDefault("defaultDownloads", 1);
     let defaultExpiry = getLocalStorageWithDefault("defaultExpiry", 14);
     let defaultPassword = getLocalStorageWithDefault("defaultPassword", "");
-    let defaultUnlimitedDownloads = getLocalStorageWithDefault("defaultUnlimitedDownloads", false) === "true";
+    // Default is now UNLIMITED downloads. The storage key is versioned so an
+    // older remembered "limit on" preference does not override the new default.
+    // Note getLocalStorageWithDefault returns the fallback as-is, so it must be
+    // the string "true" to survive the === "true" comparison below.
+    let defaultUnlimitedDownloads = getLocalStorageWithDefault("defaultUnlimitedDownloads2", "true") === "true";
     let defaultUnlimitedTime = getLocalStorageWithDefault("defaultUnlimitedTime", false) === "true";
 
     document.getElementById("allowedDownloads").value = defaultDownloads;
@@ -170,7 +174,7 @@ function saveUploadDefaults() {
     localStorage.setItem("defaultDownloads", document.getElementById("allowedDownloads").value);
     localStorage.setItem("defaultExpiry", document.getElementById("expiryDays").value);
     localStorage.setItem("defaultPassword", document.getElementById("password").value);
-    localStorage.setItem("defaultUnlimitedDownloads", !document.getElementById("enableDownloadLimit").checked);
+    localStorage.setItem("defaultUnlimitedDownloads2", !document.getElementById("enableDownloadLimit").checked);
     localStorage.setItem("defaultUnlimitedTime", !document.getElementById("enableTimeLimit").checked);
 }
 

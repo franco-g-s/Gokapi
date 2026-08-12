@@ -31,27 +31,6 @@
 		  <div class="upload-option-card">
 		    <div class="upload-option-header">
 		      <div class="d-flex align-items-center gap-2">
-		        <i class="bi bi-arrow-down-circle upload-option-icon"></i>
-		        <span class="upload-option-label">Download Limit</span>
-		      </div>
-		      <div class="form-check form-switch mb-0">
-		        <input class="form-check-input upload-option-toggle" type="checkbox" role="switch"
-		               name="enableDownloadLimit" id="enableDownloadLimit"
-		               onchange="checkBoxChanged(this, 'allowedDownloads')"
-		               aria-label="Enable Download Limit">
-		      </div>
-		    </div>
-		    <div class="input-group upload-option-input-group">
-		      <input type="number" class="form-control admin-input" value="1"
-		             name="allowedDownloads" id="allowedDownloads" min="1"
-		             style="text-align: right;" data-allow-regular-paste disabled>
-		      <span class="input-group-text upload-option-suffix">Downloads</span>
-		    </div>
-		  </div>
-
-		  <div class="upload-option-card">
-		    <div class="upload-option-header">
-		      <div class="d-flex align-items-center gap-2">
 		        <i class="bi bi-calendar-x upload-option-icon"></i>
 		        <span class="upload-option-label">Expiry</span>
 		      </div>
@@ -67,6 +46,27 @@
 		             name="expiryDays" id="expiryDays" min="1" max="100000"
 		             style="text-align: right;" data-allow-regular-paste>
 		      <span class="input-group-text upload-option-suffix">Days</span>
+		    </div>
+		  </div>
+
+		  <div class="upload-option-card">
+		    <div class="upload-option-header">
+		      <div class="d-flex align-items-center gap-2">
+		        <i class="bi bi-arrow-down-circle upload-option-icon"></i>
+		        <span class="upload-option-label">Download Limit</span>
+		      </div>
+		      <div class="form-check form-switch mb-0">
+		        <input class="form-check-input upload-option-toggle" type="checkbox" role="switch"
+		               name="enableDownloadLimit" id="enableDownloadLimit"
+		               onchange="checkBoxChanged(this, 'allowedDownloads')"
+		               aria-label="Enable Download Limit">
+		      </div>
+		    </div>
+		    <div class="input-group upload-option-input-group">
+		      <input type="number" class="form-control admin-input" value="1"
+		             name="allowedDownloads" id="allowedDownloads" min="1"
+		             style="text-align: right;" data-allow-regular-paste disabled>
+		      <span class="input-group-text upload-option-suffix">Downloads</span>
 		    </div>
 		  </div>
 

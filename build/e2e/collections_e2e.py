@@ -157,5 +157,59 @@ req = urllib.request.Request(BASE + "/api/files/list", headers={"apikey": token(
 still = [f["Id"] for f in (json.loads(urllib.request.urlopen(req).read()) or [])]
 check("deleting a collection keeps its files", id3 in still and id4 in still)
 
+# ---- 12. "available until" is the LAST available file's date ---------------
+import datetime, re as _re
+idA = upload("short.txt", "short")          # expiryDays=5 from upload()
+listing2 = opener.open(BASE + "/collections").read().decode()
+check("list shows a real availability date",
+      bool(_re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", listing2)),
+      "date rendered")
+
+# ---- 13. password-protected collection -------------------------------------
+id5 = upload("secret.txt", "SSSS-secret-contents")
+req = urllib.request.Request(BASE + "/collections/create",
+                             data=json.dumps({"name": "Locked", "fileIds": [id5],
+                                              "password": "hunter2-correct-horse"}).encode(),
+                             headers={"Content-Type": "application/json"}, method="POST")
+locked = json.loads(opener.open(req).read())
+check("create password-protected collection", locked.get("Result") == "OK")
+lid = locked.get("Id", "")
+
+page = anon.open(BASE + "/c?id=" + lid).read().decode()
+check("locked collection asks for a password", "password" in page.lower())
+check("locked collection hides the filenames", "secret.txt" not in page)
+
+# member download blocked without the cookie
+try:
+    r = anon.open(f"{BASE}/cd?id={lid}&file={id5}")
+    body = r.read().decode(errors="replace")
+    blocked = "SSSS-secret-contents" not in body
+except urllib.error.HTTPError:
+    blocked = True
+check("member download blocked without password", blocked)
+
+# now supply the password (fresh cookie-aware opener = a real visitor)
+jar2 = http.cookiejar.CookieJar()
+visitor = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar2))
+try:
+    visitor.open(BASE + "/c?id=" + lid,
+                 urllib.parse.urlencode({"password": "hunter2-correct-horse"}).encode()).read()
+except urllib.error.HTTPError:
+    pass
+unlocked = visitor.open(BASE + "/c?id=" + lid).read().decode()
+check("correct password unlocks the listing", "secret.txt" in unlocked)
+got = visitor.open(f"{BASE}/cd?id={lid}&file={id5}").read().decode()
+check("unlocked visitor can download the member", got.strip() == "SSSS-secret-contents")
+
+# wrong password stays locked
+jar3 = http.cookiejar.CookieJar()
+bad = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar3))
+try:
+    resp = bad.open(BASE + "/c?id=" + lid,
+                    urllib.parse.urlencode({"password": "wrong"}).encode()).read().decode()
+except urllib.error.HTTPError as e:
+    resp = e.read().decode()
+check("wrong password is rejected", "secret.txt" not in resp)
+
 print("\n" + ("ALL CHECKS PASSED" if ok else "SOME CHECKS FAILED"))
 sys.exit(0 if ok else 1)

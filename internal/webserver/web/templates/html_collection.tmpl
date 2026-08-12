@@ -2,6 +2,20 @@
 
 <div class="container-fluid download-wrapper p-4">
     <div class="file-card card">
+{{ if .IsPasswordView }}
+        <div class="card-body p-5 text-center">
+            <h3 class="card-title mb-3">{{ .Collection.Name }}</h3>
+            <p class="text-muted">This collection is password protected.</p>
+            {{ if .IsFailedLogin }}
+            <div class="alert alert-danger py-2">Incorrect password</div>
+            {{ end }}
+            <form method="post" action="./c?id={{ .Collection.Id }}" class="mt-3">
+                <input type="password" name="password" class="form-control mb-3"
+                       placeholder="Password" autofocus required>
+                <button type="submit" class="btn btn-light w-100">Unlock</button>
+            </form>
+        </div>
+{{ else }}
         <div class="card-body p-4">
 
             <div class="text-center mb-4">
@@ -48,6 +62,7 @@
             </div>
 
         </div>
+{{ end }}
     </div>
 </div>
 
@@ -58,7 +73,7 @@
 (function () {
     var button = document.getElementById("downloadAllButton");
     var status = document.getElementById("downloadAllStatus");
-    if (!button) return;
+    if (!button || !status) return;
     var links = Array.prototype.slice.call(
         document.querySelectorAll("#collectiontable a[data-fileid]"));
     if (!links.length) { button.style.display = "none"; return; }

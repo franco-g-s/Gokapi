@@ -13,7 +13,9 @@ import (
 	"github.com/forceu/gokapi/internal/models"
 	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/webserver/authentication"
+	"github.com/forceu/gokapi/internal/webserver/authentication/downloadPasswordToken"
 	"github.com/forceu/gokapi/internal/webserver/errorHandling"
+	"github.com/forceu/gokapi/internal/webserver/ratelimiter"
 )
 
 // CollectionView is passed to the public collection template. The header
@@ -49,6 +51,35 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(collection.Files) == 0 {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeFileNotFound)
+		return
+	}
+
+	// Password gate. Same token/cookie scheme as password-protected files,
+	// keyed on the collection id.
+	if collection.IsPasswordProtected() && !isValidCollectionPwCookie(r, collection) {
+		_ = r.ParseForm()
+		entered := r.PostForm.Get("password")
+		view := CollectionView{
+			Name: collection.Name, PublicName: configuration.Get().PublicName,
+			BaseUrl: configuration.Get().ServerUrl, IsDownloadView: true,
+			IsPasswordView: true, CustomContent: customStaticInfo,
+			Collection: models.Collection{Id: collection.Id, Name: collection.Name},
+		}
+		if entered == "" {
+			err := templateFolder.ExecuteTemplate(w, "collection", view)
+			helper.CheckIgnoreTimeout(err)
+			return
+		}
+		ratelimiter.WaitOnDownloadPassword(logging.GetIpAddress(r))
+		if !storage.IsCorrectCollectionPassword(collection, entered) {
+			view.IsFailedLogin = true
+			err := templateFolder.ExecuteTemplate(w, "collection", view)
+			helper.CheckIgnoreTimeout(err)
+			return
+		}
+		writeCollectionPwCookie(w, collection)
+		// redirect so a refresh does not resubmit the password
+		redirect(w, r, "c?id="+collection.Id)
 		return
 	}
 
@@ -88,6 +119,10 @@ func downloadCollectionFile(w http.ResponseWriter, r *http.Request) {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeFileNotFound)
 		return
 	}
+	if collection.IsPasswordProtected() && !isValidCollectionPwCookie(r, collection) {
+		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeFileNotFound)
+		return
+	}
 	fileId := r.URL.Query().Get("file")
 	file, ok := storage.GetCollectionFile(collection, fileId)
 	if !ok {
@@ -104,8 +139,9 @@ func downloadCollectionFile(w http.ResponseWriter, r *http.Request) {
 
 // collectionCreateRequest is the JSON body posted by the admin page
 type collectionCreateRequest struct {
-	Name    string   `json:"name"`
-	FileIds []string `json:"fileIds"`
+	Name     string   `json:"name"`
+	FileIds  []string `json:"fileIds"`
+	Password string   `json:"password"`
 }
 
 // createCollection is called by the admin page to bundle selected files.
@@ -142,8 +178,9 @@ func createCollection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	collection, err := storage.CreateCollection(storage.CollectionParameters{
-		Name:    request.Name,
-		FileIds: permitted,
+		Name:     request.Name,
+		FileIds:  permitted,
+		Password: request.Password,
 	}, user)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -243,4 +280,25 @@ func showCollectionsAdmin(w http.ResponseWriter, r *http.Request) {
 	view.Collections = rows
 	err = templateFolder.ExecuteTemplate(w, "collections_admin", view)
 	helper.CheckIgnoreTimeout(err)
+}
+
+// writeCollectionPwCookie stores a short-lived token proving the password was
+// entered for this collection
+func writeCollectionPwCookie(w http.ResponseWriter, collection models.Collection) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "pc" + collection.Id,
+		Value:    downloadPasswordToken.Generate(collection.Id),
+		Expires:  time.Now().Add(5 * time.Minute),
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	})
+}
+
+// isValidCollectionPwCookie returns true if the request carries a valid token
+func isValidCollectionPwCookie(r *http.Request, collection models.Collection) bool {
+	cookie, err := r.Cookie("pc" + collection.Id)
+	if err != nil {
+		return false
+	}
+	return downloadPasswordToken.IsValid(cookie.Value, collection.Id)
 }

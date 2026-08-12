@@ -265,9 +265,45 @@ check("member rows are rendered for removal", "member-remove" in page)
 page = opener.open(BASE + "/collections").read().decode()
 check("collections page has inline name/password fields",
       'id="filePickerName"' in page and 'id="filePickerPassword"' in page)
-check("picker no longer chains prompts for create",
-      page.count("window.prompt") <= 1, f"{page.count('window.prompt')} prompt(s) left (rename only)")
+# What matters is that no single flow chains two dialogs (Chrome then offers
+# "prevent additional dialogs", after which every prompt returns null).
+# Standalone prompts for rename and password are fine.
+check("create flow uses fields, not chained prompts",
+      'Name for this collection' not in page and 'filePickerName' in page,
+      "create reads the inline fields")
 check("picker has a passphrase suggest button", 'id="filePickerSuggest"' in page)
+
+# ---- 17. password can be added, changed and removed after creation --------
+idP = upload("later.txt", "LATER-contents")
+req = urllib.request.Request(BASE + "/collections/create",
+                             data=json.dumps({"name": "AddPwLater", "fileIds": [idP]}).encode(),
+                             headers={"Content-Type": "application/json"}, method="POST")
+pc = json.loads(opener.open(req).read()); pid = pc["Id"]
+check("open collection is reachable", "later.txt" in anon.open(BASE + "/c?id=" + pid).read().decode())
+
+modify({"id": pid, "password": "first-password-123"})
+page = anon.open(BASE + "/c?id=" + pid).read().decode()
+check("adding a password locks an existing collection", "later.txt" not in page)
+
+def unlock(pw):
+    j = http.cookiejar.CookieJar()
+    o = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(j))
+    try:
+        o.open(BASE + "/c?id=" + pid, urllib.parse.urlencode({"password": pw}).encode()).read()
+    except urllib.error.HTTPError:
+        pass
+    return o.open(BASE + "/c?id=" + pid).read().decode()
+
+check("the new password unlocks it", "later.txt" in unlock("first-password-123"))
+modify({"id": pid, "password": "second-password-456"})
+check("old password stops working after a change", "later.txt" not in unlock("first-password-123"))
+check("changed password works", "later.txt" in unlock("second-password-456"))
+modify({"id": pid, "password": ""})
+check("blank password removes protection",
+      "later.txt" in anon.open(BASE + "/c?id=" + pid).read().decode())
+
+listing3 = opener.open(BASE + "/collections").read().decode()
+check("list has a password button per collection", "collection-password" in listing3)
 
 print("\n" + ("ALL CHECKS PASSED" if ok else "SOME CHECKS FAILED"))
 sys.exit(0 if ok else 1)

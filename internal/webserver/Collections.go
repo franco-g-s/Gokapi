@@ -243,6 +243,7 @@ type collectionInfo struct {
 	NeverExpires bool
 	OwnerName    string
 	IsOwn        bool
+	HasPassword  bool
 }
 
 // showCollectionsAdmin renders the management list of collections
@@ -286,6 +287,7 @@ func showCollectionsAdmin(w http.ResponseWriter, r *http.Request) {
 			NeverExpires: never,
 			OwnerName:    userNames[collection.UserId],
 			IsOwn:        collection.UserId == user.Id,
+			HasPassword:  collection.IsPasswordProtected(),
 		})
 	}
 
@@ -324,6 +326,9 @@ type collectionModifyRequest struct {
 	// AddFileIds appends to the existing members, so a caller adding files does
 	// not need to know (or round-trip) the current member list.
 	AddFileIds []string `json:"addFileIds"`
+	// Password: nil leaves it untouched, "" removes it, anything else sets it.
+	// Stored hashed, so an existing password can be replaced but never read back.
+	Password *string `json:"password"`
 }
 
 // canEditCollection returns the collection if the user is allowed to change it
@@ -361,6 +366,13 @@ func modifyCollection(w http.ResponseWriter, r *http.Request) {
 
 	if request.Name != "" {
 		collection.Name = request.Name
+	}
+	if request.Password != nil {
+		if *request.Password == "" {
+			collection.PasswordHash = ""
+		} else {
+			collection.PasswordHash = configuration.HashPassword(*request.Password, false, "")
+		}
 	}
 	if len(request.AddFileIds) > 0 {
 		request.FileIds = append(append([]string{}, collection.FileIds...), request.AddFileIds...)

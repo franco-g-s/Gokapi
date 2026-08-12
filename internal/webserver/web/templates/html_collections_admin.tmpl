@@ -36,6 +36,7 @@
                 {{ range .Collections }}
                 <tr id="collection-{{ .Id }}">
                   <td>
+                    {{ if .HasPassword }}<i class="bi bi-lock-fill me-1" title="Password protected"></i>{{ end }}
                     {{ .Name }}
                     {{ if not .IsOwn }}<span class="badge bg-secondary ms-2">{{ .OwnerName }}</span>{{ end }}
                   </td>
@@ -47,6 +48,11 @@
                     <button class="btn btn-sm btn-outline-light collection-files"
                             type="button" data-id="{{ .Id }}" title="Show files">
                       <i class="bi bi-list-ul"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-light collection-password"
+                            type="button" data-id="{{ .Id }}" data-name="{{ .Name }}"
+                            data-haspassword="{{ .HasPassword }}" title="Set or change password">
+                      <i class="bi bi-key"></i>
                     </button>
                     <button class="btn btn-sm btn-outline-light collection-rename"
                             type="button" data-id="{{ .Id }}" data-name="{{ .Name }}" title="Rename">
@@ -194,6 +200,33 @@ document.querySelectorAll(".collection-rename").forEach(function (button) {
     });
 });
 
+document.querySelectorAll(".collection-password").forEach(function (button) {
+    button.addEventListener("click", function () {
+        var has = button.getAttribute("data-haspassword") === "true";
+        // Passwords are stored hashed and cannot be read back, so this always
+        // sets a new one rather than showing the current one.
+        var message = has
+            ? "Set a NEW password for \"" + button.getAttribute("data-name") + "\".\n\n" +
+              "The current one cannot be shown - it is stored hashed.\n" +
+              "Leave blank to remove password protection."
+            : "Set a password for \"" + button.getAttribute("data-name") + "\".\n\n" +
+              "Leave blank for no password.";
+        var value = window.prompt(message, "");
+        if (value === null) return;
+        button.disabled = true;
+        postCollection("./collections/modify",
+                       { id: button.getAttribute("data-id"), password: value.trim() })
+            .then(function (data) {
+                if (data.Result !== "OK") {
+                    window.alert("Could not update: " + (data.ErrorMessage || "unknown error"));
+                    button.disabled = false;
+                    return;
+                }
+                window.location.reload();
+            });
+    });
+});
+
 document.querySelectorAll(".member-remove").forEach(function (button) {
     button.addEventListener("click", function () {
         var item = button.closest("li");
@@ -286,7 +319,8 @@ document.querySelectorAll(".member-remove").forEach(function (button) {
                     var span = document.createElement("span");
                     span.className = "picker-already";
                     span.textContent = "already added";
-                    row.querySelector("label").appendChild(span);
+                    // inserted before the size so every size stays in one column
+                    row.querySelector("label").insertBefore(span, row.querySelector(".picker-size"));
                 } else if (!isMember && note) {
                     note.remove();
                 }

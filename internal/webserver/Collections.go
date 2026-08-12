@@ -1,13 +1,17 @@
 package webserver
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/forceu/gokapi/internal/configuration"
+	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/helper"
 	"github.com/forceu/gokapi/internal/logging"
 	"github.com/forceu/gokapi/internal/models"
 	"github.com/forceu/gokapi/internal/storage"
+	"github.com/forceu/gokapi/internal/webserver/authentication"
 	"github.com/forceu/gokapi/internal/webserver/errorHandling"
 )
 
@@ -97,4 +101,96 @@ func downloadCollectionFile(w http.ResponseWriter, r *http.Request) {
 	forceDecryption := file.Encryption.IsEncrypted && !file.Encryption.IsEndToEndEncrypted
 	// increaseCounter is false: the collection owns the budget, not the file.
 	storage.ServeFile(file, w, r, true, false, forceDecryption, false)
+}
+
+// collectionCreateRequest is the JSON body posted by the admin page
+type collectionCreateRequest struct {
+	Name               string   `json:"name"`
+	FileIds            []string `json:"fileIds"`
+	ExpiryDays         int      `json:"expiryDays"`
+	AllowedDownloads   int      `json:"allowedDownloads"`
+	UnlimitedTime      bool     `json:"unlimitedTime"`
+	UnlimitedDownloads bool     `json:"unlimitedDownloads"`
+}
+
+// createCollection is called by the admin page to bundle selected files.
+//
+// Authenticated by the session cookie rather than an API token. That is
+// CSRF-safe because the session cookie is SameSite=Lax, so a cross-site POST
+// never carries it.
+func createCollection(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	user, err := authentication.GetUserFromRequest(r)
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"Result":"error","ErrorMessage":"Not authenticated"}`)
+		return
+	}
+	var request collectionCreateRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&request); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"Result":"error","ErrorMessage":"Invalid request body"}`)
+		return
+	}
+
+	// Only bundle files the user may actually see
+	permitted := make([]string, 0, len(request.FileIds))
+	for _, id := range request.FileIds {
+		file, ok := storage.GetFile(id)
+		if !ok {
+			continue
+		}
+		if file.UserId != user.Id && !user.HasPermission(models.UserPermListOtherUploads) {
+			continue
+		}
+		permitted = append(permitted, id)
+	}
+
+	collection, err := storage.CreateCollection(storage.CollectionParameters{
+		Name:               request.Name,
+		FileIds:            permitted,
+		ExpiryDays:         request.ExpiryDays,
+		AllowedDownloads:   request.AllowedDownloads,
+		UnlimitedTime:      request.UnlimitedTime,
+		UnlimitedDownloads: request.UnlimitedDownloads,
+	}, user)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"Result": "error", "ErrorMessage": err.Error()})
+		return
+	}
+
+	logging.LogCollectionCreate(collection, user)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"Result": "OK",
+		"Id":     collection.Id,
+		"Url":    configuration.Get().ServerUrl + "c/" + collection.Id,
+		"Files":  len(collection.FileIds),
+	})
+}
+
+// deleteCollection removes a collection. The files themselves are untouched.
+func deleteCollection(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	user, err := authentication.GetUserFromRequest(r)
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"Result":"error","ErrorMessage":"Not authenticated"}`)
+		return
+	}
+	id := r.URL.Query().Get("id")
+	collection, ok := database.GetCollection(id)
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"Result":"error","ErrorMessage":"Collection not found"}`)
+		return
+	}
+	if collection.UserId != user.Id && !user.HasPermission(models.UserPermDeleteOtherUploads) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"Result":"error","ErrorMessage":"No permission"}`)
+		return
+	}
+	database.DeleteCollection(id)
+	_, _ = io.WriteString(w, `{"Result":"OK"}`)
 }

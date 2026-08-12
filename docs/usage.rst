@@ -33,7 +33,12 @@ Once you have uploaded a file, you will see a button with the options *Copy URL*
 
 If a file does not require client-side decryption, you can also use the *Copy Hotlink* button. A hotlink is a direct URL to the raw file, bypassing the download page — it can be embedded as an image on a forum or website, or used in scripts. Each view of a hotlink counts as one download. Although Gokapi sends headers to disallow caching, some browsers or external caches may still cache the content if they are not compliant.
 
-The drop down next to *Copy URL* also offers to share the link via email or to generate a QR code.
+All sharing options live in the drop down next to *Copy URL*:
+
+* **Hotlink** — as described above, if available for this file
+* **Share...** — opens your device's share sheet. Only shown on browsers that support the Web Share API, which in practice means mobile and Safari
+* **QR Code** — generates a scannable code for the download URL
+* **Email** — opens a new mail with the download URL in the body
 
 Downloading files
 ------------------

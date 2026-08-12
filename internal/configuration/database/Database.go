@@ -358,6 +358,31 @@ func DeleteFileRequest(request models.FileRequest) {
 	db.DeleteFileRequest(request)
 }
 
+// GetCollection returns the Collection or false if not found
+func GetCollection(id string) (models.Collection, bool) {
+	return db.GetCollection(id)
+}
+
+// GetAllCollections returns all collections, newest first
+func GetAllCollections() []models.Collection {
+	return db.GetAllCollections()
+}
+
+// SaveCollection stores the collection and its member list
+func SaveCollection(collection models.Collection) {
+	db.SaveCollection(collection)
+}
+
+// DeleteCollection deletes the collection, leaving the files untouched
+func DeleteCollection(id string) {
+	db.DeleteCollection(id)
+}
+
+// RemoveFileFromCollections drops a file from every collection it belongs to
+func RemoveFileFromCollections(fileId string) {
+	db.RemoveFileFromCollections(fileId)
+}
+
 // Statistics
 
 // GetStatTraffic returns the total traffic from statistics

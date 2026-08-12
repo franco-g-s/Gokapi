@@ -22,7 +22,7 @@ type DatabaseProvider struct {
 }
 
 // DatabaseSchemeVersion contains the version number to be expected from the current database. If lower, an upgrade will be performed
-const DatabaseSchemeVersion = 15
+const DatabaseSchemeVersion = 16
 
 // New returns an instance
 func New(dbConfig models.DbConnection) (DatabaseProvider, error) {
@@ -113,6 +113,29 @@ func (p DatabaseProvider) Upgrade(currentDbVersion int) {
 	// < v2.2.5
 	if currentDbVersion < 15 {
 		p.DeleteAllSessions()
+	}
+	// Collections
+	if currentDbVersion < 16 {
+		err := p.rawSqlite(`			CREATE TABLE "Collections" (
+				"Id"	TEXT NOT NULL UNIQUE,
+				"Name"	TEXT NOT NULL,
+				"UserId"	INTEGER NOT NULL,
+				"Creation"	INTEGER NOT NULL,
+				"ExpireAt"	INTEGER NOT NULL,
+				"UnlimitedTime"	INTEGER NOT NULL,
+				"DownloadsRemaining"	INTEGER NOT NULL,
+				"UnlimitedDownloads"	INTEGER NOT NULL,
+				"DownloadCount"	INTEGER NOT NULL,
+				"PasswordHash"	TEXT NOT NULL,
+				PRIMARY KEY("Id")
+			);
+			CREATE TABLE "CollectionFiles" (
+				"CollectionId"	TEXT NOT NULL,
+				"FileId"	TEXT NOT NULL,
+				"Position"	INTEGER NOT NULL,
+				PRIMARY KEY("CollectionId","FileId")
+			);`)
+		helper.Check(err)
 	}
 }
 
@@ -260,6 +283,25 @@ func (p DatabaseProvider) createNewDatabase() error {
 			"apiKey"	TEXT NOT NULL UNIQUE,
 			"note"	TEXT NOT NULL,
 			PRIMARY KEY("id")
+		);
+		CREATE TABLE "Collections" (
+			"Id"	TEXT NOT NULL UNIQUE,
+			"Name"	TEXT NOT NULL,
+			"UserId"	INTEGER NOT NULL,
+			"Creation"	INTEGER NOT NULL,
+			"ExpireAt"	INTEGER NOT NULL,
+			"UnlimitedTime"	INTEGER NOT NULL,
+			"DownloadsRemaining"	INTEGER NOT NULL,
+			"UnlimitedDownloads"	INTEGER NOT NULL,
+			"DownloadCount"	INTEGER NOT NULL,
+			"PasswordHash"	TEXT NOT NULL,
+			PRIMARY KEY("Id")
+		);
+		CREATE TABLE "CollectionFiles" (
+			"CollectionId"	TEXT NOT NULL,
+			"FileId"	TEXT NOT NULL,
+			"Position"	INTEGER NOT NULL,
+			PRIMARY KEY("CollectionId","FileId")
 		);
 		CREATE TABLE "Statistics" (
 				"id"	INTEGER NOT NULL,

@@ -109,6 +109,17 @@ type Database interface {
 	// DeleteFileRequest deletes a file request with the given ID
 	DeleteFileRequest(request models.FileRequest)
 
+	// GetCollection returns the Collection or false if not found
+	GetCollection(id string) (models.Collection, bool)
+	// GetAllCollections returns all collections, newest first
+	GetAllCollections() []models.Collection
+	// SaveCollection stores the collection and its member list
+	SaveCollection(collection models.Collection)
+	// DeleteCollection deletes the collection, leaving the files untouched
+	DeleteCollection(id string)
+	// RemoveFileFromCollections drops a file from every collection it belongs to
+	RemoveFileFromCollections(fileId string)
+
 	// GetStatTraffic returns the total traffic from statistics
 	GetStatTraffic() uint64
 	// SaveStatTraffic stores the total traffic

@@ -861,34 +861,26 @@ function createButtonGroup(item) {
     }
     liDr1.appendChild(aDr1);
     dropdown1.appendChild(liDr1);
-    group1.appendChild(dropdown1);
 
-    // Share button
-    const btnShare = document.createElement("button");
-    btnShare.type = "button";
-    btnShare.className = "btn btn-outline-light btn-sm";
-    btnShare.title = "Share";
-    btnShare.onclick = () => shareUrl(event, item.Id);
-    // For some reason bi-share does not always show up, using the svg fixes it 
-    btnShare.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi" viewBox="0 0 16 16">
- 				 <path d="M13.5 1a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3M11 2.5a2.5 2.5 0 1 1 .603 1.628l-6.718 3.12a2.5 2.5 0 0 1 0 1.504l6.718 3.12a2.5 2.5 0 1 1-.488.876l-6.718-3.12a2.5 2.5 0 1 1 0-3.256l6.718-3.12A2.5 2.5 0 0 1 11 2.5m-8.5 4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3m11 5.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3"/>
-			</svg>`;
-    group1.appendChild(btnShare);
+    // Share options live in this same dropdown, matching html_admin.tmpl
+    const divLi = document.createElement("li");
+    const divHr = document.createElement("hr");
+    divHr.className = "dropdown-divider";
+    divLi.appendChild(divHr);
+    dropdown1.appendChild(divLi);
 
-
-    // Dropdown toggle 
-    const btnDropdown2 = document.createElement("button");
-    btnDropdown2.type = "button";
-    btnDropdown2.className = "btn btn-outline-light btn-sm dropdown-toggle dropdown-toggle-split";
-    btnDropdown2.setAttribute("data-bs-toggle", "dropdown");
-    btnDropdown2.setAttribute("aria-expanded", "false");
-    btnDropdown2.id = `shareDropdown-${item.Id}`;
-    
-    group1.appendChild(btnDropdown2);
-
-    const dropdown2 = document.createElement("ul");
-    dropdown2.className = "dropdown-menu dropdown-menu-end";
-    dropdown2.setAttribute("data-bs-theme", "dark");
+    const shareLi = document.createElement("li");
+    shareLi.className = "native-share-item";
+    // Only meaningful where the Web Share API exists (mobile, Safari)
+    shareLi.style.display = navigator.share ? "" : "none";
+    const shareA = document.createElement("a");
+    shareA.className = "dropdown-item";
+    shareA.style.cursor = "pointer";
+    shareA.title = "Share via device";
+    shareA.onclick = () => shareNativeUrl(item.Id);
+    shareA.innerHTML = `<i class="bi bi-box-arrow-up"></i> Share...`;
+    shareLi.appendChild(shareA);
+    dropdown1.appendChild(shareLi);
 
     const qrLi = document.createElement("li");
     const qrA = document.createElement("a");
@@ -899,7 +891,7 @@ function createButtonGroup(item) {
     qrA.onclick = () => showQrCode(item.UrlDownload);
     qrA.innerHTML = `<i class="bi bi-qr-code"></i> QR Code`;
     qrLi.appendChild(qrA);
-    dropdown2.appendChild(qrLi);
+    dropdown1.appendChild(qrLi);
 
     const emailLi = document.createElement("li");
     const emailA = document.createElement("a");
@@ -910,8 +902,9 @@ function createButtonGroup(item) {
     emailA.href = `mailto:?body=${encodeURIComponent(item.UrlDownload)}`;
     emailA.innerHTML = `<i class="bi bi-envelope"></i> Email`;
     emailLi.appendChild(emailA);
-    dropdown2.appendChild(emailLi);
-    group1.appendChild(dropdown2);
+    dropdown1.appendChild(emailLi);
+
+    group1.appendChild(dropdown1);
 
     // Button group for Download/Edit/Delete
     const group2 = document.createElement("div");
@@ -931,6 +924,7 @@ function createButtonGroup(item) {
     const downloadIcon = document.createElement('i');
     downloadIcon.className = 'bi bi-download';
     btnDownload.appendChild(downloadIcon);
+    btnDownload.appendChild(document.createTextNode(" Download"));
 
     btnDownload.addEventListener('click', () => {
         downloadFileWithPresign(item.Id);
@@ -1075,10 +1069,11 @@ function handleUndo(button) {
 }
 
 
-function shareUrl(event, id) {
+// Opens the device share sheet. Called from the URL dropdown, so unlike the
+// old shareUrl() it has no dropdown of its own to fall back to - the menu
+// entry is simply hidden where the Web Share API is unavailable.
+function shareNativeUrl(id) {
     if (!navigator.share) {
-         event.stopPropagation();
-    	 bootstrap.Dropdown.getOrCreateInstance(document.getElementById(`shareDropdown-${id}`)).toggle();
         return;
     }
     let filename = document.getElementById("cell-name-" + id).innerText;
@@ -1086,7 +1081,17 @@ function shareUrl(event, id) {
     navigator.share({
         title: filename,
         url: url,
-    })
+    }).catch(() => { /* user dismissed the sheet */ });
+}
+
+// Reveal the share entries rendered server-side, once we know the API exists
+function revealNativeShareItems() {
+    if (!navigator.share) {
+        return;
+    }
+    document.querySelectorAll(".native-share-item").forEach(function (item) {
+        item.style.display = "";
+    });
 }
 
 

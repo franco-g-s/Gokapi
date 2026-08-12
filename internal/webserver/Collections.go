@@ -223,8 +223,16 @@ func deleteCollection(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.WriteString(w, `{"Result":"OK"}`)
 }
 
+// collectionMember is one file inside a collection, for the management page
+type collectionMember struct {
+	Id   string
+	Name string
+	Size string
+}
+
 // collectionInfo is one row in the admin collections list
 type collectionInfo struct {
+	Files        []collectionMember
 	Id           string
 	Name         string
 	Url          string
@@ -262,7 +270,12 @@ func showCollectionsAdmin(w http.ResponseWriter, r *http.Request) {
 		if !never {
 			expiry = time.Unix(latest, 0).Format("2006-01-02 15:04")
 		}
+		members := make([]collectionMember, 0, len(collection.Files))
+		for _, f := range collection.Files {
+			members = append(members, collectionMember{Id: f.Id, Name: f.Name, Size: f.Size})
+		}
 		rows = append(rows, collectionInfo{
+			Files:        members,
 			Id:           collection.Id,
 			Name:         collection.Name,
 			Url:          config.ServerUrl + "c?id=" + collection.Id,
@@ -301,4 +314,114 @@ func isValidCollectionPwCookie(r *http.Request, collection models.Collection) bo
 		return false
 	}
 	return downloadPasswordToken.IsValid(cookie.Value, collection.Id)
+}
+
+// collectionModifyRequest renames a collection and/or replaces its members
+type collectionModifyRequest struct {
+	Id      string   `json:"id"`
+	Name    string   `json:"name"`
+	FileIds []string `json:"fileIds"`
+	// AddFileIds appends to the existing members, so a caller adding files does
+	// not need to know (or round-trip) the current member list.
+	AddFileIds []string `json:"addFileIds"`
+}
+
+// canEditCollection returns the collection if the user is allowed to change it
+func canEditCollection(r *http.Request, id string) (models.Collection, models.User, bool) {
+	user, err := authentication.GetUserFromRequest(r)
+	if err != nil {
+		return models.Collection{}, models.User{}, false
+	}
+	collection, ok := database.GetCollection(id)
+	if !ok {
+		return models.Collection{}, user, false
+	}
+	if collection.UserId != user.Id && !user.HasPermission(models.UserPermEditOtherUploads) {
+		return models.Collection{}, user, false
+	}
+	return collection, user, true
+}
+
+// modifyCollection renames a collection and/or replaces its member list.
+// A collection with no members left would be unreachable, so that is refused.
+func modifyCollection(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	var request collectionModifyRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&request); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"Result":"error","ErrorMessage":"Invalid request body"}`)
+		return
+	}
+	collection, user, ok := canEditCollection(r, request.Id)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"Result":"error","ErrorMessage":"Not found or no permission"}`)
+		return
+	}
+
+	if request.Name != "" {
+		collection.Name = request.Name
+	}
+	if len(request.AddFileIds) > 0 {
+		request.FileIds = append(append([]string{}, collection.FileIds...), request.AddFileIds...)
+	}
+	if request.FileIds != nil {
+		permitted := make([]string, 0, len(request.FileIds))
+		seen := make(map[string]bool)
+		for _, id := range request.FileIds {
+			if seen[id] {
+				continue
+			}
+			file, exists := storage.GetFile(id)
+			if !exists {
+				continue
+			}
+			if file.Encryption.IsEndToEndEncrypted {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"Result": "error", "ErrorMessage": storage.ErrorCollectionE2E.Error()})
+				return
+			}
+			if file.UserId != user.Id && !user.HasPermission(models.UserPermListOtherUploads) {
+				continue
+			}
+			seen[id] = true
+			permitted = append(permitted, id)
+		}
+		if len(permitted) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"Result":"error","ErrorMessage":"A collection needs at least one file"}`)
+			return
+		}
+		collection.FileIds = permitted
+	}
+
+	database.SaveCollection(collection)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"Result": "OK", "Id": collection.Id, "Files": len(collection.FileIds)})
+}
+
+// listCollections returns the caller's collections as JSON, for the
+// "add to existing collection" picker on the upload page.
+func listCollections(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	user, err := authentication.GetUserFromRequest(r)
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `[]`)
+		return
+	}
+	type entry struct {
+		Id    string `json:"id"`
+		Name  string `json:"name"`
+		Files int    `json:"files"`
+	}
+	result := make([]entry, 0)
+	for _, collection := range storage.GetAllCollectionsResolved() {
+		if collection.UserId != user.Id && !user.HasPermission(models.UserPermListOtherUploads) {
+			continue
+		}
+		result = append(result, entry{collection.Id, collection.Name, len(collection.Files)})
+	}
+	_ = json.NewEncoder(w).Encode(result)
 }

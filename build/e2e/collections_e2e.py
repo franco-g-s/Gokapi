@@ -211,5 +211,46 @@ except urllib.error.HTTPError as e:
     resp = e.read().decode()
 check("wrong password is rejected", "secret.txt" not in resp)
 
+# ---- 14. editing: rename, append, remove ----------------------------------
+idE1 = upload("edit1.txt", "E1"); idE2 = upload("edit2.txt", "E2"); idE3 = upload("edit3.txt", "E3")
+req = urllib.request.Request(BASE + "/collections/create",
+                             data=json.dumps({"name": "Editable", "fileIds": [idE1, idE2]}).encode(),
+                             headers={"Content-Type": "application/json"}, method="POST")
+ec = json.loads(opener.open(req).read()); eid = ec["Id"]
+
+def modify(payload):
+    r = urllib.request.Request(BASE + "/collections/modify",
+                               data=json.dumps(payload).encode(),
+                               headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        return json.loads(opener.open(r).read())
+    except urllib.error.HTTPError as e:
+        return json.loads(e.read())
+
+res = modify({"id": eid, "name": "Renamed"})
+check("rename returns OK", res.get("Result") == "OK")
+page = anon.open(BASE + "/c?id=" + eid).read().decode()
+check("public page shows the new name", "Renamed" in page and "Editable" not in page)
+
+res = modify({"id": eid, "addFileIds": [idE3]})
+check("append adds a file", res.get("Files") == 3, f"files={res.get('Files')}")
+page = anon.open(BASE + "/c?id=" + eid).read().decode()
+check("appended file appears publicly", "edit3.txt" in page)
+
+res = modify({"id": eid, "fileIds": [idE1]})
+check("replacing members works", res.get("Files") == 1, f"files={res.get('Files')}")
+page = anon.open(BASE + "/c?id=" + eid).read().decode()
+check("removed files are gone publicly", "edit2.txt" not in page and "edit1.txt" in page)
+
+res = modify({"id": eid, "fileIds": []})
+check("cannot empty a collection", res.get("Result") == "error", str(res)[:70])
+
+res = modify({"id": "nope", "name": "x"})
+check("editing an unknown collection is refused", res.get("Result") == "error")
+
+listed = json.loads(opener.open(BASE + "/collections/list").read())
+check("collections/list returns JSON entries", isinstance(listed, list) and len(listed) >= 1,
+      f"{len(listed)} entries")
+
 print("\n" + ("ALL CHECKS PASSED" if ok else "SOME CHECKS FAILED"))
 sys.exit(0 if ok else 1)

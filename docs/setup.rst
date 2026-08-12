@@ -253,6 +253,8 @@ This disables all of Gokapi's internal authentication except for API calls. The 
 - ``/collections``
 - ``/collections/create``
 - ``/collections/delete``
+- ``/collections/list``
+- ``/collections/modify``
 - ``/downloadPresigned``
 - ``/e2eSetup``
 - ``/filerequests``

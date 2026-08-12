@@ -38,6 +38,14 @@
                   <td>{{ .Created }}</td>
                   <td>{{ if .NeverExpires }}Unlimited{{ else }}{{ .Expiry }}{{ end }}</td>
                   <td>
+                    <button class="btn btn-sm btn-outline-light collection-files"
+                            type="button" data-id="{{ .Id }}" title="Show files">
+                      <i class="bi bi-list-ul"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-light collection-rename"
+                            type="button" data-id="{{ .Id }}" data-name="{{ .Name }}" title="Rename">
+                      <i class="bi bi-pencil"></i>
+                    </button>
                     <button class="btn btn-sm btn-outline-light collection-copy"
                             type="button" data-url="{{ .Url }}" title="Copy link">
                       <i class="bi bi-clipboard"></i> Copy link
@@ -50,6 +58,22 @@
                             type="button" data-id="{{ .Id }}" data-name="{{ .Name }}" title="Delete">
                       <i class="bi bi-trash3"></i>
                     </button>
+                  </td>
+                </tr>
+                <tr class="collection-files-row" id="files-{{ .Id }}" style="display:none">
+                  <td colspan="6">
+                    <ul class="collection-member-list" data-collection="{{ .Id }}">
+                      {{ range .Files }}
+                      <li data-fileid="{{ .Id }}">
+                        <span class="member-name">{{ .Name }}</span>
+                        <span class="member-size">{{ .Size }}</span>
+                        <button class="btn btn-sm btn-outline-danger member-remove"
+                                type="button" title="Remove from collection">
+                          <i class="bi bi-x-lg"></i>
+                        </button>
+                      </li>
+                      {{ end }}
+                    </ul>
                   </td>
                 </tr>
                 {{ end }}
@@ -78,6 +102,64 @@ document.querySelectorAll(".collection-copy").forEach(function (button) {
         });
     });
 });
+function postCollection(url, payload) {
+    return fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(payload)
+    }).then(function (r) { return r.json(); });
+}
+
+document.querySelectorAll(".collection-files").forEach(function (button) {
+    button.addEventListener("click", function () {
+        var row = document.getElementById("files-" + button.getAttribute("data-id"));
+        if (row) row.style.display = row.style.display === "none" ? "" : "none";
+    });
+});
+
+document.querySelectorAll(".collection-rename").forEach(function (button) {
+    button.addEventListener("click", function () {
+        var id = button.getAttribute("data-id");
+        var name = window.prompt("New name:", button.getAttribute("data-name"));
+        if (name === null || name.trim() === "") return;
+        postCollection("./collections/modify", { id: id, name: name.trim() })
+            .then(function (data) {
+                if (data.Result !== "OK") {
+                    window.alert("Could not rename: " + (data.ErrorMessage || "unknown error"));
+                    return;
+                }
+                window.location.reload();
+            });
+    });
+});
+
+document.querySelectorAll(".member-remove").forEach(function (button) {
+    button.addEventListener("click", function () {
+        var item = button.closest("li");
+        var list = button.closest(".collection-member-list");
+        var remaining = Array.prototype.slice
+            .call(list.querySelectorAll("li"))
+            .filter(function (li) { return li !== item; })
+            .map(function (li) { return li.getAttribute("data-fileid"); });
+        if (remaining.length === 0) {
+            window.alert("A collection needs at least one file.\n\nDelete the collection instead.");
+            return;
+        }
+        button.disabled = true;
+        postCollection("./collections/modify",
+                       { id: list.getAttribute("data-collection"), fileIds: remaining })
+            .then(function (data) {
+                if (data.Result !== "OK") {
+                    window.alert("Could not remove: " + (data.ErrorMessage || "unknown error"));
+                    button.disabled = false;
+                    return;
+                }
+                window.location.reload();
+            });
+    });
+});
+
 document.querySelectorAll(".collection-delete").forEach(function (button) {
     button.addEventListener("click", function () {
         var id = button.getAttribute("data-id");

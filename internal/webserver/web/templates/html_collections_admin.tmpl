@@ -223,8 +223,25 @@ document.querySelectorAll(".member-remove").forEach(function (button) {
     var mode = null;          // "create" | "add"
     var targetId = null;
 
+    // Disabled boxes are files already in the collection: shown ticked so it is
+    // obvious why they cannot be picked, but never counted or resent.
     function selectedIds() {
-        return boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
+        return boxes
+            .filter(function (b) { return b.checked && !b.disabled; })
+            .map(function (b) { return b.value; });
+    }
+
+    // Existing members are read from the expanded member list already on the
+    // page, so this needs no extra request.
+    function existingMemberIds(collectionId) {
+        var ids = [];
+        var list = document.querySelector('.collection-member-list[data-collection="' +
+                                          collectionId + '"]');
+        if (!list) return ids;
+        list.querySelectorAll("li[data-fileid]").forEach(function (li) {
+            ids.push(li.getAttribute("data-fileid"));
+        });
+        return ids;
     }
     function refresh() {
         var n = selectedIds().length;
@@ -246,7 +263,25 @@ document.querySelectorAll(".member-remove").forEach(function (button) {
     function open(newMode, id, label) {
         mode = newMode;
         targetId = id;
-        boxes.forEach(function (b) { b.checked = false; });
+        var already = newMode === "add" ? existingMemberIds(id) : [];
+        boxes.forEach(function (b) {
+            var isMember = already.indexOf(b.value) !== -1;
+            b.checked = isMember;
+            b.disabled = isMember;
+            var row = b.closest("li");
+            if (row) {
+                row.classList.toggle("is-member", isMember);
+                var note = row.querySelector(".picker-already");
+                if (isMember && !note) {
+                    var span = document.createElement("span");
+                    span.className = "picker-already";
+                    span.textContent = "already added";
+                    row.querySelector("label").appendChild(span);
+                } else if (!isMember && note) {
+                    note.remove();
+                }
+            }
+        });
         if (filter) { filter.value = ""; filter.dispatchEvent(new Event("input")); }
         title.textContent = newMode === "create" ? "New collection" : "Add files to " + label;
         refresh();

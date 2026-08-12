@@ -141,7 +141,6 @@
 						<div class="btn-toolbar justify-content-end" role="toolbar" >
 						  <div class="btn-group me-2" role="group">
 						     {{ template "admin_button_copyurl" (newAdminButtonContext . $.ActiveUser)}}
-						     {{ template "admin_button_share" (newAdminButtonContext . $.ActiveUser)}}
 						  </div>
 						  <div class="btn-group" role="group">
 						     {{ template "admin_button_download" (newAdminButtonContext . $.ActiveUser) }}
@@ -259,7 +258,7 @@
 			    title="Download"
 			    class="btn btn-outline-light btn-sm {{if .CurrentFile.RequiresClientSideDecryption}}disabled{{end}}"
 			    onclick="downloadFileWithPresign('{{.CurrentFile.Id }}');">
-		   	    <i class="bi bi-download"></i>
+		   	    <i class="bi bi-download"></i> Download
 			</button>
 
 {{ end }}
@@ -310,6 +309,12 @@
 		{{ else }}
 			    <li><a class="dropdown-item disabled">Hotlink not available</a></li>
 	{{ end }}
+			    <li><hr class="dropdown-divider"></li>
+			    <li style="cursor: pointer;"><a class="dropdown-item" id="qrcode-{{ .CurrentFile.Id }}" title="Open QR Code"
+			       onclick="showQrCode('{{ .CurrentFile.UrlDownload }}');"><i class="bi bi-qr-code"></i> QR Code</a></li>
+			    <li style="cursor: pointer;"><a class="dropdown-item" id="email-{{ .CurrentFile.Id }}"
+			       href="mailto:?body={{ .CurrentFile.UrlDownload | urlquery}}" target="_blank"
+			       title="Share via email"><i class="bi bi-envelope"></i> Email</a></li>
 			</ul>
 {{ end }}
 

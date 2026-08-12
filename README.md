@@ -17,6 +17,7 @@
 - **Expiring file shares:** Automatically removed after a set number of downloads or days
 - **User management with roles:** Fine-grained permission control, only registered users can upload
 - **File requests:** A shareable URL lets external parties upload files, visible only to the URL’s creator
+- **Collections:** Group several files behind a single public link, optionally password protected
 - **File deduplication:** Identical files use no extra space
 - **Cloud storage support:** AWS S3 (or S3 compatible like Backblaze B2), optional
 - **Built-in encryption:** Including end-to-end encrypted uploads

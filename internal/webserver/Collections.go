@@ -185,3 +185,62 @@ func deleteCollection(w http.ResponseWriter, r *http.Request) {
 	database.DeleteCollection(id)
 	_, _ = io.WriteString(w, `{"Result":"OK"}`)
 }
+
+// collectionInfo is one row in the admin collections list
+type collectionInfo struct {
+	Id           string
+	Name         string
+	Url          string
+	FileCount    int
+	TotalSize    string
+	Created      string
+	Expiry       string
+	NeverExpires bool
+	OwnerName    string
+	IsOwn        bool
+}
+
+// showCollectionsAdmin renders the management list of collections
+func showCollectionsAdmin(w http.ResponseWriter, r *http.Request) {
+	user, err := authentication.GetUserFromRequest(r)
+	if err != nil {
+		redirect(w, r, "login")
+		return
+	}
+	config := configuration.Get()
+	users := database.GetAllUsers()
+	userNames := make(map[int]string, len(users))
+	for _, u := range users {
+		userNames[u.Id] = u.Name
+	}
+
+	seeAll := user.HasPermission(models.UserPermListOtherUploads)
+	rows := make([]collectionInfo, 0)
+	for _, collection := range storage.GetAllCollectionsResolved() {
+		if collection.UserId != user.Id && !seeAll {
+			continue
+		}
+		latest, never := collection.LatestExpiry()
+		expiry := ""
+		if !never {
+			expiry = time.Unix(latest, 0).Format("2006-01-02 15:04")
+		}
+		rows = append(rows, collectionInfo{
+			Id:           collection.Id,
+			Name:         collection.Name,
+			Url:          config.ServerUrl + "c?id=" + collection.Id,
+			FileCount:    len(collection.Files),
+			TotalSize:    helper.ByteCountSI(collection.TotalSizeBytes),
+			Created:      time.Unix(collection.CreationDate, 0).Format("2006-01-02 15:04"),
+			Expiry:       expiry,
+			NeverExpires: never,
+			OwnerName:    userNames[collection.UserId],
+			IsOwn:        collection.UserId == user.Id,
+		})
+	}
+
+	view := (&AdminView{}).convertGlobalConfig(ViewCollections, user)
+	view.Collections = rows
+	err = templateFolder.ExecuteTemplate(w, "collections_admin", view)
+	helper.CheckIgnoreTimeout(err)
+}

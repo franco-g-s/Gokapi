@@ -62,11 +62,7 @@ check("uploaded two files", bool(id1 and id2), f"{id1} {id2}")
 # ---- 3. create a collection ------------------------------------------------
 req = urllib.request.Request(BASE + "/collections/create",
                              data=json.dumps({"name": "Holiday photos",
-                                              "fileIds": [id1, id2],
-                                              "expiryDays": 7,
-                                              "allowedDownloads": 3,
-                                              "unlimitedTime": False,
-                                              "unlimitedDownloads": False}).encode(),
+                                              "fileIds": [id1, id2]}).encode(),
                              headers={"Content-Type": "application/json"}, method="POST")
 created = json.loads(opener.open(req).read())
 check("create collection returns OK", created.get("Result") == "OK", str(created)[:90])
@@ -104,27 +100,62 @@ lst = token("PERM_VIEW")
 req = urllib.request.Request(BASE + "/api/files/list", headers={"apikey": lst})
 files = json.loads(urllib.request.urlopen(req).read()) or []
 f1 = next((f for f in files if f["Id"] == id1), None)
-check("member file still has its own 1 download left",
-      f1 is not None and f1["DownloadsRemaining"] == 1,
-      f"remaining={f1['DownloadsRemaining'] if f1 else 'gone'}")
+# The file was uploaded with allowedDownloads=1, so consuming it through the
+# collection should retire it entirely - it drops out of the listing.
+check("collection download consumed the file's own budget",
+      f1 is None or f1["DownloadsRemaining"] == 0,
+      "file retired" if f1 is None else f"remaining={f1['DownloadsRemaining']}")
 
-# ---- 7. exhaust the collection budget --------------------------------------
+# ---- 7. collection stays alive while ANY member is alive -------------------
+page = anon.open(BASE + "/c?id=" + cid).read().decode()
+check("collection still alive while beta.txt remains",
+      "beta.txt" in page and "alpha.txt" not in page,
+      "spent member correctly dropped from the listing")
+
+# ---- 8. collection dies once every member is spent -------------------------
 anon.open(f"{BASE}/cd?id={cid}&file={id2}").read()
-anon.open(f"{BASE}/cd?id={cid}&file={id1}").read()
 try:
     r = anon.open(BASE + "/c?id=" + cid)
-    exhausted = "Holiday photos" not in r.read().decode()
+    dead = "Holiday photos" not in r.read().decode()
 except urllib.error.HTTPError:
-    exhausted = True
-check("collection dies after its 3 downloads", exhausted)
+    dead = True
+check("collection expires once all its files are spent", dead)
 
-# ---- 8. bad id -------------------------------------------------------------
+# ---- 9. bad id -------------------------------------------------------------
 try:
     r = anon.open(BASE + "/c?id=doesnotexist12345")
     bad = "Holiday photos" not in r.read().decode()
 except urllib.error.HTTPError:
     bad = True
 check("unknown collection id does not 500", bad)
+
+# ---- 10. admin collections list -------------------------------------------
+# recreate one, since the earlier collection was fully spent
+id3 = upload("gamma.txt", "CCCC-gamma")
+id4 = upload("delta.txt", "DDDD-delta")
+req = urllib.request.Request(BASE + "/collections/create",
+                             data=json.dumps({"name": "Second batch",
+                                              "fileIds": [id3, id4]}).encode(),
+                             headers={"Content-Type": "application/json"}, method="POST")
+c2 = json.loads(opener.open(req).read())
+listing = opener.open(BASE + "/collections").read().decode()
+check("collections list page renders", "Collections" in listing)
+check("list shows the collection", "Second batch" in listing)
+check("list shows its public link", c2["Id"] in listing)
+
+# ---- 11. delete removes the collection but keeps the files -----------------
+req = urllib.request.Request(BASE + "/collections/delete?id=" + c2["Id"],
+                             data=b"", method="POST")
+res = json.loads(opener.open(req).read())
+check("delete returns OK", res.get("Result") == "OK", str(res)[:60])
+try:
+    gone = "Second batch" not in anon.open(BASE + "/c?id=" + c2["Id"]).read().decode()
+except urllib.error.HTTPError:
+    gone = True
+check("deleted collection link is dead", gone)
+req = urllib.request.Request(BASE + "/api/files/list", headers={"apikey": token("PERM_VIEW")})
+still = [f["Id"] for f in (json.loads(urllib.request.urlopen(req).read()) or [])]
+check("deleting a collection keeps its files", id3 in still and id4 in still)
 
 print("\n" + ("ALL CHECKS PASSED" if ok else "SOME CHECKS FAILED"))
 sys.exit(0 if ok else 1)

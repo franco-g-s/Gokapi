@@ -82,6 +82,7 @@
             {{ if .ActiveUser.HasPermissionCreateFileRequests }}
             <a class="nav-link {{ if eq .ActiveView 4 }}active{{ end }}" href="./filerequests">File Requests</a>
             {{ end }}
+            <a class="nav-link {{ if eq .ActiveView 5 }}active{{ end }}" href="./collections">Collections</a>
             {{ if and .ActiveUser.HasPermissionManageUsers .IsUserTabAvailable }}
             <a class="nav-link {{ if eq .ActiveView 3 }}active{{ end }}" href="./users">Users</a>
             {{ end }}

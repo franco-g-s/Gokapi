@@ -29,6 +29,7 @@ function initDropzone() {
             });
             this.on("queuecomplete", function() {
                 isUploading = false;
+                maybeCreateBatchCollection();
             });
             this.on("sending", function(file, xhr, formData) {
                 isUploading = true;
@@ -260,6 +261,7 @@ function requestFileInfo(fileId, uid) {
         .then(data => {
             addRow(data);
             notifyWorker({ type: "fileAdded", item: data });
+            batchFileIds.push(data.Id);
             let file = dropzoneGetFile(uid);
             if (file == null) {
                 return;
@@ -1094,4 +1096,90 @@ function showDeprecationNotice() {
     setTimeout(() => {
         notification.classList.remove("show");
     }, 5000);
+}
+
+
+// --- Auto-link: one shared link per upload batch -----------------------------
+// Dropzone already knows which files went up together, so a batch of several
+// files can become a single collection automatically. Off by default, since it
+// changes what happens after an upload.
+
+let batchFileIds = [];
+
+function isAutoLinkEnabled() {
+    let toggle = document.getElementById("enableAutoCollection");
+    return toggle !== null && toggle.checked;
+}
+
+function saveAutoLinkDefault() {
+    localStorage.setItem("defaultAutoCollection", isAutoLinkEnabled());
+}
+
+function setAutoLinkDefault() {
+    let toggle = document.getElementById("enableAutoCollection");
+    if (toggle === null) {
+        return;
+    }
+    toggle.checked = getLocalStorageWithDefault("defaultAutoCollection", "false") === "true";
+}
+
+function maybeCreateBatchCollection() {
+    let ids = batchFileIds.slice();
+    batchFileIds = [];
+    // A single file already has its own link, so there is nothing to combine.
+    if (!isAutoLinkEnabled() || ids.length < 2) {
+        return;
+    }
+    fetch("./collections/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ name: ids.length + " files", fileIds: ids })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.Result !== "OK") {
+                showAutoLinkResult(null, data.ErrorMessage || "could not create link");
+                return;
+            }
+            showAutoLinkResult(data.Url, null);
+        })
+        .catch(error => showAutoLinkResult(null, String(error)));
+}
+
+function showAutoLinkResult(url, errorMessage) {
+    let holder = document.getElementById("autoCollectionResult");
+    if (holder === null) {
+        return;
+    }
+    holder.textContent = "";
+    if (errorMessage !== null) {
+        holder.className = "alert alert-danger mt-3";
+        holder.textContent = "Could not create a combined link: " + errorMessage;
+        return;
+    }
+    holder.className = "alert alert-success mt-3 d-flex align-items-center gap-2";
+
+    let label = document.createElement("span");
+    label.textContent = "One link for this upload:";
+    holder.appendChild(label);
+
+    let field = document.createElement("input");
+    field.type = "text";
+    field.readOnly = true;
+    field.value = url;
+    field.className = "form-control";
+    holder.appendChild(field);
+
+    let copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "btn btn-sm btn-light text-nowrap";
+    copy.textContent = "Copy";
+    copy.addEventListener("click", function () {
+        navigator.clipboard.writeText(url).then(function () {
+            copy.textContent = "Copied";
+            window.setTimeout(function () { copy.textContent = "Copy"; }, 1500);
+        });
+    });
+    holder.appendChild(copy);
 }

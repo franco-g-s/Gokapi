@@ -1,0 +1,111 @@
+{{define "collections_admin"}}{{template "header" .}}
+
+<div class="row">
+  <div class="col">
+    <div id="container" class="card" style="width: 80%">
+      <div class="card-body">
+        <h3 class="card-title">Collections</h3>
+        <br>
+        <p class="card-text">
+
+        {{ if not .Collections }}
+          <p class="text-muted text-center my-4">
+            No collections yet. Tick some files on the Upload page and choose
+            &ldquo;Create one link&rdquo; to share several files with a single URL.
+          </p>
+        {{ else }}
+          <div class="table-responsive">
+            <table id="collectionstable" class="table table-dark">
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Files</th>
+                  <th scope="col">Size</th>
+                  <th scope="col">Created</th>
+                  <th scope="col">Available until</th>
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{ range .Collections }}
+                <tr id="collection-{{ .Id }}">
+                  <td>
+                    {{ .Name }}
+                    {{ if not .IsOwn }}<span class="badge bg-secondary ms-2">{{ .OwnerName }}</span>{{ end }}
+                  </td>
+                  <td>{{ .FileCount }}</td>
+                  <td>{{ .TotalSize }}</td>
+                  <td>{{ .Created }}</td>
+                  <td>{{ if .NeverExpires }}Unlimited{{ else }}{{ .Expiry }}{{ end }}</td>
+                  <td>
+                    <button class="btn btn-sm btn-outline-light collection-copy"
+                            type="button" data-url="{{ .Url }}" title="Copy link">
+                      <i class="bi bi-clipboard"></i> Copy link
+                    </button>
+                    <a class="btn btn-sm btn-outline-light" href="{{ .Url }}"
+                       target="_blank" rel="noopener" title="Open">
+                      <i class="bi bi-box-arrow-up-right"></i>
+                    </a>
+                    <button class="btn btn-sm btn-outline-danger collection-delete"
+                            type="button" data-id="{{ .Id }}" data-name="{{ .Name }}" title="Delete">
+                      <i class="bi bi-trash3"></i>
+                    </button>
+                  </td>
+                </tr>
+                {{ end }}
+              </tbody>
+            </table>
+          </div>
+          <p class="text-muted small mt-3 mb-0">
+            A collection is a view over its files: it stays available for as long as at
+            least one file in it is, and deleting it never deletes the files.
+          </p>
+        {{ end }}
+
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll(".collection-copy").forEach(function (button) {
+    button.addEventListener("click", function () {
+        navigator.clipboard.writeText(button.getAttribute("data-url")).then(function () {
+            var original = button.innerHTML;
+            button.textContent = "Copied";
+            window.setTimeout(function () { button.innerHTML = original; }, 1500);
+        });
+    });
+});
+document.querySelectorAll(".collection-delete").forEach(function (button) {
+    button.addEventListener("click", function () {
+        var id = button.getAttribute("data-id");
+        if (!window.confirm("Delete the collection \"" + button.getAttribute("data-name") +
+                            "\"?\n\nThe files themselves are kept.")) {
+            return;
+        }
+        button.disabled = true;
+        fetch("./collections/delete?id=" + encodeURIComponent(id), {
+            method: "POST", credentials: "same-origin"
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            if (data.Result !== "OK") {
+                window.alert("Could not delete: " + (data.ErrorMessage || "unknown error"));
+                button.disabled = false;
+                return;
+            }
+            var row = document.getElementById("collection-" + id);
+            if (row) row.remove();
+        }).catch(function (e) {
+            window.alert("Could not delete: " + e);
+            button.disabled = false;
+        });
+    });
+});
+</script>
+
+{{ template "pagename" "Collections"}}
+{{ template "customjs" .}}
+
+{{template "footer" true}}
+{{end}}

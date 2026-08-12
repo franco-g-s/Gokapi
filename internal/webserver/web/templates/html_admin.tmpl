@@ -20,6 +20,16 @@
 				</div>
 			</form>
 		
+		<div class="form-check form-switch d-inline-flex align-items-center gap-2 mt-3">
+		  <input class="form-check-input" type="checkbox" role="switch"
+		         id="enableAutoCollection" onchange="saveAutoLinkDefault()"
+		         aria-label="Combine each upload into one link">
+		  <label class="form-check-label small text-muted" for="enableAutoCollection">
+		    Combine each upload into one link
+		  </label>
+		</div>
+		<div id="autoCollectionResult"></div>
+
 		<div id="uploadstatus" class="container uploads-container">
 		</div>		
 		<p></p>
@@ -205,6 +215,7 @@
 		
 	var canReplaceOwnFiles = {{.ActiveUser.HasPermissionReplace}};
 	setUploadDefaults();
+	setAutoLinkDefault();
 	
 {{ if .ShowDeprecationNotice }}
 	showDeprecationNotice();

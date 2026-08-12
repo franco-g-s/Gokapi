@@ -126,6 +126,7 @@ func Start() {
 	mux.HandleFunc("/users", requireLogin(showUserAdmin, true, false))
 	mux.Handle("/main.wasm", gziphandler.GzipHandler(http.HandlerFunc(serveDownloadWasm)))
 	mux.Handle("/e2e.wasm", gziphandler.GzipHandler(http.HandlerFunc(serveE2EWasm)))
+	mux.HandleFunc("/collections", requireLogin(showCollectionsAdmin, true, false))
 	mux.HandleFunc("/collections/create", requireLogin(createCollection, false, false))
 	mux.HandleFunc("/collections/delete", requireLogin(deleteCollection, false, false))
 	mux.HandleFunc("/c", showCollection)
@@ -754,6 +755,7 @@ type AdminView struct {
 	ApiKeys               []models.ApiKey
 	Users                 []userInfo
 	FileRequests          []models.FileRequest
+	Collections           []collectionInfo
 	ActiveUser            models.User
 	UserMap               map[int]*models.User
 	ServerUrl             string
@@ -814,6 +816,8 @@ const (
 	ViewUsers
 	// ViewFileRequests is the identifier for the file request menu
 	ViewFileRequests
+	// ViewCollections is the identifier for the collections menu
+	ViewCollections
 )
 
 // Converts the globalConfig variable to an AdminView struct to pass the infos to

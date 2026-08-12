@@ -834,7 +834,8 @@ func (u *AdminView) convertGlobalConfig(view int, user models.User) *AdminView {
 	u.UserMap = getUserMap()
 	u.CustomContent = customStaticInfo
 	switch view {
-	case ViewMain:
+	// The collections page needs the same file list, for its file picker.
+	case ViewMain, ViewCollections:
 		for _, element := range database.GetAllMetadata() {
 			if element.UserId != user.Id && !user.HasPermissionListOtherUploads() {
 				continue

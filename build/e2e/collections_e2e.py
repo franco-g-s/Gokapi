@@ -252,5 +252,14 @@ listed = json.loads(opener.open(BASE + "/collections/list").read())
 check("collections/list returns JSON entries", isinstance(listed, list) and len(listed) >= 1,
       f"{len(listed)} entries")
 
+# ---- 15. collections page carries the picker and its file list ------------
+page = opener.open(BASE + "/collections").read().decode()
+check("page has the New collection button", 'id="newCollectionButton"' in page)
+check("page has the file picker modal", 'id="filePickerModal"' in page)
+check("picker lists selectable files", page.count("file-picker-check") >= 2,
+      f"{page.count('file-picker-check')} entries")
+check("each collection row offers Add files", "collection-addfiles" in page)
+check("member rows are rendered for removal", "member-remove" in page)
+
 print("\n" + ("ALL CHECKS PASSED" if ok else "SOME CHECKS FAILED"))
 sys.exit(0 if ok else 1)

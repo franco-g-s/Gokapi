@@ -4,7 +4,13 @@
   <div class="col">
     <div id="container" class="card" style="width: 80%">
       <div class="card-body">
-        <h3 class="card-title">Collections</h3>
+        <div class="d-flex align-items-center justify-content-between">
+          <h3 class="card-title mb-0">Collections</h3>
+          <button id="newCollectionButton" class="btn btn-sm btn-light" type="button"
+                  title="New collection">
+            <i class="bi bi-plus-lg"></i>
+          </button>
+        </div>
         <br>
         <p class="card-text">
 
@@ -74,6 +80,10 @@
                       </li>
                       {{ end }}
                     </ul>
+                    <button class="btn btn-sm btn-outline-light mt-2 collection-addfiles"
+                            type="button" data-id="{{ .Id }}" data-name="{{ .Name }}">
+                      <i class="bi bi-plus-lg"></i> Add files
+                    </button>
                   </td>
                 </tr>
                 {{ end }}
@@ -87,6 +97,46 @@
         {{ end }}
 
         </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="filePickerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="filePickerTitle">Choose files</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        {{ if not .Items }}
+          <p class="text-muted mb-0">
+            You have no files yet. <a href="./admin">Upload some first</a>, then come back.
+          </p>
+        {{ else }}
+          <input type="text" id="filePickerFilter" class="form-control mb-3"
+                 placeholder="Filter by filename">
+          <ul class="file-picker-list">
+            {{ range .Items }}
+            <li data-name="{{ .Name }}">
+              <label>
+                <input class="form-check-input file-picker-check" type="checkbox" value="{{ .Id }}">
+                <span class="picker-name">{{ .Name }}</span>
+                <span class="picker-size">{{ .Size }}</span>
+              </label>
+            </li>
+            {{ end }}
+          </ul>
+        {{ end }}
+      </div>
+      <div class="modal-footer justify-content-between">
+        <a href="./admin" class="text-muted small">Need to upload something first?</a>
+        <div>
+          <span id="filePickerCount" class="text-muted small me-2"></span>
+          <button type="button" class="btn btn-light" id="filePickerConfirm" disabled>Confirm</button>
+        </div>
       </div>
     </div>
   </div>
@@ -159,6 +209,95 @@ document.querySelectorAll(".member-remove").forEach(function (button) {
             });
     });
 });
+
+// --- file picker: shared by "new collection" and "add files" ---------------
+(function () {
+    var modalEl = document.getElementById("filePickerModal");
+    if (!modalEl) return;
+    var modal = new bootstrap.Modal(modalEl);
+    var title = document.getElementById("filePickerTitle");
+    var confirm = document.getElementById("filePickerConfirm");
+    var counter = document.getElementById("filePickerCount");
+    var filter = document.getElementById("filePickerFilter");
+    var boxes = Array.prototype.slice.call(document.querySelectorAll(".file-picker-check"));
+    var mode = null;          // "create" | "add"
+    var targetId = null;
+
+    function selectedIds() {
+        return boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
+    }
+    function refresh() {
+        var n = selectedIds().length;
+        confirm.disabled = n === 0;
+        counter.textContent = n === 0 ? "" : n + " selected";
+    }
+    boxes.forEach(function (b) { b.addEventListener("change", refresh); });
+
+    if (filter) {
+        filter.addEventListener("input", function () {
+            var needle = filter.value.toLowerCase();
+            document.querySelectorAll(".file-picker-list li").forEach(function (li) {
+                var name = (li.getAttribute("data-name") || "").toLowerCase();
+                li.style.display = name.indexOf(needle) === -1 ? "none" : "";
+            });
+        });
+    }
+
+    function open(newMode, id, label) {
+        mode = newMode;
+        targetId = id;
+        boxes.forEach(function (b) { b.checked = false; });
+        if (filter) { filter.value = ""; filter.dispatchEvent(new Event("input")); }
+        title.textContent = newMode === "create" ? "New collection" : "Add files to " + label;
+        refresh();
+        modal.show();
+    }
+
+    var newButton = document.getElementById("newCollectionButton");
+    if (newButton) {
+        newButton.addEventListener("click", function () { open("create", null, ""); });
+    }
+    document.querySelectorAll(".collection-addfiles").forEach(function (button) {
+        button.addEventListener("click", function () {
+            open("add", button.getAttribute("data-id"), button.getAttribute("data-name"));
+        });
+    });
+
+    confirm.addEventListener("click", function () {
+        var ids = selectedIds();
+        if (!ids.length) return;
+        confirm.disabled = true;
+
+        if (mode === "add") {
+            postCollection("./collections/modify", { id: targetId, addFileIds: ids })
+                .then(function (data) {
+                    if (data.Result !== "OK") {
+                        window.alert("Could not add: " + (data.ErrorMessage || "unknown error"));
+                        confirm.disabled = false;
+                        return;
+                    }
+                    window.location.reload();
+                });
+            return;
+        }
+
+        var name = window.prompt("Name for this collection:", "Shared files");
+        if (name === null) { confirm.disabled = false; return; }
+        var password = window.prompt(
+            "Password for this collection?\n\nLeave blank for no password.", "");
+        if (password === null) { confirm.disabled = false; return; }
+        postCollection("./collections/create",
+                       { name: name, fileIds: ids, password: password.trim() })
+            .then(function (data) {
+                if (data.Result !== "OK") {
+                    window.alert("Could not create: " + (data.ErrorMessage || "unknown error"));
+                    confirm.disabled = false;
+                    return;
+                }
+                window.location.reload();
+            });
+    });
+})();
 
 document.querySelectorAll(".collection-delete").forEach(function (button) {
     button.addEventListener("click", function () {

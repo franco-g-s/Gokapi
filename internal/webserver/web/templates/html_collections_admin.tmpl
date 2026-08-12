@@ -111,6 +111,16 @@
                 aria-label="Close"></button>
       </div>
       <div class="modal-body">
+        <div id="filePickerMeta" class="mb-3" style="display:none">
+          <input type="text" id="filePickerName" class="form-control mb-2"
+                 placeholder="Collection name" value="Shared files">
+          <div class="d-flex gap-2">
+            <input type="text" id="filePickerPassword" class="form-control"
+                   placeholder="Password (optional)">
+            <button type="button" class="btn btn-outline-light text-nowrap"
+                    id="filePickerSuggest">Suggest</button>
+          </div>
+        </div>
         {{ if not .Items }}
           <p class="text-muted mb-0">
             You have no files yet. <a href="./admin">Upload some first</a>, then come back.
@@ -284,8 +294,40 @@ document.querySelectorAll(".member-remove").forEach(function (button) {
         });
         if (filter) { filter.value = ""; filter.dispatchEvent(new Event("input")); }
         title.textContent = newMode === "create" ? "New collection" : "Add files to " + label;
+        var meta = document.getElementById("filePickerMeta");
+        if (meta) meta.style.display = newMode === "create" ? "" : "none";
         refresh();
         modal.show();
+    }
+
+    // Word-based passphrase, easy to read out or type
+    var WORDS = ("amber anchor arrow autumn beacon bishop bottle branch bridge bronze " +
+        "cactus candle canvas castle cedar cherry cobalt comet copper coral cotton " +
+        "crimson crystal delta desert dragon ember falcon forest garnet ginger glacier " +
+        "granite harbor harvest hazel indigo island ivory jasmine jungle juniper lagoon " +
+        "lantern laurel lemon lilac linen lotus maple marble meadow meteor mirror mosaic " +
+        "nectar nickel nomad nutmeg oasis olive onyx opal orbit orchard pebble pepper " +
+        "pigeon pillar planet poplar prairie prism quartz quiver raven ribbon river " +
+        "rocket saffron sailor salmon sapphire scarlet shadow silver socket solar spruce " +
+        "stellar summit sunset thistle thunder timber topaz tulip tundra valley velvet " +
+        "village violet walnut willow winter zephyr").split(" ");
+    function randomInt(max) {
+        if (window.crypto && window.crypto.getRandomValues) {
+            var a = new Uint32Array(1);
+            var limit = Math.floor(4294967296 / max) * max;
+            do { window.crypto.getRandomValues(a); } while (a[0] >= limit);
+            return a[0] % max;
+        }
+        return Math.floor(Math.random() * max);
+    }
+    var suggestButton = document.getElementById("filePickerSuggest");
+    if (suggestButton) {
+        suggestButton.addEventListener("click", function () {
+            var parts = [];
+            for (var i = 0; i < 3; i++) parts.push(WORDS[randomInt(WORDS.length)]);
+            document.getElementById("filePickerPassword").value =
+                parts.join("-") + "-" + (randomInt(90) + 10);
+        });
     }
 
     var newButton = document.getElementById("newCollectionButton");
@@ -316,13 +358,12 @@ document.querySelectorAll(".member-remove").forEach(function (button) {
             return;
         }
 
-        var name = window.prompt("Name for this collection:", "Shared files");
-        if (name === null) { confirm.disabled = false; return; }
-        var password = window.prompt(
-            "Password for this collection?\n\nLeave blank for no password.", "");
-        if (password === null) { confirm.disabled = false; return; }
+        var nameField = document.getElementById("filePickerName");
+        var pwField = document.getElementById("filePickerPassword");
+        var name = (nameField.value || "").trim() || "Shared files";
+        var password = (pwField.value || "").trim();
         postCollection("./collections/create",
-                       { name: name, fileIds: ids, password: password.trim() })
+                       { name: name, fileIds: ids, password: password })
             .then(function (data) {
                 if (data.Result !== "OK") {
                     window.alert("Could not create: " + (data.ErrorMessage || "unknown error"));

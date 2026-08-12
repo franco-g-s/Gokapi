@@ -261,5 +261,13 @@ check("picker lists selectable files", page.count("file-picker-check") >= 2,
 check("each collection row offers Add files", "collection-addfiles" in page)
 check("member rows are rendered for removal", "member-remove" in page)
 
+# ---- 16. no chained dialogs left in the create flows -----------------------
+page = opener.open(BASE + "/collections").read().decode()
+check("collections page has inline name/password fields",
+      'id="filePickerName"' in page and 'id="filePickerPassword"' in page)
+check("picker no longer chains prompts for create",
+      page.count("window.prompt") <= 1, f"{page.count('window.prompt')} prompt(s) left (rename only)")
+check("picker has a passphrase suggest button", 'id="filePickerSuggest"' in page)
+
 print("\n" + ("ALL CHECKS PASSED" if ok else "SOME CHECKS FAILED"))
 sys.exit(0 if ok else 1)

@@ -34,19 +34,13 @@ type CollectionView struct {
 	TotalSize      string
 	FileCount      int
 	ExpiryString   string
-	ZipMaxBytes    int64
 }
-
-// zipMaxBytes is the size ceiling for the browser-side "Download all" button.
-// Above this the files are downloaded individually, because zipping in the
-// browser holds every byte in memory.
-const zipMaxBytes int64 = 2 * 1024 * 1024 * 1024
 
 // showCollection serves the public page for a collection. No login required -
 // this is the link that gets shared.
 func showCollection(w http.ResponseWriter, r *http.Request) {
 	addNoCacheHeader(w)
-	collection, ok := storage.GetCollection(r.PathValue("id"))
+	collection, ok := storage.GetCollection(r.URL.Query().Get("id"))
 	if !ok {
 		redirectOnIncorrectId(w, r, "error")
 		return
@@ -70,7 +64,6 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 		FileCount:      len(collection.Files),
 		TotalSize:      helper.ByteCountSI(collection.TotalSizeBytes),
 		ExpiryString:   collection.ExpireAtString(),
-		ZipMaxBytes:    zipMaxBytes,
 	}
 	err := templateFolder.ExecuteTemplate(w, "collection", view)
 	helper.CheckIgnoreTimeout(err)
@@ -83,7 +76,7 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 // own link had lapsed would vanish from an otherwise valid share.
 func downloadCollectionFile(w http.ResponseWriter, r *http.Request) {
 	addNoCacheHeader(w)
-	collection, ok := storage.GetCollection(r.PathValue("id"))
+	collection, ok := storage.GetCollection(r.URL.Query().Get("id"))
 	if !ok {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeFileNotFound)
 		return
@@ -165,7 +158,7 @@ func createCollection(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"Result": "OK",
 		"Id":     collection.Id,
-		"Url":    configuration.Get().ServerUrl + "c/" + collection.Id,
+		"Url":    configuration.Get().ServerUrl + "c?id=" + collection.Id,
 		"Files":  len(collection.FileIds),
 	})
 }

@@ -74,15 +74,28 @@ cid = created.get("Id", "")
 check("collection contains both files", created.get("Files") == 2)
 
 # ---- 4. anonymous access to the public page --------------------------------
-page = anon.open(BASE + "/c/" + cid).read().decode()
+page = anon.open(BASE + "/c?id=" + cid).read().decode()
 check("public page reachable with NO login", True)
 check("page shows the collection name", "Holiday photos" in page)
 check("page lists alpha.txt", "alpha.txt" in page)
 check("page lists beta.txt", "beta.txt" in page)
-check("page has per-file download links", page.count("/d?file=") >= 2)
+check("page has per-file download links", page.count("cd?id=") >= 2)
+# stylesheets must resolve from the page's own path, or it renders as plain text
+import urllib.error as _ue
+css = re.findall(r'<link[^>]+href="([^"]+\.css)"', page)
+resolved = []
+for href in css:
+    u = href[2:] if href.startswith("./") else href.lstrip("/")
+    try:
+        resolved.append(anon.open(BASE + "/" + u).status == 200)
+    except _ue.HTTPError:
+        resolved.append(False)
+check("all stylesheets on the page resolve (not plain text)",
+      len(resolved) > 0 and all(resolved), f"{sum(resolved)}/{len(resolved)} ok")
+check("download-all button present", 'id="downloadAllButton"' in page)
 
 # ---- 5. anonymous download of a member -------------------------------------
-body = anon.open(f"{BASE}/c/{cid}/d?file={id1}").read().decode()
+body = anon.open(f"{BASE}/cd?id={cid}&file={id1}").read().decode()
 check("anonymous member download returns content", body.strip() == "AAAA-alpha-contents",
       repr(body[:30]))
 
@@ -96,10 +109,10 @@ check("member file still has its own 1 download left",
       f"remaining={f1['DownloadsRemaining'] if f1 else 'gone'}")
 
 # ---- 7. exhaust the collection budget --------------------------------------
-anon.open(f"{BASE}/c/{cid}/d?file={id2}").read()
-anon.open(f"{BASE}/c/{cid}/d?file={id1}").read()
+anon.open(f"{BASE}/cd?id={cid}&file={id2}").read()
+anon.open(f"{BASE}/cd?id={cid}&file={id1}").read()
 try:
-    r = anon.open(BASE + "/c/" + cid)
+    r = anon.open(BASE + "/c?id=" + cid)
     exhausted = "Holiday photos" not in r.read().decode()
 except urllib.error.HTTPError:
     exhausted = True
@@ -107,7 +120,7 @@ check("collection dies after its 3 downloads", exhausted)
 
 # ---- 8. bad id -------------------------------------------------------------
 try:
-    r = anon.open(BASE + "/c/doesnotexist12345")
+    r = anon.open(BASE + "/c?id=doesnotexist12345")
     bad = "Holiday photos" not in r.read().decode()
 except urllib.error.HTTPError:
     bad = True

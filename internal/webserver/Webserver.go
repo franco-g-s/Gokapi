@@ -128,8 +128,8 @@ func Start() {
 	mux.Handle("/e2e.wasm", gziphandler.GzipHandler(http.HandlerFunc(serveE2EWasm)))
 	mux.HandleFunc("/collections/create", requireLogin(createCollection, false, false))
 	mux.HandleFunc("/collections/delete", requireLogin(deleteCollection, false, false))
-	mux.HandleFunc("/c/{id}", showCollection)
-	mux.HandleFunc("/c/{id}/d", downloadCollectionFile)
+	mux.HandleFunc("/c", showCollection)
+	mux.HandleFunc("/cd", downloadCollectionFile)
 	mux.HandleFunc("/d/{id}/{filename}", redirectFromFilename)
 	mux.HandleFunc("/dh/{id}/{filename}", downloadFileWithNameInUrl)
 

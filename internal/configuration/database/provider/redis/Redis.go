@@ -21,7 +21,7 @@ type DatabaseProvider struct {
 }
 
 // DatabaseSchemeVersion contains the version number to be expected from the current database. If lower, an upgrade will be performed
-const DatabaseSchemeVersion = 9
+const DatabaseSchemeVersion = 10
 
 // New returns an instance
 func New(dbConfig models.DbConnection) (DatabaseProvider, error) {

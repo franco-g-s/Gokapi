@@ -8,7 +8,7 @@
                 <h3 class="card-title mb-1">{{ .Collection.Name }}</h3>
                 <p class="text-muted mb-0">
                     {{ .FileCount }} file{{ if ne .FileCount 1 }}s{{ end }} &middot; {{ .TotalSize }}
-                    {{ if not .Collection.UnlimitedTime }} &middot; expires {{ .ExpiryString }}{{ end }}
+                    {{ if not .NeverExpires }} &middot; available until {{ .ExpiryString }}{{ end }}
                 </p>
             </div>
 

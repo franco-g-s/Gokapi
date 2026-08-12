@@ -22,7 +22,7 @@ type DatabaseProvider struct {
 }
 
 // DatabaseSchemeVersion contains the version number to be expected from the current database. If lower, an upgrade will be performed
-const DatabaseSchemeVersion = 16
+const DatabaseSchemeVersion = 17
 
 // New returns an instance
 func New(dbConfig models.DbConnection) (DatabaseProvider, error) {
@@ -135,6 +135,22 @@ func (p DatabaseProvider) Upgrade(currentDbVersion int) {
 				"Position"	INTEGER NOT NULL,
 				PRIMARY KEY("CollectionId","FileId")
 			);`)
+		helper.Check(err)
+	}
+	// Collections became a plain view over their files - no expiry, download
+	// budget or counter of their own - so those columns are dropped. Safe to
+	// recreate: the feature is new and unreleased upstream.
+	if currentDbVersion < 17 {
+		err := p.rawSqlite(`DROP TABLE IF EXISTS Collections;
+			CREATE TABLE "Collections" (
+				"Id"	TEXT NOT NULL UNIQUE,
+				"Name"	TEXT NOT NULL,
+				"UserId"	INTEGER NOT NULL,
+				"Creation"	INTEGER NOT NULL,
+				"PasswordHash"	TEXT NOT NULL,
+				PRIMARY KEY("Id")
+			);
+			DELETE FROM CollectionFiles;`)
 		helper.Check(err)
 	}
 }
@@ -289,11 +305,6 @@ func (p DatabaseProvider) createNewDatabase() error {
 			"Name"	TEXT NOT NULL,
 			"UserId"	INTEGER NOT NULL,
 			"Creation"	INTEGER NOT NULL,
-			"ExpireAt"	INTEGER NOT NULL,
-			"UnlimitedTime"	INTEGER NOT NULL,
-			"DownloadsRemaining"	INTEGER NOT NULL,
-			"UnlimitedDownloads"	INTEGER NOT NULL,
-			"DownloadCount"	INTEGER NOT NULL,
 			"PasswordHash"	TEXT NOT NULL,
 			PRIMARY KEY("Id")
 		);

@@ -10,19 +10,14 @@ import (
 
 // Columns are listed explicitly rather than using SELECT *, so that a future
 // ALTER TABLE cannot silently break the scan order.
-const collectionColumns = `Id, Name, UserId, Creation, ExpireAt, UnlimitedTime,
-	DownloadsRemaining, UnlimitedDownloads, DownloadCount, PasswordHash`
+const collectionColumns = `Id, Name, UserId, Creation, PasswordHash`
 
 func (p DatabaseProvider) scanCollection(scan func(dest ...any) error) (models.Collection, error) {
 	var c models.Collection
-	var unlimitedTime, unlimitedDownloads int
-	err := scan(&c.Id, &c.Name, &c.UserId, &c.CreationDate, &c.ExpireAt, &unlimitedTime,
-		&c.DownloadsRemaining, &unlimitedDownloads, &c.DownloadCount, &c.PasswordHash)
+	err := scan(&c.Id, &c.Name, &c.UserId, &c.CreationDate, &c.PasswordHash)
 	if err != nil {
 		return models.Collection{}, err
 	}
-	c.UnlimitedTime = unlimitedTime == 1
-	c.UnlimitedDownloads = unlimitedDownloads == 1
 	return c, nil
 }
 
@@ -80,19 +75,9 @@ func (p DatabaseProvider) GetAllCollections() []models.Collection {
 
 // SaveCollection stores the collection and replaces its member list
 func (p DatabaseProvider) SaveCollection(collection models.Collection) {
-	unlimitedTime := 0
-	if collection.UnlimitedTime {
-		unlimitedTime = 1
-	}
-	unlimitedDownloads := 0
-	if collection.UnlimitedDownloads {
-		unlimitedDownloads = 1
-	}
 	_, err := p.sqliteDb.Exec(`INSERT OR REPLACE INTO Collections
-		(Id, Name, UserId, Creation, ExpireAt, UnlimitedTime, DownloadsRemaining, UnlimitedDownloads, DownloadCount, PasswordHash)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		collection.Id, collection.Name, collection.UserId, collection.CreationDate, collection.ExpireAt,
-		unlimitedTime, collection.DownloadsRemaining, unlimitedDownloads, collection.DownloadCount, collection.PasswordHash)
+		(Id, Name, UserId, Creation, PasswordHash) VALUES (?, ?, ?, ?, ?)`,
+		collection.Id, collection.Name, collection.UserId, collection.CreationDate, collection.PasswordHash)
 	helper.Check(err)
 
 	_, err = p.sqliteDb.Exec("DELETE FROM CollectionFiles WHERE CollectionId = ?", collection.Id)

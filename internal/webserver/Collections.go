@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
@@ -34,6 +35,7 @@ type CollectionView struct {
 	TotalSize      string
 	FileCount      int
 	ExpiryString   string
+	NeverExpires   bool
 }
 
 // showCollection serves the public page for a collection. No login required -
@@ -63,7 +65,12 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 		Collection:     collection,
 		FileCount:      len(collection.Files),
 		TotalSize:      helper.ByteCountSI(collection.TotalSizeBytes),
-		ExpiryString:   collection.ExpireAtString(),
+	}
+	// Expiry is derived from the longest-lived member, not stored.
+	latest, never := collection.LatestExpiry()
+	view.NeverExpires = never
+	if !never {
+		view.ExpiryString = time.Unix(latest, 0).Format("2006-01-02 15:04")
 	}
 	err := templateFolder.ExecuteTemplate(w, "collection", view)
 	helper.CheckIgnoreTimeout(err)
@@ -88,22 +95,17 @@ func downloadCollectionFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	storage.DecreaseCollectionDownloadCount(collection)
-	logging.LogDownload(file, r, configuration.Get().SaveIp)
-
 	forceDecryption := file.Encryption.IsEncrypted && !file.Encryption.IsEndToEndEncrypted
-	// increaseCounter is false: the collection owns the budget, not the file.
-	storage.ServeFile(file, w, r, true, false, forceDecryption, false)
+	// increaseCounter is true: a download through a collection is exactly a
+	// download of that file, so it consumes the file's own budget. ServeFile
+	// logs it and re-checks expiry itself.
+	storage.ServeFile(file, w, r, true, true, forceDecryption, true)
 }
 
 // collectionCreateRequest is the JSON body posted by the admin page
 type collectionCreateRequest struct {
-	Name               string   `json:"name"`
-	FileIds            []string `json:"fileIds"`
-	ExpiryDays         int      `json:"expiryDays"`
-	AllowedDownloads   int      `json:"allowedDownloads"`
-	UnlimitedTime      bool     `json:"unlimitedTime"`
-	UnlimitedDownloads bool     `json:"unlimitedDownloads"`
+	Name    string   `json:"name"`
+	FileIds []string `json:"fileIds"`
 }
 
 // createCollection is called by the admin page to bundle selected files.
@@ -140,12 +142,8 @@ func createCollection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	collection, err := storage.CreateCollection(storage.CollectionParameters{
-		Name:               request.Name,
-		FileIds:            permitted,
-		ExpiryDays:         request.ExpiryDays,
-		AllowedDownloads:   request.AllowedDownloads,
-		UnlimitedTime:      request.UnlimitedTime,
-		UnlimitedDownloads: request.UnlimitedDownloads,
+		Name:    request.Name,
+		FileIds: permitted,
 	}, user)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)

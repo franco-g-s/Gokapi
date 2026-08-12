@@ -8,7 +8,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -139,7 +141,12 @@ func checkFileExists(filename string) {
 
 func insertVersionNumbers(input string) string {
 	versionGokapi := parseGokapiVersion()
-	hashedVersion := getShortSHA256Hash(versionGokapi)
+	// Hash the actual JS/CSS sources, not just the version string. Hashing the
+	// version alone means every asset keeps the same URL for the whole of a
+	// release, so any change to a script or stylesheet is masked by the
+	// Cache-Control: max-age=36000 those files are served with, and browsers
+	// and CDNs keep the stale copy for hours.
+	hashedVersion := getShortSHA256Hash(versionGokapi + hashStaticSources())
 	result := strings.ReplaceAll(input, "%gokapiversion%", versionGokapi)
 	result = strings.ReplaceAll(result, "%gokapiversionInt%", parseVersionAsInt(versionGokapi))
 	result = strings.ReplaceAll(result, "%jsadmin%", hashedVersion)
@@ -147,6 +154,46 @@ func insertVersionNumbers(input string) string {
 	result = strings.ReplaceAll(result, "%jse2e%", hashedVersion)
 	result = strings.ReplaceAll(result, "%css_main%", hashedVersion)
 	return result
+}
+
+// hashStaticSources returns a digest of every JS and CSS source file, so the
+// generated asset URLs change whenever their contents do.
+func hashStaticSources() string {
+	root := "../../internal/webserver/web/static"
+	hasher := sha256.New()
+	var files []string
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			// skip already-generated output so the hash cannot chase itself
+			if info.Name() == "min" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext == ".js" || ext == ".css" {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if err != nil {
+		fmt.Println("WARNING: could not hash static sources, falling back to version only:", err)
+		return ""
+	}
+	sort.Strings(files) // stable across filesystems
+	for _, file := range files {
+		content, err := os.ReadFile(file)
+		if err != nil {
+			fmt.Println("WARNING: could not read", file, err)
+			continue
+		}
+		hasher.Write([]byte(filepath.Base(file)))
+		hasher.Write(content)
+	}
+	return hex.EncodeToString(hasher.Sum(nil))
 }
 
 func getShortSHA256Hash(data string) string {

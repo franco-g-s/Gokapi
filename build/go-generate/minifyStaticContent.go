@@ -172,6 +172,6 @@ func fileExists(filename string) bool {
 // Auto-generated content below, do not modify
 // Version codes can be changed in updateVersionNumbers.go
 
-const jsAdminVersion = "ccb62a8d5b"
-const jsE2EVersion = "ccb62a8d5b"
-const cssMainVersion = "ccb62a8d5b"
+const jsAdminVersion = "5194fb96da"
+const jsE2EVersion = "5194fb96da"
+const cssMainVersion = "5194fb96da"

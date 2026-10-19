@@ -77,7 +77,7 @@
 - `cmd/gokapi/Main.go`: start the worker.
 - `internal/models/FileList.go`: no change.
 - `internal/configuration/database/dbabstraction/DbAbstraction.go`, `internal/configuration/database/Database.go`: interface and facade.
-- `internal/configuration/database/provider/sqlite/Sqlite.go`: schema 18.
+- `internal/configuration/database/provider/sqlite/Sqlite.go`: `Previews` table, created with `CREATE TABLE IF NOT EXISTS` on every start; schema version stays 17 (Ruling 20 superseded the original 18 bump).
 - `internal/storage/FileServing.go`:
   - hook in `CleanUp`;
   - hook in `ReplaceFile`;
@@ -566,6 +566,8 @@ git push
 ---
 
 ### Task 2: `Previews` table and model
+
+> **Superseded in part by Ruling 20 (final review):** there is no schema bump. `DatabaseSchemeVersion` stays 17 and `Previews` is created by `ensurePreviewsTable()` in the provider's init path on every start. The version-18 steps below are the historical record of what Task 2 first did.
 
 **Files:**
 - Create: `internal/models/Preview.go`, `internal/configuration/database/provider/sqlite/previews.go`, `internal/configuration/database/provider/sqlite/previews_test.go`, `internal/configuration/database/provider/redis/previews.go`
@@ -2830,50 +2832,79 @@ docker rm -f gokapi-previews-test; docker volume rm gokapi-previews-test-data go
 
 ### Task 13: Deploy (requires Franco's explicit go-ahead in the conversation)
 
-**Do not start this task without a "yes, deploy" from Franco in the current conversation.** Schema 17→18 is one-way.
+**Do not start this task without a "yes, deploy" from Franco in the current conversation.** Since Ruling 20 the database stays at schema version 17: the new image only adds the `Previews` table (`CREATE TABLE IF NOT EXISTS`, every start), which the old image ignores. Rollback is therefore an image swap; restoring the database is a last resort, not a required step.
 
-- [ ] **Step 1: Back up the database.**
+Throughout: `export DOCKER_HOST=unix:///Users/franco/.colima/default/docker.sock`. Set `D=$(date +%Y-%m-%d)` once and reuse it.
 
-```bash
-export DOCKER_HOST=unix:///Users/franco/.colima/default/docker.sock
-mkdir -p ~/apps/gokapi/backups
-docker exec gokapi sh -c 'cat /app/data/gokapi.sqlite' > ~/apps/gokapi/backups/gokapi-2026-10-19-pre-previews.sqlite
-ls -la ~/apps/gokapi/backups/
-```
-
-Check the file size is about what `docker exec gokapi ls -la /app/data/gokapi.sqlite` shows. WAL mode means a `-wal` file may hold recent writes. Prefer this instead:
-
-```bash
-docker exec gokapi sh -c 'apk add -q sqlite 2>/dev/null; sqlite3 /app/data/gokapi.sqlite ".backup /app/data/backup-pre-previews.sqlite"'
-```
-
-If `apk` is unavailable in the hardened container, run the backup from a sidecar that mounts the volume instead.
-
-- [ ] **Step 2: Build under a new tag.** `gokapi-fgs:collections` stays available for rollback.
+- [ ] **Step 1: Build under a new tag first**, so the container is down only for the backup and the swap. `gokapi-fgs:collections` stays available for rollback.
 
 ```bash
 cd ~/src/Gokapi && git log --oneline -1 && docker build -q -t gokapi-fgs:previews .
-cp ~/apps/gokapi/docker-compose.yml ~/apps/gokapi/docker-compose.yml.bak.20261019
+docker image ls gokapi-fgs
+```
+
+- [ ] **Step 2: Back up the database with the container stopped.** A stopped container means no writer and a checkpointed WAL; the `.backup` runs in a throwaway Alpine sidecar that mounts the volume, so the hardened gokapi image needs no `apk`.
+
+```bash
+docker stop gokapi   # the container, by name; other services in the compose file keep running
+docker run --rm -v gokapi_gokapi_data:/d alpine sh -c \
+  'apk add -q sqlite && sqlite3 /d/gokapi.sqlite ".backup /d/backup-pre-previews-'"$D"'.sqlite" && ls -la /d'
+mkdir -p ~/apps/gokapi/backups
+docker cp gokapi:/app/data/backup-pre-previews-$D.sqlite ~/apps/gokapi/backups/
+ls -la ~/apps/gokapi/backups/
+docker run --rm -v gokapi_gokapi_data:/d alpine sh -c \
+  'apk add -q sqlite && sqlite3 /d/backup-pre-previews-'"$D"'.sqlite "PRAGMA integrity_check; PRAGMA user_version;"'
+```
+
+Expect `ok` and `17`. The copy under `~/apps/gokapi/backups/` is the one that matters; the one left in the volume is a convenience for a quick restore.
+
+- [ ] **Step 3: Sidebar icon (Ruling 15).** `~/apps/gokapi/custom/` is bind-mounted into the live container, so this is a deploy-side change and happens here, not in Task 11.
+
+```bash
+cp ~/apps/gokapi/custom/admin.js ~/apps/gokapi/custom/admin.js.bak.$D
+cp ~/apps/gokapi/custom/version.txt ~/apps/gokapi/custom/version.txt.bak.$D
+```
+
+Then edit `~/apps/gokapi/custom/admin.js`: add `files: "bi-images"` to the `icons` object and `"files": "bi-images"` to the `iconsByLabel` object, next to the existing collections entries. Bump the number in `~/apps/gokapi/custom/version.txt` by one so browsers fetch the new `admin.js`. Check the edit with `node --check ~/apps/gokapi/custom/admin.js`.
+
+- [ ] **Step 4: Swap the image and start.**
+
+```bash
+cp ~/apps/gokapi/docker-compose.yml ~/apps/gokapi/docker-compose.yml.bak.$D
 sed -i '' 's/image: gokapi-fgs:collections/image: gokapi-fgs:previews/' ~/apps/gokapi/docker-compose.yml
+grep -n "image:" ~/apps/gokapi/docker-compose.yml
 cd ~/apps/gokapi && docker compose up -d && sleep 5 && docker logs --tail 30 gokapi
 ```
 
-- [ ] **Step 3: Smoke test** `https://share.franco.international`:
-  - log in;
-  - Files tab with thumbnails;
-  - an existing collection link on the iPhone viewport (Playwright);
+The log must not show "Successfully upgraded database" (no schema change any more) or "newer Gokapi version".
+
+- [ ] **Step 5: Smoke test** `https://share.franco.international`:
+  - log in; the sidebar shows the Files entry with the images icon;
+  - Files tab with thumbnails; Download, Download as .zip and Create one link on a selection; the owner's downloads leave the Downloads column unchanged (Ruling 18);
+  - an existing collection link on the iPhone viewport (Playwright), including a password-protected one;
   - the notifier log `~/apps/gokapi/notify.log` shows no new burst of warning emails.
 
-- [ ] **Step 4: Rollback, if needed.**
+- [ ] **Step 6: Rollback, if needed — image swap first.**
 
 ```bash
-cd ~/apps/gokapi && cp docker-compose.yml.bak.20261019 docker-compose.yml
+cd ~/apps/gokapi && cp docker-compose.yml.bak.$D docker-compose.yml
+docker compose up -d && docker logs --tail 30 gokapi
+```
+
+The old image runs on the same database: it is still at version 17 and simply never reads `Previews`. To undo the sidebar icon, restore `custom/admin.js.bak.$D` and `custom/version.txt.bak.$D`.
+
+**Database restore is the last resort**, only if the data itself is damaged. Stop the container, then copy the backup back over the live file and drop any WAL/SHM left beside it:
+
+```bash
+docker stop gokapi   # the container, by name; other services in the compose file keep running
+docker run --rm -v gokapi_gokapi_data:/d alpine sh -c \
+  'cp /d/backup-pre-previews-'"$D"'.sqlite /d/gokapi.sqlite && rm -f /d/gokapi.sqlite-wal /d/gokapi.sqlite-shm'
 docker compose up -d
 ```
 
-Then restore the database from Step 1 into the volume while the container is stopped. The old binary refuses schema 18, so the database restore is required, not optional.
+(If the in-volume copy is gone, `docker cp ~/apps/gokapi/backups/backup-pre-previews-$D.sqlite gokapi:/app/data/gokapi.sqlite` into the stopped container does the same.)
 
-- [ ] **Step 5: Open a PR** from `feature/previews` to `feature/collections` with `gh pr create`. Link it with the t3-code `link_pull_request` tool. The body summarises the parts shipped, the backfill numbers from Task 12 and the rollback steps, and ends with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
+- [ ] **Step 7: Open a PR** from `feature/previews` to `feature/collections` with `gh pr create`. Link it with the t3-code `link_pull_request` tool. The body summarises the parts shipped, the backfill numbers from Task 12 and the rollback steps, and ends with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 
 ---
 

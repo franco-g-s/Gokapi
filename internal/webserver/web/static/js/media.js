@@ -779,9 +779,13 @@
       // are the way to take several at once
       var dl = bar.querySelector("[data-act=download]");
       var photos = bar.querySelector("[data-act=photos]");
-      if (dl && (photos || bar.querySelector("[data-act=zip]"))) dl.classList.add("d-none");
-      if (photos) photos.classList.remove("d-none");
-      if (help) help.classList.remove("d-none");
+      // Save to Photos needs navigator.canShare, like the page's own button
+      var canPhotos = !!photos && !!navigator.canShare;
+      if (dl && (canPhotos || bar.querySelector("[data-act=zip]"))) dl.classList.add("d-none");
+      if (canPhotos) photos.classList.remove("d-none");
+      // One "?" per page: where the page has its own buttons (the collection
+      // link page, FGS.initDownloadButtons), that one is the "?"
+      if (help && !document.querySelector("[data-fgs-downloads]")) help.classList.remove("d-none");
     }
     if (help) help.addEventListener("click", function () { FGS.openHelpSheet(); });
 
@@ -921,6 +925,8 @@
         taken.textContent = fmt(info.TakenAt);
         if (dataTable) dataTable.row(row).invalidate("dom");
       }
+      // A replaced file's new preview is still being made: ask for it
+      if (info.Status === "pending") startPolling(id);
       layoutBoard();
     }
 
@@ -951,6 +957,11 @@
       menu.querySelectorAll("[data-menu]").forEach(function (b) {
         var k = b.getAttribute("data-menu");
         if (k === "copy") b.setAttribute("data-clipboard-text", file.UrlDownload || "");
+        if (k === "hotlink") {
+          // Only files that have a hotlink offer it
+          b.setAttribute("data-clipboard-text", file.UrlHotlink || "");
+          if (b.parentNode) b.parentNode.classList.toggle("d-none", !file.UrlHotlink);
+        }
         if (k === "download" || k === "add-to-collection") b.disabled = e2e;
         if (k === "edit") b.disabled = !perms.edit;
         if (k === "replace") b.disabled = !perms.replace;
@@ -1071,8 +1082,12 @@
       tile.querySelector(".fgs-name").textContent = name;
       var small = tile.querySelector(".fgs-typeicon small");
       if (small) small.textContent = name.slice(0, 40);
+      // A new extension is a new type icon (on tiles and rows without a thumbnail)
+      var icon = fileTypeIcon(name);
+      Array.prototype.forEach.call(tile.querySelectorAll(".fgs-typeicon i"), function (i) { i.className = "bi " + icon; });
       fillMenu(menu, file, perms);
       if (row) {
+        Array.prototype.forEach.call(row.querySelectorAll(".fgs-list-icon i"), function (i) { i.className = "bi " + icon; });
         rowCheck(row).setAttribute("aria-label", "Select " + name);
         row.querySelector("td[data-col=name]").setAttribute("data-order", name);
         row.querySelector(".fgs-row-name").textContent = name;

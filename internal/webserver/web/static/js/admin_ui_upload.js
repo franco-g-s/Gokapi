@@ -274,8 +274,14 @@ function dropzoneGetFile(uid) {
 function requestFileInfo(fileId, uid) {
     apiFilesListById(fileId)
         .then(data => {
-            addUploadedFile(data);
-            notifyWorker({ type: "fileAdded", item: data });
+            // The list is only a view: an error drawing it must not mark an
+            // upload that is stored as failed (and with it the auto-collection batch)
+            try {
+                addUploadedFile(data);
+                notifyWorker({ type: "fileAdded", item: data });
+            } catch (error) {
+                console.error('Error showing the uploaded file:', error);
+            }
             let file = dropzoneGetFile(uid);
             if (file == null) {
                 return;
@@ -410,12 +416,12 @@ function editFile() {
     apiFilesModify(id, allowedDownloads, expiryTimestamp, password, originalPassword, newName)
         .then(data => {
             if (!replaceFile) {
-                showEditedFile(data);
+                showEditedFile(data, false);
                 return;
             }
             apiFilesReplace(id, replaceId)
                 .then(data => {
-                    showEditedFile(data);
+                    showEditedFile(data, true);
                 })
                 .catch(error => {
                     alert("Unable to edit file: " + error);
@@ -430,29 +436,35 @@ function editFile() {
         });
 }
 
-// After a successful edit. The Files tab reloads; the upload page only holds
-// this session's uploads, which a reload would drop, so the file is added
-// again from the API's answer instead. Its preview is asked for first: a
-// replaced content has a new one.
-function showEditedFile(fileInfo) {
-    let browser = uploadBrowser();
-    if (browser === null) {
-        location.reload();
-        return;
-    }
+// After a successful edit: the file as the API now holds it, shown in place
+// in every list on the page that has it (the Files tab, the upload page's
+// uploads, a collection's files), without a reload. Replaced content has a
+// new preview, which is asked for first and polled if it is still being made.
+function showEditedFile(fileInfo, replaced) {
     let modal = bootstrap.Modal.getInstance(document.getElementById("modaledit"));
     if (modal != null) {
         modal.hide();
     }
-    fetch("./files/previewinfo?id=" + encodeURIComponent(fileInfo.Id), { credentials: "same-origin", cache: "no-store" })
-        .then(response => response.ok ? response.json() : null)
-        .catch(() => null)
-        .then(preview => {
-            addUploadedFile(fileInfo, preview);
-            if (isE2EEnabled) {
-                GokapiE2EDecryptMenu();
+    let showPreview = Promise.resolve(null);
+    if (replaced) {
+        showPreview = fetch("./files/previewinfo?id=" + encodeURIComponent(fileInfo.Id), { credentials: "same-origin", cache: "no-store" })
+            .then(response => response.ok ? response.json() : null)
+            .catch(() => null);
+    }
+    showPreview.then(preview => {
+        FGS.eachFileBrowser(function(browser) {
+            if (browser.tile(fileInfo.Id) === null) {
+                return;
+            }
+            browser.updateItem(fileInfo);
+            if (preview !== null) {
+                browser.applyPreview(fileInfo.Id, preview);
             }
         });
+        if (isE2EEnabled) {
+            GokapiE2EDecryptMenu();
+        }
+    });
 }
 
 function showEditModal(filename, id, downloads, expiry, password, unlimitedown, unlimitedtime, isE2e, canReplace) {
@@ -517,7 +529,11 @@ function showEditModal(filename, id, downloads, expiry, password, unlimitedown, 
             for (let i = 0; i < files[0].length; i++) {
                 if (files[0][i] == id)
                     continue;
-                selectReplace.add(new Option(files[1][i] + " (" + files[0][i] + ")", files[0][i]));
+                // Name as text, never as markup; the id tells equal names apart
+                let option = document.createElement("option");
+                option.value = files[0][i];
+                option.text = files[1][i] + " (" + files[0][i] + ")";
+                selectReplace.add(option);
             }
         } else {
             document.getElementById("mc_replace").disabled = true;
@@ -552,14 +568,25 @@ function add14DaysIfBeforeCurrentTime(unixTimestamp) {
     }
 }
 
+// The files "Replace content" can take its content from: every file in the
+// page's file lists, once. The server accepts a file that is the user's own
+// or that they may list, and a list shows only those; end-to-end encrypted
+// files cannot be replaced with. Returns [ids, names].
 function getAllAvailableFiles() {
     let ids = [];
     let filenames = [];
 
-    let elements = document.querySelectorAll('[id^="cell-name-"]');
-    for (let element of elements) {
-        ids.push(element.id.replace("cell-name-", ""));
-        filenames.push(element.innerHTML);
+    for (let tile of document.querySelectorAll('[data-fgs-browser] .fgs-tile[data-id]')) {
+        let id = tile.getAttribute("data-id");
+        if (ids.includes(id)) {
+            continue;
+        }
+        let menu = tile.querySelector("[data-fgs-file-menu]");
+        if (menu !== null && menu.getAttribute("data-e2e") === "true") {
+            continue;
+        }
+        ids.push(id);
+        filenames.push(tile.getAttribute("data-name") || "");
     }
     return [ids, filenames];
 }
@@ -671,9 +698,14 @@ function registerChangeHandler() {
                 } else if (event.data.type === "fileDeleted") {
                     // Another tab deleted a file — remove it silently (no toast,
                     // since this tab didn't initiate the deletion).
-                    let browser = uploadBrowser();
-                    if (browser !== null) {
-                        browser.removeItem(sanitizeId(event.data.id));
+                    // ...from every list on this page that shows it
+                    if (window.FGS && FGS.eachFileBrowser) {
+                        let id = sanitizeId(event.data.id);
+                        FGS.eachFileBrowser(function(browser) {
+                            if (browser.tile(id) !== null) {
+                                browser.removeItem(id);
+                            }
+                        });
                     }
                 } else if (event.data.type === "log") {
                     const { level, message, detail } = event.data;

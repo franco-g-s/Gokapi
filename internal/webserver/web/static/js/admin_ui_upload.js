@@ -1149,8 +1149,8 @@ function showDeprecationNotice() {
 
 // --- Auto-link: one shared link per upload batch -----------------------------
 // Dropzone already knows which files went up together, so a batch of several
-// files can become a single collection automatically. Off by default, since it
-// changes what happens after an upload.
+// files can become a single collection automatically. On by default; a saved
+// "false" keeps it off.
 
 let batchFileIds = [];
 
@@ -1168,7 +1168,7 @@ function setAutoLinkDefault() {
     if (toggle === null) {
         return;
     }
-    toggle.checked = getLocalStorageWithDefault("defaultAutoCollection", "false") === "true";
+    toggle.checked = getLocalStorageWithDefault("defaultAutoCollection", "true") === "true";
 }
 
 function maybeCreateBatchCollection() {

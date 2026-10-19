@@ -51,18 +51,37 @@
         }
     }
 
+    // The undo toast, named from the tile rather than from the cell-name-<id>
+    // element showToastFileDeletion reads, which only single-list pages have
+    function showDeletedToast(id, name) {
+        var toast = document.getElementById("toastnotificationUndo");
+        var label = document.getElementById("toastFilename");
+        var button = document.getElementById("toastUndoButton");
+        if (!toast || !label || !button) return;
+        if (document.getElementById("cell-name-" + id)) {
+            showToastFileDeletion(id);
+        } else {
+            button.dataset.fileid = id;
+            hideToast();
+            toast.classList.add("show");
+            clearTimeout(toastId);
+            toastId = setTimeout(hideFileToast, 5000);
+        }
+        label.textContent = name;
+    }
+
     // One file from its menu: deleted after 10 s unless restored from the
-    // toast. Not through deleteFile(): its row bookkeeping belongs to the
-    // upload page's old table.
+    // toast, and gone from every list on the page that shows it. Not through
+    // deleteFile(): its row bookkeeping belongs to the upload page's old table.
     function deleteOne(a) {
         var id = a.ids[0];
+        var name = a.tiles[0].getAttribute("data-name") || "";
         var item = a.button;
         if (item) item.disabled = true;
         apiFilesDelete(id, 10)
             .then(function () {
-                // The toast reads the name from cell-name-<id>: before the row goes
-                try { showToastFileDeletion(id); } catch (ignored) { /* page without the toast */ }
-                a.browser.removeItem(id);
+                try { showDeletedToast(id, name); } catch (ignored) { /* page without the toast */ }
+                removeEverywhere(id);
                 if (typeof notifyWorker === "function") notifyWorker({ type: "fileDeleted", id: id });
             })
             .catch(function (error) {
@@ -72,30 +91,47 @@
             });
     }
 
+    // Every list on the page that shows the file (a file can be in several
+    // collections), so no list keeps a file that is gone or out of date
+    function removeEverywhere(id) {
+        FGS.eachFileBrowser(function (b) { if (b.tile(id)) b.removeItem(id); });
+    }
+    function updateEverywhere(file) {
+        FGS.eachFileBrowser(function (b) { if (b.tile(file.Id)) b.updateItem(file); });
+    }
+
     // Bulk delete: asks first, then deletes each file in turn, at once (no
-    // undo, unlike the single delete) and reloads
+    // undo, unlike the single delete), taking each out of every list as it
+    // goes. No reload: on the upload page the list exists only in this tab.
     async function bulkDelete(a) {
         var tiles = a.tiles;
         if (!confirm("Delete " + plural(tiles.length, "file") + "? This cannot be undone.")) return;
         a.button.disabled = true;
-        var failures = [];
-        for (var i = 0; i < tiles.length; i++) {
-            var f = fileData(tiles[i]);
-            a.status.textContent = "Deleting " + (i + 1) + " of " + tiles.length + "…";
-            if (!f.canDelete) {
-                failures.push(f.name + ": you may not delete this file");
-                continue;
+        var failures = [], deleted = 0;
+        try {
+            for (var i = 0; i < tiles.length; i++) {
+                var f = fileData(tiles[i]);
+                a.status.textContent = "Deleting " + (i + 1) + " of " + tiles.length + "…";
+                if (!f.canDelete) {
+                    failures.push(f.name + ": you may not delete this file");
+                    continue;
+                }
+                try {
+                    await apiFilesDelete(f.id, 0);
+                    deleted++;
+                    removeEverywhere(f.id);
+                    if (typeof notifyWorker === "function") notifyWorker({ type: "fileDeleted", id: f.id });
+                } catch (error) {
+                    failures.push(f.name + ": " + errorText(error));
+                }
             }
-            try {
-                await apiFilesDelete(f.id, 0);
-            } catch (error) {
-                failures.push(f.name + ": " + errorText(error));
-            }
+        } finally {
+            a.button.disabled = false;
         }
+        a.status.textContent = "Deleted " + plural(deleted, "file") + ".";
         if (failures.length) {
             alert("Could not delete " + plural(failures.length, "file") + ":\n" + failures.join("\n"));
         }
-        location.reload();
     }
 
     // One collection link for the selection, through the same endpoint the
@@ -272,7 +308,7 @@
             date: document.getElementById("fgs-expiry-date"),
             limit: document.getElementById("fgs-limit-number"),
             closeButtons: modal.querySelectorAll("[data-bs-dismiss=modal]"),
-            tiles: [], changed: false, running: false
+            tiles: [], running: false
         };
         function setRunning(running) {
             expiry.running = running;
@@ -309,9 +345,9 @@
             expiry.apply.disabled = true;
             setRunning(true);
             expiry.failures.textContent = "";
-            var failed = 0, total = expiry.tiles.length;
-            // finally: whatever happens (an exception, a reload cancelled by
-            // beforeunload) the dialog must become closable again
+            var failed = 0, total = expiry.tiles.length, done = false;
+            // finally: whatever happens (an exception included) the dialog
+            // must become closable again
             try {
                 for (var i = 0; i < total; i++) {
                     expiry.status.textContent = "Updating " + (i + 1) + " of " + total + "…";
@@ -332,8 +368,10 @@
                     var downloads = limitChoice === "keep" ? null : limit;
                     var expiresAt = expiryChoice === "keep" ? null : expiryAt;
                     try {
-                        await apiFilesModify(f.id, downloads, expiresAt, "", true);
-                        expiry.changed = true;
+                        // The answer is the file as stored now: shown in place,
+                        // in every list, rather than by reloading the page
+                        var updated = await apiFilesModify(f.id, downloads, expiresAt, "", true);
+                        if (updated && updated.Id) updateEverywhere(updated);
                     } catch (error) {
                         failed++;
                         failure(expiry.failures, f.name, errorText(error));
@@ -341,22 +379,21 @@
                 }
                 if (!failed) {
                     expiry.status.textContent = "Updated " + plural(total, "file") + ".";
-                    location.reload();
+                    done = true;
                     return;
                 }
                 expiry.status.textContent = (total - failed) + " of " + plural(total, "file") + " updated; " + failed + " failed:";
             } finally {
                 setRunning(false);
+                // All done: close. With failures the dialog stays open, so
+                // they can be read.
+                if (done) bootstrap.Modal.getOrCreateInstance(modal).hide();
             }
         });
         // While files are being changed the dialog cannot be dismissed (backdrop,
-        // Escape, Close): closing would reload the page mid-run and lose the failures
+        // Escape, Close): the run would carry on unseen and its failures be lost
         modal.addEventListener("hide.bs.modal", function (e) {
             if (expiry.running) e.preventDefault();
-        });
-        // After a partial run the failures stay readable until the dialog closes
-        modal.addEventListener("hidden.bs.modal", function () {
-            if (expiry.changed) location.reload();
         });
         return expiry;
     }
@@ -364,7 +401,6 @@
     function openExpiry(tiles) {
         if (!expiryDialog()) return;
         expiry.tiles = tiles;
-        expiry.changed = false;
         expiry.setRunning(false);
         document.getElementById("fgs-expiry-keep").checked = true;
         document.getElementById("fgs-limit-keep").checked = true;

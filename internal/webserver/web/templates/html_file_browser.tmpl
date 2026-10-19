@@ -12,7 +12,7 @@
 {{ define "file_browser" }}
 <div class="fgs-browser" id="{{ .Id }}" data-fgs-browser data-context="{{ .Context }}"
      data-default-view="{{ .DefaultView }}" data-current-view="{{ .DefaultView }}"
-     data-zip-url="{{ .ZipUrl }}" data-info-url="{{ .InfoUrl }}" data-collection-id="{{ .CollectionId }}"
+     data-legacy-ids="{{ .LegacyIds }}" data-zip-url="{{ .ZipUrl }}" data-info-url="{{ .InfoUrl }}" data-collection-id="{{ .CollectionId }}"
      data-count-label="{{ if eq .Context "upload" }}Uploaded now: {{ else }}Files: {{ end }}"
      data-user-id="{{ .ActiveUser.Id }}" data-user-name="{{ .ActiveUser.Name }}"
      data-perm-edit-others="{{ .Perm "edit-others" }}" data-perm-delete-others="{{ .Perm "delete-others" }}"
@@ -115,13 +115,14 @@
 
 {{/* One file in List. Dot is a browserTile. The ids (row-, cell-name-,
      cell-downloads-, url-button-) are the ones the upload page's helpers
-     look up, so they are only rendered where those helpers run. */}}
+     look up. They are only rendered where a page holds one browser (files,
+     upload, LegacyIds), so a file listed twice never repeats an id. */}}
 {{ define "file_browser_row" }}{{ $b := .B }}{{ $it := .Item }}{{ $f := $it.File }}
-<tr data-mine="{{ $it.Mine }}" data-row-id="{{ $f.Id }}"{{ if and $b.Manages $f.Id }} id="row-{{ $f.Id }}"{{ end }}>
+<tr data-mine="{{ $it.Mine }}" data-row-id="{{ $f.Id }}"{{ if and $b.LegacyIds $f.Id }} id="row-{{ $f.Id }}"{{ end }}>
   <td class="fgs-col-check"><input type="checkbox" class="form-check-input fgs-row-check" aria-label="Select {{ $f.Name }}"></td>
   <td data-col="name" data-order="{{ $f.Name }}"><div class="fgs-list-name">
     {{- if $it.Preview.Thumb }}<img class="fgs-list-thumb" loading="lazy" decoding="async" src="{{ $it.Preview.Thumb }}" alt="" style="background:{{ $it.Preview.Color }}">{{ else }}<span class="fgs-list-thumb fgs-list-icon" aria-hidden="true"><i class="bi {{ or $it.Icon "bi-file-earmark" }}"></i></span>{{ end }}
-    <button type="button" class="btn btn-link fgs-name-open" title="Open"><span class="fgs-row-name"{{ if and $b.Manages $f.Id }} id="cell-name-{{ $f.Id }}"{{ end }}>{{ $f.Name }}</span></button>
+    <button type="button" class="btn btn-link fgs-name-open" title="Open"><span class="fgs-row-name"{{ if and $b.LegacyIds $f.Id }} id="cell-name-{{ $f.Id }}"{{ end }}>{{ $f.Name }}</span></button>
   </div></td>
   {{ if $b.ShowUploader }}<td data-col="uploader">{{ $it.Uploader }}</td>{{ end }}
   <td data-col="uploaded" data-order="{{ $f.UploadDate }}"><span data-ts="{{ $f.UploadDate }}"></span></td>
@@ -129,11 +130,11 @@
   <td data-col="size" data-order="{{ $it.Bytes }}">{{ $f.Size }}</td>
   {{ if $b.Manages }}
   {{ if $f.UnlimitedTime }}<td data-col="expires" data-order="9223372036854775807">Never</td>{{ else }}<td data-col="expires" data-order="{{ $f.ExpireAt }}"><span data-ts="{{ $f.ExpireAt }}"></span></td>{{ end }}
-  <td data-col="downloads"{{ if $f.Id }} id="cell-downloads-{{ $f.Id }}"{{ end }}>{{ $f.DownloadCount }}</td>
+  <td data-col="downloads"{{ if and $b.LegacyIds $f.Id }} id="cell-downloads-{{ $f.Id }}"{{ end }}>{{ $f.DownloadCount }}</td>
   {{ end }}
   <td class="text-end"><div class="fgs-list-actions">
     {{- if $b.HasMenu "copy" }}
-    <button{{ if $f.Id }} id="url-button-{{ $f.Id }}"{{ end }} type="button" class="copyurl btn btn-outline-light btn-sm" onclick="showToast(1000)"
+    <button{{ if and $b.LegacyIds $f.Id }} id="url-button-{{ $f.Id }}"{{ end }} type="button" class="copyurl btn btn-outline-light btn-sm" onclick="showToast(1000)"
       data-clipboard-text="{{ $f.UrlDownload }}" title="Copy link" aria-label="Copy link"><i class="bi bi-copy"></i></button>
     {{- else if $b.HasMenu "download" }}
     <button type="button" class="btn btn-outline-light btn-sm" data-menu="download" title="Download" aria-label="Download"><i class="bi bi-download"></i></button>

@@ -102,8 +102,7 @@ type fileBrowser struct {
 }
 
 // newFileBrowser fills Menu, Bulk and DefaultView from the action table.
-// Callers on collection pages set CollectionId (and, for collection-public,
-// ZipUrl) afterwards.
+// Callers on collection pages then call WithCollection.
 func newFileBrowser(id, context string, items []browserItem, user models.User) fileBrowser {
 	actions, ok := browserActionTable[context]
 	if !ok {
@@ -137,6 +136,22 @@ func (b fileBrowser) HasBulk(key string) bool { return slices.Contains(b.Bulk, k
 // Manages is true where the list belongs to its owner: management columns
 // (expiry, download count) and data for the admin actions are rendered.
 func (b fileBrowser) Manages() bool { return b.HasMenu("edit") }
+
+// LegacyIds is true where the page holds a single browser (Files, Upload):
+// only there are the upload page's element ids (row-, cell-name-,
+// cell-downloads-, url-button-) rendered. Pages with one browser per
+// collection or request may list a file twice, and an id must not repeat.
+func (b fileBrowser) LegacyIds() bool { return b.Context == ctxFiles || b.Context == ctxUpload }
+
+// WithCollection scopes the browser to a collection: CollectionId, and on
+// the public page the counted collection zip of the selected members.
+// Admin browsers keep the uncounted owner zip.
+func (b *fileBrowser) WithCollection(c models.Collection) {
+	b.CollectionId = c.Id
+	if b.Context == ctxCollectionPublic {
+		b.ZipUrl = "./cz?id=" + c.Id + "&files="
+	}
+}
 
 // InfoUrl is where a tile whose preview is pending polls for it, up to the
 // "id=" its file id is appended to

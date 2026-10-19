@@ -3,9 +3,11 @@
 package webserver
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -185,4 +187,101 @@ func TestPreviewInfoRoutes(t *testing.T) {
 	remaining, count := downloadState(t, f.Id)
 	test.IsEqualInt(t, remaining, 3)
 	test.IsEqualInt(t, count, 0)
+}
+
+// renderBrowser renders the "file_browser" partial for one context with one
+// item, the way a page would
+func renderBrowser(t *testing.T, b fileBrowser) string {
+	t.Helper()
+	var out bytes.Buffer
+	test.IsNil(t, templateFolder.ExecuteTemplate(&out, "file_browser", b))
+	return out.String()
+}
+
+// Every context renders exactly the "⋯" entries and selection-bar actions of
+// its row of the table, and the upload page's element ids only where a page
+// holds one browser (Fix round 1: several browsers per page).
+func TestFileBrowserRendersOnlyItsActions(t *testing.T) {
+	f := accessFile("browserrender0001", func(f *models.File) { f.SHA1 = "browserrendersha"; f.Name = "render.pdf" })
+	user := models.User{Id: 7}
+	allMenu := []string{"open", "download", "copy", "share", "qr", "edit", "replace", "add-to-collection", "delete", "remove-from-collection"}
+	allBulk := []string{"download", "zip", "photos", "link", "add-to-collection", "change-expiry", "delete", "remove-from-collection"}
+	collection := models.Collection{Id: "colrender"}
+	for _, context := range []string{ctxFiles, ctxUpload, ctxCollectionAdmin, ctxFileRequest, ctxCollectionPublic} {
+		t.Run(context, func(t *testing.T) {
+			r := sessionRequest("validsession")
+			item := browserItemFromFile(r, f, user, context, collection.Id, map[int]string{7: "Seven"})
+			b := newFileBrowser("b-"+context, context, []browserItem{item}, user)
+			if context == ctxCollectionAdmin || context == ctxCollectionPublic {
+				b.WithCollection(collection)
+			}
+			html := renderBrowser(t, b)
+			test.IsEqualBool(t, strings.Contains(html, `data-context="`+context+`"`), true)
+			for _, key := range allMenu {
+				test.IsEqualBool(t, strings.Contains(html, `data-menu="`+key+`"`), b.HasMenu(key))
+			}
+			for _, key := range allBulk {
+				want := b.HasBulk(key) && (key != "zip" || b.ZipUrl != "")
+				test.IsEqualBool(t, strings.Contains(html, `data-act="`+key+`"`), want)
+			}
+			// Copy link only where a share link exists
+			test.IsEqualBool(t, strings.Contains(html, "copyurl"), b.HasMenu("copy"))
+			legacy := context == ctxFiles || context == ctxUpload
+			test.IsEqualBool(t, b.LegacyIds(), legacy)
+			test.IsEqualBool(t, strings.Contains(html, `data-legacy-ids="`+map[bool]string{true: "true", false: "false"}[legacy]+`"`), true)
+			for _, id := range []string{`id="row-` + f.Id, `id="cell-name-` + f.Id, `id="cell-downloads-` + f.Id, `id="url-button-` + f.Id} {
+				want := legacy && (id != `id="cell-downloads-`+f.Id || b.Manages()) && (id != `id="url-button-`+f.Id || b.HasMenu("copy"))
+				test.IsEqualBool(t, strings.Contains(html, id), want)
+			}
+			// Visitors and request pages carry no management data
+			if !b.Manages() {
+				test.IsEqualBool(t, strings.Contains(html, "data-can-edit"), false)
+				test.IsEqualBool(t, strings.Contains(html, "data-url="), false)
+			}
+			test.IsEqualBool(t, strings.Contains(html, `class="bi bi-file-earmark-pdf"`), true)
+		})
+	}
+	// Collections admin: one browser per collection, a file in two of them,
+	// still no id twice
+	r := sessionRequest("validsession")
+	item := browserItemFromFile(r, f, user, ctxCollectionAdmin, "", nil)
+	page := renderBrowser(t, newFileBrowser("col-a", ctxCollectionAdmin, []browserItem{item}, user)) +
+		renderBrowser(t, newFileBrowser("col-b", ctxCollectionAdmin, []browserItem{item}, user))
+	ids := regexp.MustCompile(` id="([^"]+)"`).FindAllStringSubmatch(page, -1)
+	seen := map[string]bool{}
+	for _, m := range ids {
+		test.IsEqualBool(t, seen[m[1]], false)
+		seen[m[1]] = true
+	}
+}
+
+// WithCollection sets the collection and, on the public page, the counted
+// zip of the selected members; admin browsers keep the owner zip
+func TestFileBrowserWithCollection(t *testing.T) {
+	c := models.Collection{Id: "colzip"}
+	pub := newFileBrowser("p", ctxCollectionPublic, nil, models.User{})
+	test.IsEqualString(t, pub.ZipUrl, "")
+	pub.WithCollection(c)
+	test.IsEqualString(t, pub.CollectionId, "colzip")
+	test.IsEqualString(t, pub.ZipUrl, "./cz?id=colzip&files=")
+	test.IsEqualString(t, pub.InfoUrl(), "./p/info?c=colzip&id=")
+	adm := newFileBrowser("a", ctxCollectionAdmin, nil, models.User{Id: 7})
+	adm.WithCollection(c)
+	test.IsEqualString(t, adm.CollectionId, "colzip")
+	test.IsEqualString(t, adm.ZipUrl, "./files/zip?ids=")
+}
+
+// Files added live get the same type icon as rendered ones: media.js holds
+// a copy of fileTypeIconGroups
+func TestFileTypeIconsMatchJs(t *testing.T) {
+	source, err := staticFolderEmbedded.ReadFile("web/static/js/media.js")
+	test.IsNil(t, err)
+	block := regexp.MustCompile(`(?s)FILE_TYPE_ICONS_BEGIN.*?var FILE_TYPE_ICONS = (\{.*?\});.*?FILE_TYPE_ICONS_END`).FindSubmatch(source)
+	test.IsEqualBool(t, block != nil, true)
+	js := map[string]string{}
+	test.IsNil(t, json.Unmarshal(block[1], &js))
+	test.IsEqualInt(t, len(js), len(fileTypeIconGroups))
+	for icon, extensions := range fileTypeIconGroups {
+		test.IsEqualString(t, js[icon], extensions)
+	}
 }

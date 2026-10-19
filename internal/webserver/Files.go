@@ -17,19 +17,23 @@ import (
 
 var fileTypeIcons = map[string]string{}
 
+// fileTypeIconGroups maps an icon to the extensions that get it. media.js
+// has the same table for files added live (TestFileTypeIconsMatchJs).
+var fileTypeIconGroups = map[string]string{
+	"bi-file-earmark-pdf":         "pdf",
+	"bi-file-earmark-image":       "jpg jpeg png gif webp heic heif avif bmp tif tiff svg dng raw cr2 nef arw",
+	"bi-file-earmark-play":        "mp4 mov m4v mkv webm avi wmv mpg mpeg 3gp",
+	"bi-file-earmark-music":       "mp3 m4a wav flac aac ogg opus aiff",
+	"bi-file-earmark-zip":         "zip rar 7z tar gz tgz bz2 xz zst dmg iso",
+	"bi-file-earmark-text":        "txt md rtf log",
+	"bi-file-earmark-word":        "doc docx odt pages",
+	"bi-file-earmark-spreadsheet": "xls xlsx ods csv numbers",
+	"bi-file-earmark-slides":      "ppt pptx odp key",
+	"bi-file-earmark-code":        "go js ts py c h cpp java rs sh html css json xml yaml yml sql",
+}
+
 func init() {
-	for icon, extensions := range map[string]string{
-		"bi-file-earmark-pdf":         "pdf",
-		"bi-file-earmark-image":       "jpg jpeg png gif webp heic heif avif bmp tif tiff svg dng raw cr2 nef arw",
-		"bi-file-earmark-play":        "mp4 mov m4v mkv webm avi wmv mpg mpeg 3gp",
-		"bi-file-earmark-music":       "mp3 m4a wav flac aac ogg opus aiff",
-		"bi-file-earmark-zip":         "zip rar 7z tar gz tgz bz2 xz zst dmg iso",
-		"bi-file-earmark-text":        "txt md rtf log",
-		"bi-file-earmark-word":        "doc docx odt pages",
-		"bi-file-earmark-spreadsheet": "xls xlsx ods csv numbers",
-		"bi-file-earmark-slides":      "ppt pptx odp key",
-		"bi-file-earmark-code":        "go js ts py c h cpp java rs sh html css json xml yaml yml sql",
-	} {
+	for icon, extensions := range fileTypeIconGroups {
 		for _, extension := range strings.Fields(extensions) {
 			fileTypeIcons[extension] = icon
 		}

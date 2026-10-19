@@ -520,6 +520,31 @@
   }
 
   var POLL_EVERY_MS = 3000, POLL_FOR_MS = 120000, POLL_BATCH = 8;
+
+  // The icon a file without a thumbnail gets, by extension. Must equal
+  // fileTypeIconGroups in Files.go (TestFileTypeIconsMatchJs checks).
+  // FILE_TYPE_ICONS_BEGIN
+  var FILE_TYPE_ICONS = {
+    "bi-file-earmark-pdf": "pdf",
+    "bi-file-earmark-image": "jpg jpeg png gif webp heic heif avif bmp tif tiff svg dng raw cr2 nef arw",
+    "bi-file-earmark-play": "mp4 mov m4v mkv webm avi wmv mpg mpeg 3gp",
+    "bi-file-earmark-music": "mp3 m4a wav flac aac ogg opus aiff",
+    "bi-file-earmark-zip": "zip rar 7z tar gz tgz bz2 xz zst dmg iso",
+    "bi-file-earmark-text": "txt md rtf log",
+    "bi-file-earmark-word": "doc docx odt pages",
+    "bi-file-earmark-spreadsheet": "xls xlsx ods csv numbers",
+    "bi-file-earmark-slides": "ppt pptx odp key",
+    "bi-file-earmark-code": "go js ts py c h cpp java rs sh html css json xml yaml yml sql"
+  };
+  // FILE_TYPE_ICONS_END
+  var iconByExtension = {};
+  Object.keys(FILE_TYPE_ICONS).forEach(function (icon) {
+    FILE_TYPE_ICONS[icon].split(" ").forEach(function (ext) { iconByExtension[ext] = icon; });
+  });
+  function fileTypeIcon(name) {
+    var m = /\.([^.]+)$/.exec(name || "");
+    return (m && iconByExtension[m[1].toLowerCase()]) || "bi-file-earmark";
+  }
   var VIEWS = ["grid", "board", "list"];
 
   function setData(el, name, value) {
@@ -552,6 +577,8 @@
     var infoUrl = root.getAttribute("data-info-url") || "";
     var zipUrl = root.getAttribute("data-zip-url") || "";
     var manages = !!(tplTile && tplTile.content.querySelector("[data-menu=edit]"));
+    // The upload page's element ids, only where the page holds one browser
+    var legacyIds = root.getAttribute("data-legacy-ids") === "true";
     var selecting = false, view = null, scope = "all", dataTable = null, api = null;
     var tilesById = {}, rowsById = {};
 
@@ -842,16 +869,22 @@
     });
 
     // Live thumbnails: a tile whose preview is still being made asks for it
-    // every few seconds for a while, and shows it once it is ready
-    var polls = {}, inFlight = {}, pollTimer = null, pollCursor = 0;
+    // every few seconds, and shows it once it is ready. The worker makes
+    // previews one at a time, so a big batch can stay pending for minutes:
+    // a tile gives up only after POLL_FOR_MS without progress, measured from
+    // when it was first seen pending or, if later, from when any tile of
+    // this list last left pending (the queue is moving).
+    var polls = {}, inFlight = {}, pollTimer = null, pollCursor = 0, lastProgress = Date.now();
     function startPolling(id) {
       if (!infoUrl || polls[id]) return;
-      polls[id] = Date.now() + POLL_FOR_MS;
+      polls[id] = Date.now(); // first seen pending
       if (!pollTimer) pollTimer = window.setInterval(pollTick, POLL_EVERY_MS);
     }
     function pollTick() {
       var now = Date.now();
-      Object.keys(polls).forEach(function (id) { if (polls[id] < now || !tilesById[id]) delete polls[id]; });
+      Object.keys(polls).forEach(function (id) {
+        if (!tilesById[id] || now - Math.max(polls[id], lastProgress) > POLL_FOR_MS) delete polls[id];
+      });
       var ids = Object.keys(polls);
       if (!ids.length) { window.clearInterval(pollTimer); pollTimer = null; return; }
       if (document.hidden) return;
@@ -869,6 +902,7 @@
           .then(function (info) {
             if (!info || !info.Status || info.Status === "pending") return;
             delete polls[id];
+            lastProgress = Date.now();
             applyPreview(id, info);
           })
           .catch(function () { /* try again next tick */ })
@@ -985,6 +1019,8 @@
       tileCheck(tile).setAttribute("aria-label", "Select " + name);
       var small = tile.querySelector(".fgs-typeicon small");
       if (small) small.textContent = name.slice(0, 40);
+      var icon = fileTypeIcon(name);
+      Array.prototype.forEach.call(tile.querySelectorAll(".fgs-typeicon i"), function (i) { i.className = "bi " + icon; });
       tile.querySelector(".fgs-name").textContent = name;
       tile.querySelector(".fgs-meta-uploader").textContent = uploader ? uploader + " · " : "";
       setData(tile.querySelector("figcaption [data-ts]"), "ts", file.UploadDate || 0);
@@ -993,13 +1029,13 @@
       var row = tplRow.content.firstElementChild.cloneNode(true);
       setData(row, "mine", mine);
       setData(row, "row-id", id);
-      if (manages) row.id = "row-" + id;
+      if (legacyIds) row.id = "row-" + id;
       rowCheck(row).setAttribute("aria-label", "Select " + name);
       var nameCell = row.querySelector("td[data-col=name]");
       nameCell.setAttribute("data-order", name);
       var nameSpan = row.querySelector(".fgs-row-name");
       nameSpan.textContent = name;
-      if (manages) nameSpan.id = "cell-name-" + id;
+      if (legacyIds) nameSpan.id = "cell-name-" + id;
       var cell = function (k) { return row.querySelector("td[data-col=" + k + "]"); };
       if (cell("uploader")) cell("uploader").textContent = uploader;
       cell("uploaded").setAttribute("data-order", String(file.UploadDate || 0));
@@ -1018,14 +1054,15 @@
         }
       }
       if (cell("downloads")) {
-        cell("downloads").id = "cell-downloads-" + id;
+        if (legacyIds) cell("downloads").id = "cell-downloads-" + id;
         cell("downloads").textContent = String(file.DownloadCount || 0);
       }
       var copy = row.querySelector(".copyurl");
       if (copy) {
-        copy.id = "url-button-" + id;
+        if (legacyIds) copy.id = "url-button-" + id;
         copy.setAttribute("data-clipboard-text", file.UrlDownload || "");
       }
+      Array.prototype.forEach.call(row.querySelectorAll(".fgs-list-icon i"), function (i) { i.className = "bi " + icon; });
       fillMenu(row.querySelector("[data-fgs-file-menu]"), file, perms);
       formatTimes(tile);
       formatTimes(row);
@@ -1041,6 +1078,52 @@
       refreshCount();
       layoutBoard();
       updateSelection();
+      return tile;
+    }
+
+    // A file changed on the server (edit, expiry & limits): its new
+    // FileApiOutput onto the tile, the row and both menus, in place. The
+    // preview, position, selection and permissions stay as they are.
+    function updateItem(file) {
+      var id = file && file.Id;
+      var tile = tilesById[id], row = rowsById[id];
+      if (!tile) return null;
+      var menu = menuOf(tile);
+      var was = function (k) {
+        if (manages) return menu.getAttribute("data-can-" + k) === "true";
+        var b = menu.querySelector("[data-menu=" + k + "]");
+        return !!b && !b.disabled;
+      };
+      var perms = { edit: was("edit"), del: was("delete"), replace: was("replace") };
+      var name = file.Name || tile.getAttribute("data-name") || "";
+      setData(tile, "name", name);
+      if (file.Size !== undefined) setData(tile, "size", file.Size);
+      if (file.SizeBytes !== undefined) setData(tile, "bytes", file.SizeBytes);
+      tile.querySelector(".fgs-tile-open").setAttribute("aria-label", "Open " + name);
+      tileCheck(tile).setAttribute("aria-label", "Select " + name);
+      tile.querySelector(".fgs-name").textContent = name;
+      var small = tile.querySelector(".fgs-typeicon small");
+      if (small) small.textContent = name.slice(0, 40);
+      fillMenu(menu, file, perms);
+      if (row) {
+        rowCheck(row).setAttribute("aria-label", "Select " + name);
+        row.querySelector("td[data-col=name]").setAttribute("data-order", name);
+        row.querySelector(".fgs-row-name").textContent = name;
+        var cell = function (k) { return row.querySelector("td[data-col=" + k + "]"); };
+        if (cell("size") && file.Size !== undefined) {
+          cell("size").setAttribute("data-order", String(file.SizeBytes || 0));
+          cell("size").textContent = file.Size;
+        }
+        if (cell("expires")) {
+          cell("expires").setAttribute("data-order", file.UnlimitedTime ? "9223372036854775807" : String(file.ExpireAt || 0));
+          cell("expires").textContent = file.UnlimitedTime ? "Never" : fmt(file.ExpireAt);
+        }
+        if (cell("downloads") && file.DownloadCount !== undefined) cell("downloads").textContent = String(file.DownloadCount);
+        var copy = row.querySelector(".copyurl");
+        if (copy) copy.setAttribute("data-clipboard-text", file.UrlDownload || "");
+        fillMenu(row.querySelector("[data-fgs-file-menu]"), file, perms);
+        if (dataTable) dataTable.row(row).invalidate("dom");
+      }
       return tile;
     }
 
@@ -1064,6 +1147,7 @@
       context: context,
       addItem: addItem,
       removeItem: removeItem,
+      updateItem: updateItem,
       applyPreview: applyPreview,
       tile: function (id) { return tilesById[id] || null; },
       row: function (id) { return rowsById[id] || null; },
@@ -1123,6 +1207,14 @@
   function initAllFileBrowsers() {
     Array.prototype.forEach.call(document.querySelectorAll("[data-fgs-browser]"), FGS.initFileBrowser);
   }
+  // fn(browser) for every file list on the page, e.g. to drop a deleted file
+  // from each list that shows it
+  FGS.eachFileBrowser = function (fn) {
+    Array.prototype.forEach.call(document.querySelectorAll("[data-fgs-browser]"), function (root) {
+      var b = FGS.initFileBrowser(root);
+      if (b) fn(b);
+    });
+  };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initAllFileBrowsers);
   else initAllFileBrowsers();
 })();

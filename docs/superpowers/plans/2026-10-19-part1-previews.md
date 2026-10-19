@@ -2788,18 +2788,25 @@ Save screenshots to `~/src/Gokapi/build/e2e/screens-part1/`. That directory is n
 
 - [ ] **Step 3: Backfill dry run on a read-only copy of the real data.** No photos leave the mini, and none are committed.
 
+The live volumes are `gokapi_gokapi_data` and `gokapi_gokapi_config`, with the compose project prefix. Copy **both** first. **Never mount a live volume into a second container.**
+
 ```bash
-docker run --rm -v gokapi_data:/from:ro -v gokapi-previews-realcopy:/to alpine sh -c 'cp -a /from/. /to/'
-docker run --rm --name gokapi-previews-real -p 127.0.0.1:53901:53842 \
+export DOCKER_HOST=unix:///Users/franco/.colima/default/docker.sock
+docker run --rm -v gokapi_gokapi_data:/from:ro -v gokapi-previews-realcopy:/to alpine sh -c 'cp -a /from/. /to/'
+docker run --rm -v gokapi_gokapi_config:/from:ro -v gokapi-previews-realconfig:/to alpine sh -c 'cp -a /from/. /to/'
+docker run -d --name gokapi-previews-real -p 127.0.0.1:53901:53842 \
   --security-opt no-new-privileges:true --cap-drop ALL --pids-limit 200 --memory 1g --cpus 1.5 \
   -e TZ=Europe/Zurich -e GOKAPI_LOG_STDOUT=true \
-  -v gokapi-previews-realcopy:/app/data -v gokapi_config:/app/config:ro gokapi-fgs:previews-dev & sleep 300; docker stop gokapi-previews-real
-docker run --rm -v gokapi-previews-realcopy:/d alpine sh -c 'apk add -q sqlite >/dev/null; sqlite3 /d/gokapi.sqlite "SELECT Status, COUNT(*) FROM Previews GROUP BY Status;"; du -sh /d/previews'
+  -v gokapi-previews-realcopy:/app/data -v gokapi-previews-realconfig:/app/config gokapi-fgs:previews-dev
 ```
 
-**Before running this,** check whether Gokapi writes to its config directory on start. If it does, `:ro` will fail. In that case copy the config volume too, into `gokapi-previews-realconfig`, the same way as the data. **Never mount the live `gokapi_config` read-write in a second container.**
+Then wait in the foreground; the house rule allows no background jobs. Every 30 s, run `docker logs --tail 5 gokapi-previews-real` and `docker stats --no-stream gokapi-previews-real` (note the peak memory). Stop polling when no new `preview:` lines have appeared for 60 s. Then:
 
-The `&` / `sleep` pattern above violates the house rule against background work. Use `docker run -d` and then a foreground `docker logs -f --until=300s` wait instead. Watch the output for `preview:` error lines.
+```bash
+docker stop gokapi-previews-real && docker rm gokapi-previews-real
+docker run --rm -v gokapi-previews-realcopy:/d alpine sh -c 'apk add -q sqlite >/dev/null; sqlite3 /d/gokapi.sqlite "SELECT Status, COUNT(*) FROM Previews GROUP BY Status;"; du -sh /d/previews /d'
+docker logs gokapi-previews-real 2>&1 | grep "preview:"   # run before rm if you need the failure reasons
+```
 
 Expected:
 - Counts per status, with the majority `ready`, `unsupported` for non-media, and `failed` listed with reasons from the logs.
@@ -2809,10 +2816,8 @@ Expected:
 Record the numbers for Franco. Then clean up:
 
 ```bash
-docker volume rm gokapi-previews-realcopy
+docker volume rm gokapi-previews-realcopy gokapi-previews-realconfig
 ```
-
-Also remove the realconfig volume if you created one.
 
 - [ ] **Step 4: Tear down the test instance.**
 
@@ -2894,6 +2899,6 @@ Then restore the database from Step 1 into the volume while the container is sto
 | Zip: store-only, streaming, taken-at times, `CanView` | 1, 5, 7 |
 | Device buttons: desktop vs iPhone | 1, 10 |
 | Phone help sheet | 1 |
-| Upload button keeps originals | Not separately tasked. Gokapi's upload input has no `accept` filter, which already gets originals from the iOS picker. Task 12 confirms the HEIC stays HEIC (checked by fingerprint). |
+| Upload button keeps originals | Not separately tasked. Verified 2026-10-19: neither `admin_ui_upload.js` nor `html_admin.tmpl` sets `acceptedFiles` or `accept`, so the iOS picker is not asked to convert. Task 12 confirms an uploaded HEIC stays HEIC (fingerprint check). |
 | Combine toggle default on | 11 |
 | Testing: `CanView` matrix, fixtures, zip byte-equality, Playwright | 1, 3, 5, 12 |

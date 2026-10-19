@@ -366,19 +366,20 @@ func TestPreviewRoutesDeny(t *testing.T) {
 }
 
 func TestPreviewUrls(t *testing.T) {
+	anonRq := sessionRequest("")
 	f := accessFile("previewurls000000001", func(f *models.File) { f.SHA1 = "urlssha1abcdefghijkl" })
-	info := previewUrls(f, "", "d?id=x")
+	info := previewUrls(anonRq, f, "", "d?id=x")
 	test.IsEqualString(t, info.Status, "")
 	test.IsEqualString(t, info.Download, "d?id=x")
 	test.IsEqualString(t, info.Thumb, "")
 
 	database.SavePreview(models.Preview{Sha1: f.SHA1, Status: models.PreviewPending})
-	info = previewUrls(f, "", "d?id=x")
+	info = previewUrls(anonRq, f, "", "d?id=x")
 	test.IsEqualString(t, info.Status, models.PreviewPending)
 	test.IsEqualString(t, info.Thumb, "")
 
 	database.SavePreview(models.Preview{Sha1: f.SHA1, Status: models.PreviewReady, Kind: models.PreviewKindImage, Width: 3, Height: 2, Color: "#000000", TakenAt: 5})
-	info = previewUrls(f, "colid", "d?id=x")
+	info = previewUrls(anonRq, f, "colid", "d?id=x")
 	test.IsEqualString(t, info.Thumb, "./p/thumb?id="+f.Id+"&v=urlssha1abcd&c=colid")
 	test.IsEqualString(t, info.View, "./p/view?id="+f.Id+"&v=urlssha1abcd&c=colid")
 	test.IsEqualString(t, info.Video, "")
@@ -386,6 +387,68 @@ func TestPreviewUrls(t *testing.T) {
 	test.IsEqualInt64(t, info.TakenAt, 5)
 
 	database.SavePreview(models.Preview{Sha1: f.SHA1, Status: models.PreviewReady, Kind: models.PreviewKindVideo})
-	info = previewUrls(f, "", "d?id=x")
+	info = previewUrls(anonRq, f, "", "d?id=x")
 	test.IsEqualString(t, info.Video, "./p/video?id="+f.Id+"&v=urlssha1abcd")
+}
+
+// Ruling 19: a capped video streams only for its uploader or a PERM_LIST
+// user, and only they are offered the video URL. Ruling 22: an encrypted
+// video is never offered, because /p/video refuses it.
+func TestVideoStreamingRespectsDownloadCap(t *testing.T) {
+	database.SaveUser(models.User{Id: 8, Name: "Stranger", Permissions: models.UserPermissionNone, UserLevel: models.UserLevelUser}, false)
+	database.SaveSession("accessstranger", models.Session{RenewAt: 2147483645, ValidUntil: 2147483646, UserId: 8})
+	database.SaveSession("accessadmin", models.Session{RenewAt: 2147483645, ValidUntil: 2147483646, UserId: 5})
+
+	capped := accessFile("videocapped00000001", func(f *models.File) {
+		f.SHA1 = "videocappedsha"
+		f.ContentType = "video/mp4"
+		f.UnlimitedDownloads = false
+		f.DownloadsRemaining = 3
+	})
+	open := accessFile("videoopen0000000001", func(f *models.File) { f.SHA1 = "videoopensha"; f.ContentType = "video/mp4" })
+	encrypted := accessFile("videoencrypted00001", func(f *models.File) {
+		f.SHA1 = "videoencsha"
+		f.ContentType = "video/mp4"
+		f.Encryption.IsEncrypted = true
+	})
+	for _, f := range []models.File{capped, open, encrypted} {
+		database.SavePreview(models.Preview{Sha1: f.SHA1, Status: models.PreviewReady, Kind: models.PreviewKindVideo, Updated: 1})
+	}
+
+	stream := func(token, id string) int {
+		r := httptest.NewRequest("GET", "/p/video?id="+id, nil)
+		if token != "" {
+			r.AddCookie(&http.Cookie{Name: "session_token", Value: token})
+		}
+		w := httptest.NewRecorder()
+		streamVideo(w, r)
+		return w.Code
+	}
+	offered := func(token string, f models.File) bool {
+		return previewUrls(sessionRequest(token), f, "", "d?id=x").Video != ""
+	}
+
+	// The uploader (validsession is user 7) and the PERM_LIST admin may play it
+	for _, token := range []string{"validsession", "accessadmin"} {
+		test.IsEqualInt(t, stream(token, capped.Id), http.StatusOK)
+		test.IsEqualBool(t, offered(token, capped), true)
+	}
+	// A link holder, logged in or not, may not - and is not offered the URL,
+	// but still gets the still and the download
+	for _, token := range []string{"", "accessstranger"} {
+		test.IsEqualInt(t, stream(token, capped.Id), http.StatusNotFound)
+		info := previewUrls(sessionRequest(token), capped, "", "d?id=x")
+		test.IsEqualString(t, info.Video, "")
+		test.IsEqualBool(t, info.View != "", true)
+		test.IsEqualString(t, info.Download, "d?id=x")
+	}
+	// Without a cap, anyone who can see it can play it
+	test.IsEqualInt(t, stream("", open.Id), http.StatusOK)
+	test.IsEqualBool(t, offered("", open), true)
+	// Streaming never touched the cap
+	test.IsEqualInt(t, database.GetDownloadsRemaining(capped.Id), 3)
+
+	// Encrypted: refused and never offered, not even to the uploader
+	test.IsEqualInt(t, stream("validsession", encrypted.Id), http.StatusNotFound)
+	test.IsEqualBool(t, offered("validsession", encrypted), false)
 }

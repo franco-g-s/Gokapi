@@ -36,6 +36,23 @@ func CanView(r *http.Request, file models.File, collectionId string) bool {
 	return current.PasswordHash == "" || ValidFilePwCookie(r, current.Id)
 }
 
+// MayStream reports whether /p/video may play the file inline for this
+// request, on top of CanView. Streaming is never counted, so a file with a
+// download cap streams only for its uploader or a PERM_LIST user - anyone
+// else could otherwise watch it without ever spending the cap (Ruling 19).
+// Remote and encrypted files are never streamed: the server would have to
+// proxy or decrypt them. Pass the current model (storage.GetFile).
+func MayStream(r *http.Request, file models.File) bool {
+	if !file.IsLocalStorage() || file.Encryption.IsEncrypted {
+		return false
+	}
+	if file.UnlimitedDownloads {
+		return true
+	}
+	user, loggedIn := authentication.SessionIdentity(r)
+	return loggedIn && (user.Id == file.UserId || user.HasPermission(models.UserPermListOtherUploads))
+}
+
 // ValidFilePwCookie checks the cookie set after entering a file's password
 func ValidFilePwCookie(r *http.Request, fileId string) bool {
 	c, err := r.Cookie("p" + fileId)

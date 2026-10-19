@@ -115,7 +115,7 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, f := range collection.Files {
 		view.Items = append(view.Items, collectionItem{File: f,
-			Preview: previewUrls(f, collection.Id, "./cd?id="+collection.Id+"&file="+f.Id)})
+			Preview: previewUrls(r, f, collection.Id, "./cd?id="+collection.Id+"&file="+f.Id)})
 	}
 	// Expiry is derived from the longest-lived member, not stored.
 	latest, never := collection.LatestExpiry()

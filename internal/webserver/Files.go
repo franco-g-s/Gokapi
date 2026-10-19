@@ -102,7 +102,7 @@ func showFiles(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		row := fileRow{File: out, Uploader: names[f.UserId], Mine: f.UserId == user.Id}
-		row.Preview = previewUrls(f, "", directDownloadUrl(out))
+		row.Preview = previewUrls(r, f, "", directDownloadUrl(out))
 		row.TakenAt = row.Preview.TakenAt
 		view.Rows = append(view.Rows, row)
 	}

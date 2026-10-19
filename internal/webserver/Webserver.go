@@ -638,7 +638,7 @@ func showDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !file.Encryption.IsEndToEndEncrypted {
-		view.Preview = previewUrls(file, "", "./downloadFile?id="+file.Id)
+		view.Preview = previewUrls(r, file, "", "./downloadFile?id="+file.Id)
 	}
 	err := templateFolder.ExecuteTemplate(w, "download", view)
 	helper.CheckIgnoreTimeout(err)

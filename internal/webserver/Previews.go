@@ -29,8 +29,11 @@ type previewInfo struct {
 }
 
 // previewUrls builds the display URLs for a file. collectionId scopes access
-// checks to a collection page; download is the original-file URL to show.
-func previewUrls(file models.File, collectionId, download string) previewInfo {
+// checks to a collection page; download is the original-file URL to show. The
+// request decides whether a video URL is offered: only when /p/video would
+// actually play it for this viewer (access.MayStream), so the viewer falls
+// back to the still and the download button rather than a dead player.
+func previewUrls(r *http.Request, file models.File, collectionId, download string) previewInfo {
 	info := previewInfo{Download: download}
 	p, ok := database.GetPreview(file.SHA1)
 	if !ok {
@@ -46,7 +49,7 @@ func previewUrls(file models.File, collectionId, download string) previewInfo {
 		q += "&c=" + collectionId
 	}
 	info.Thumb, info.View = "./p/thumb"+q, "./p/view"+q
-	if p.Kind == models.PreviewKindVideo {
+	if p.Kind == models.PreviewKindVideo && access.MayStream(r, file) {
 		info.Video = "./p/video" + q
 	}
 	return info
@@ -90,10 +93,12 @@ func servePreviewFile(which string) http.HandlerFunc {
 //
 // It only serves files the worker has classified as video, so it is not a
 // second, uncounted way to fetch an arbitrary upload, and never an upload's
-// own Content-Type unless that is a video type.
+// own Content-Type unless that is a video type. A file with a download cap
+// streams only for its uploader or a PERM_LIST user (access.MayStream), so it
+// is not an uncounted way around the cap either.
 func streamVideo(w http.ResponseWriter, r *http.Request) {
 	file, ok := storage.GetFile(r.URL.Query().Get("id"))
-	if !ok || !access.CanView(r, file, r.URL.Query().Get("c")) || !file.IsLocalStorage() || file.Encryption.IsEncrypted {
+	if !ok || !access.CanView(r, file, r.URL.Query().Get("c")) || !access.MayStream(r, file) {
 		http.NotFound(w, r)
 		return
 	}

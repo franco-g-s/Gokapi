@@ -58,6 +58,14 @@ func Start() {
 	running = true
 	storage.OnBlobDeleted = removeBlob
 	storage.OnBlobAdded = Enqueue
+	// Zip entries carry the capture time once the worker knows it. Set here
+	// because storage cannot import preview.
+	storage.ZipEntryTime = func(f models.File) time.Time {
+		if p, ok := database.GetPreview(f.SHA1); ok && p.TakenAt > 0 {
+			return time.Unix(p.TakenAt, 0)
+		}
+		return time.Unix(f.UploadDate, 0)
+	}
 	go loop(queue, stopCh)
 	go backfill()
 }

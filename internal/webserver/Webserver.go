@@ -33,6 +33,7 @@ import (
 	"github.com/forceu/gokapi/internal/logging/serverstats"
 	"github.com/forceu/gokapi/internal/models"
 	"github.com/forceu/gokapi/internal/storage"
+	"github.com/forceu/gokapi/internal/webserver/access"
 	"github.com/forceu/gokapi/internal/storage/filerequest"
 	"github.com/forceu/gokapi/internal/storage/presign"
 	"github.com/forceu/gokapi/internal/webserver/api"
@@ -134,6 +135,10 @@ func Start() {
 	mux.HandleFunc("/c", showCollection)
 	mux.HandleFunc("/cd", downloadCollectionFile)
 	mux.HandleFunc("/cz", downloadCollectionZip)
+	mux.HandleFunc("/p/thumb", servePreviewFile("thumb"))
+	mux.HandleFunc("/p/view", servePreviewFile("view"))
+	mux.HandleFunc("/p/poster", servePreviewFile("poster"))
+	mux.HandleFunc("/p/video", streamVideo)
 	mux.HandleFunc("/d/{id}/{filename}", redirectFromFilename)
 	mux.HandleFunc("/dh/{id}/{filename}", downloadFileWithNameInUrl)
 
@@ -1167,11 +1172,7 @@ func writeFilePwCookie(w http.ResponseWriter, file models.File) {
 
 // Checks if a cookie contains the correct token for a password-protected file
 func isValidPwCookie(r *http.Request, file models.File) bool {
-	cookie, err := r.Cookie("p" + file.Id)
-	if err != nil {
-		return false
-	}
-	return downloadPasswordToken.IsValid(cookie.Value, file.Id)
+	return access.ValidFilePwCookie(r, file.Id)
 }
 
 // Adds a header to disable external caching

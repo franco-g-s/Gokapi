@@ -18,12 +18,18 @@ type pwToken struct {
 
 const ttl = 5 * time.Minute
 
+// Generate creates a token valid for the default lifetime
 func Generate(fileId string) string {
+	return GenerateWithTtl(fileId, ttl)
+}
+
+// GenerateWithTtl is Generate with a caller-chosen lifetime
+func GenerateWithTtl(fileId string, lifetime time.Duration) string {
 	token := helper.GenerateRandomString(60)
 	mutex.Lock()
 	tokens[token] = pwToken{
 		FileId: fileId,
-		Expiry: time.Now().Add(ttl).Unix(),
+		Expiry: time.Now().Add(lifetime).Unix(),
 	}
 	mutex.Unlock()
 

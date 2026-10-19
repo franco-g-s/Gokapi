@@ -12,6 +12,7 @@ import (
 	"github.com/forceu/gokapi/internal/logging"
 	"github.com/forceu/gokapi/internal/models"
 	"github.com/forceu/gokapi/internal/storage"
+	"github.com/forceu/gokapi/internal/webserver/access"
 	"github.com/forceu/gokapi/internal/webserver/authentication"
 	"github.com/forceu/gokapi/internal/webserver/authentication/downloadPasswordToken"
 	"github.com/forceu/gokapi/internal/webserver/errorHandling"
@@ -305,13 +306,17 @@ func showCollectionsAdmin(w http.ResponseWriter, r *http.Request) {
 	helper.CheckIgnoreTimeout(err)
 }
 
-// writeCollectionPwCookie stores a short-lived token proving the password was
-// entered for this collection
+// collectionUnlockLifetime is how long entering a collection's password keeps
+// it open. Long enough that a board of many previews keeps loading.
+const collectionUnlockLifetime = 12 * time.Hour
+
+// writeCollectionPwCookie stores a token proving the password was entered for
+// this collection
 func writeCollectionPwCookie(w http.ResponseWriter, collection models.Collection) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "pc" + collection.Id,
-		Value:    downloadPasswordToken.Generate(collection.Id),
-		Expires:  time.Now().Add(5 * time.Minute),
+		Value:    downloadPasswordToken.GenerateWithTtl(collection.Id, collectionUnlockLifetime),
+		Expires:  time.Now().Add(collectionUnlockLifetime),
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 	})
@@ -319,11 +324,7 @@ func writeCollectionPwCookie(w http.ResponseWriter, collection models.Collection
 
 // isValidCollectionPwCookie returns true if the request carries a valid token
 func isValidCollectionPwCookie(r *http.Request, collection models.Collection) bool {
-	cookie, err := r.Cookie("pc" + collection.Id)
-	if err != nil {
-		return false
-	}
-	return downloadPasswordToken.IsValid(cookie.Value, collection.Id)
+	return access.ValidCollectionPwCookie(r, collection.Id)
 }
 
 // collectionModifyRequest renames a collection and/or replaces its members

@@ -12,6 +12,7 @@ import (
 	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/models"
+	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/test"
 	"github.com/forceu/gokapi/internal/test/testconfiguration"
 )
@@ -217,4 +218,19 @@ func TestProcessCountsAttemptBeforeWorkAndSurvivesPanic(t *testing.T) {
 	generateFn = orig
 	Enqueue(models.File{Id: "panicfile0000000002", Name: "q.pdf", SHA1: "afterpanicsha1", ContentType: "application/pdf"})
 	test.IsEqualString(t, waitStatus(t, "afterpanicsha1").Status, models.PreviewUnsupported)
+}
+
+func TestStartSetsZipEntryTime(t *testing.T) {
+	Start()
+	defer Stop()
+	database.SavePreview(models.Preview{Sha1: "ziptimesha", Status: models.PreviewReady, TakenAt: 1700000000})
+	got := storage.ZipEntryTime(models.File{SHA1: "ziptimesha", UploadDate: 1600000000})
+	test.IsEqualInt64(t, got.Unix(), 1700000000)
+	// no capture time: the upload date
+	database.SavePreview(models.Preview{Sha1: "ziptimenone", Status: models.PreviewReady})
+	got = storage.ZipEntryTime(models.File{SHA1: "ziptimenone", UploadDate: 1600000000})
+	test.IsEqualInt64(t, got.Unix(), 1600000000)
+	// no preview row at all
+	got = storage.ZipEntryTime(models.File{SHA1: "ziptimemissing", UploadDate: 1600000000})
+	test.IsEqualInt64(t, got.Unix(), 1600000000)
 }

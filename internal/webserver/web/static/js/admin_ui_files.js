@@ -54,7 +54,8 @@ function initFilesPage() {
             headers: { "Content-Type": "application/json" },
             credentials: "same-origin",
             body: JSON.stringify({
-                name: tiles.length + " files",
+                // The name heads the public board: a lone file is named after itself
+                name: tiles.length === 1 ? tiles[0].getAttribute("data-name") : tiles.length + " files",
                 fileIds: tiles.map(function (t) { return t.getAttribute("data-id"); })
             })
         })

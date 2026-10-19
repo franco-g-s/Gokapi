@@ -1191,6 +1191,15 @@
               "type": "boolean"
             },
             "description": "Set to true to use the original password. Field \"password\" will be ignored if set."
+          },
+          {
+            "name": "filename",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Renames the file. The name is sanitised (path separators and control characters are removed) and must not be empty afterwards. The name is unchanged if the header is not sent. If the filename includes non-ANSI characters, you can encode them with base64, by adding 'base64:' at the beginning, e.g. 'base64:ZmlsZW5hbWU='"
           }
         ],
         "responses": {

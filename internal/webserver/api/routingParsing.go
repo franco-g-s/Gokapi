@@ -358,6 +358,23 @@ func (p *paramFilesModify) ParseRequest(r *http.Request) error {
 		}
 	}
 
+	// RequestParser header value "filename", required: false, has base64support
+	exists, err = checkHeaderExists(r, "filename", false, true)
+	if err != nil {
+		return err
+	}
+	p.foundHeaders["filename"] = exists
+	if exists {
+		p.FileName = r.Header.Get("filename")
+		if strings.HasPrefix(p.FileName, "base64:") {
+			decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(p.FileName, "base64:"))
+			if err != nil {
+				return err
+			}
+			p.FileName = string(decoded)
+		}
+	}
+
 	return p.ProcessParameter(r)
 }
 

@@ -119,6 +119,10 @@ func apiEditFile(w http.ResponseWriter, r requestParser, user models.User, _ mod
 		downloadPasswordToken.DeleteAllForFile(file.Id)
 	}
 
+	if request.FileName != "" {
+		file.Name = request.FileName
+	}
+
 	if file.HotlinkId != "" && !storage.IsAbleHotlink(file) {
 		database.DeleteHotlink(file.HotlinkId)
 		file.HotlinkId = ""

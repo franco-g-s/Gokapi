@@ -386,7 +386,19 @@ function editFile() {
         replaceFile = (replaceId != "");
     }
 
-    apiFilesModify(id, allowedDownloads, expiryTimestamp, password, originalPassword)
+    // The name is only sent when it was changed
+    let nameInput = document.getElementById('mi_edit_name');
+    let newName = null;
+    if (!nameInput.disabled && nameInput.value !== nameInput.getAttribute('data-original')) {
+        newName = nameInput.value.trim();
+        if (newName === '') {
+            alert("The name cannot be empty");
+            button.disabled = false;
+            return;
+        }
+    }
+
+    apiFilesModify(id, allowedDownloads, expiryTimestamp, password, originalPassword, newName)
         .then(data => {
             if (!replaceFile) {
                 showEditedFile(data);
@@ -445,6 +457,14 @@ function showEditModal(filename, id, downloads, expiry, password, unlimitedown, 
     });
 
     document.getElementById("m_filenamelabel").innerText = filename;
+    let nameInput = document.getElementById("mi_edit_name");
+    nameInput.value = filename;
+    nameInput.setAttribute("data-original", filename);
+    if (isE2e) {
+        // The real name of an encrypted file lives inside the encrypted data
+        nameInput.disabled = true;
+        nameInput.title = "Renaming is not available for end-to-end encrypted files";
+    }
     document.getElementById("mc_expiry").setAttribute("data-timestamp", expiry);
     document.getElementById("mb_save").setAttribute('data-fileid', id);
     createCalendar("mi_edit_expiry", expiry);

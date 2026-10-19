@@ -27,6 +27,9 @@
     <button type="button" class="btn btn-sm btn-outline-light" data-act="zip">Download as .zip</button>
     <button type="button" class="btn btn-sm btn-outline-light d-none" data-act="photos">Save to Photos</button>
     <button type="button" class="btn btn-sm btn-outline-light" data-act="link">Create one link</button>
+    <button type="button" class="btn btn-sm btn-outline-light" data-act="add-to-collection">Add to collection…</button>
+    <button type="button" class="btn btn-sm btn-outline-light" data-act="change-expiry">Change expiry &amp; limits</button>
+    <button type="button" class="btn btn-sm btn-outline-danger" data-act="delete">Delete</button>
     <button type="button" class="btn btn-sm btn-link text-muted d-none" data-fgs-help aria-label="How to save to Photos"><i class="bi bi-question-circle"></i></button>
     <span id="fgs-selstatus" class="small text-muted" aria-live="polite"></span>
     <div id="fgs-linkresult" aria-live="polite"></div>
@@ -87,6 +90,70 @@
 </div></div></div></div>
 
 {{ template "admin_modal_edit" }}
+
+<div class="modal fade" id="fgs-collect-modal" tabindex="-1" aria-labelledby="fgs-collect-title" aria-hidden="true" data-server-url="{{ .ServerUrl }}">
+  <div class="modal-dialog gokapi-dialog">
+    <div class="modal-content gokapi-dialog text-start">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="fgs-collect-title">Add to collection…</h1>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small" id="fgs-collect-what"></p>
+        <div class="list-group mb-3 fgs-collect-list" id="fgs-collect-list" aria-label="Your collections"></div>
+        <label for="fgs-collect-name" class="form-label">New collection</label>
+        <div class="input-group">
+          <input type="text" class="form-control" id="fgs-collect-name" maxlength="200" placeholder="Name">
+          <button type="button" class="btn btn-outline-light" id="fgs-collect-create">Create</button>
+        </div>
+        <div id="fgs-collect-result" aria-live="polite"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="fgs-expiry-modal" tabindex="-1" aria-labelledby="fgs-expiry-title" aria-hidden="true">
+  <div class="modal-dialog gokapi-dialog">
+    <div class="modal-content gokapi-dialog text-start">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="fgs-expiry-title">Change expiry &amp; limits</h1>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small" id="fgs-expiry-what"></p>
+        <fieldset class="mb-3">
+          <legend class="fs-6">Expiry</legend>
+          <div class="form-check"><input class="form-check-input" type="radio" name="fgs-expiry" id="fgs-expiry-keep" value="keep" checked>
+            <label class="form-check-label" for="fgs-expiry-keep">Keep as it is</label></div>
+          <div class="form-check d-flex align-items-center gap-2"><input class="form-check-input" type="radio" name="fgs-expiry" id="fgs-expiry-on" value="date">
+            <label class="form-check-label" for="fgs-expiry-on">On</label>
+            <input type="datetime-local" class="form-control form-control-sm w-auto" id="fgs-expiry-date" aria-label="Expiry date"></div>
+          <div class="form-check"><input class="form-check-input" type="radio" name="fgs-expiry" id="fgs-expiry-never" value="never">
+            <label class="form-check-label" for="fgs-expiry-never">Never</label></div>
+        </fieldset>
+        <fieldset class="mb-3">
+          <legend class="fs-6">Download limit</legend>
+          <div class="form-check"><input class="form-check-input" type="radio" name="fgs-limit" id="fgs-limit-keep" value="keep" checked>
+            <label class="form-check-label" for="fgs-limit-keep">Keep as it is</label></div>
+          <div class="form-check d-flex align-items-center gap-2"><input class="form-check-input" type="radio" name="fgs-limit" id="fgs-limit-on" value="number">
+            <label class="form-check-label" for="fgs-limit-on">Downloads</label>
+            <input type="number" min="1" value="1" class="form-control form-control-sm w-auto" id="fgs-limit-number" aria-label="Download limit"></div>
+          <div class="form-check"><input class="form-check-input" type="radio" name="fgs-limit" id="fgs-limit-unlimited" value="unlimited">
+            <label class="form-check-label" for="fgs-limit-unlimited">Unlimited</label></div>
+        </fieldset>
+        <div id="fgs-expiry-status" class="small" aria-live="polite"></div>
+        <ul id="fgs-expiry-failures" class="small text-danger mb-0"></ul>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary" id="fgs-expiry-apply">Apply</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div id="toastnotification" class="toastnotification" data-default="URL copied to clipboard">Toast Text</div>
 <div id="toastnotificationUndo" class="toastnotification">

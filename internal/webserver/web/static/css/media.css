@@ -15,7 +15,8 @@
 .fgs-selecting .fgs-tile:has(.fgs-tile-check:checked) .fgs-tile-open{outline:3px solid #f2f1ee;outline-offset:-3px}
 .fgs-col-check{width:2rem}
 .fgs-list-name{display:flex;align-items:center;gap:.6rem}
-.fgs-name-open{padding:0;border:0;text-align:left;color:inherit;text-decoration:none;word-break:break-all}
+#fgs-filetable{width:100%!important}
+.fgs-name-open{padding:0;border:0;text-align:left;color:inherit;text-decoration:none;overflow-wrap:anywhere;min-width:8rem}
 .fgs-name-open:hover,.fgs-name-open:focus-visible{color:inherit;text-decoration:underline}
 /* List thumbnails */
 .fgs-list-thumb{width:40px;height:40px;flex:none;object-fit:cover;border-radius:6px;background:#232321}
@@ -39,6 +40,8 @@
 /* Sticks below the fixed user badge (top .5rem, about 1.5rem tall) and wraps instead of running under it */
 .fgs-selectbar{position:sticky;top:2.5rem;z-index:5;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;padding:.5rem;background:#1c1c1a;border:1px solid #2e2e2b;border-radius:10px;margin-bottom:.75rem}
 #fgs-selcount{white-space:nowrap}
+.fgs-none-selected [data-act]{opacity:.5;pointer-events:none}
+.fgs-collect-list{max-height:40vh;overflow-y:auto}
 #fgs-linkresult{flex-basis:100%;margin:0!important}#fgs-linkresult:empty{display:none}#fgs-linkresult .form-control{min-width:0}
 .fgs-viewer{overscroll-behavior:contain;position:fixed;inset:0;z-index:10050;background:rgba(10,10,9,.96);display:flex;align-items:center;justify-content:center}
 .fgs-viewer[hidden]{display:none}

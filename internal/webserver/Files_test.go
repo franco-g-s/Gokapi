@@ -317,3 +317,53 @@ func TestFileTypeIcon(t *testing.T) {
 		test.IsEqualString(t, fileTypeIcon(name), icon)
 	}
 }
+
+// R4: the bulk actions in select mode.
+func TestFilesPageBulkActions(t *testing.T) {
+	accessFile("filesbulk", nil)
+	test.HttpPageResult(t, test.HttpTestConfig{
+		Url:     "http://localhost:53843/files",
+		IsHtml:  true,
+		Cookies: []test.Cookie{{Name: "session_token", Value: "validsession"}},
+		RequiredContent: []string{`data-act="download"`, `data-act="zip"`, `data-act="photos"`, `data-act="link"`,
+			`data-act="add-to-collection"`, `data-act="change-expiry"`, `data-act="delete"`,
+			"Create one link", "Add to collection…", "Change expiry &amp; limits",
+			`id="fgs-collect-modal"`, `id="fgs-expiry-modal"`, `data-server-url="`},
+	})
+}
+
+// R4: "Add to collection…" posts addFileIds to /collections/modify. A file the
+// user may not list is dropped there as well, so it never joins the
+// collection. Characterization: the server already enforced this.
+func TestFilesAddToCollectionOnlyListable(t *testing.T) {
+	own := accessFile("filesaddown", nil)
+	other := accessFile("filesaddown2", nil)
+	collection, err := storage.CreateCollection(storage.CollectionParameters{Name: "mine", FileIds: []string{own.Id}}, models.User{Id: 7})
+	test.IsNil(t, err)
+	modify := func(ids ...string) (int, map[string]any) {
+		body, _ := json.Marshal(map[string]any{"id": collection.Id, "addFileIds": ids})
+		req, err := http.NewRequest("POST", "http://localhost:53843/collections/modify", bytes.NewReader(body))
+		test.IsNil(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(&http.Cookie{Name: "session_token", Value: "validsession"})
+		resp, err := http.DefaultClient.Do(req)
+		test.IsNil(t, err)
+		defer resp.Body.Close()
+		result := map[string]any{}
+		test.IsNil(t, json.NewDecoder(resp.Body).Decode(&result))
+		return resp.StatusCode, result
+	}
+	code, result := modify("unlimitedDownload", other.Id)
+	test.IsEqualInt(t, code, http.StatusOK)
+	test.IsEqualInt(t, int(result["Files"].(float64)), 2)
+	saved, ok := database.GetCollection(collection.Id)
+	test.IsEqualBool(t, ok, true)
+	test.IsEqualBool(t, strings.Contains(strings.Join(saved.FileIds, ","), "unlimitedDownload"), false)
+	// ...and the page it is picked from never offered it in the first place
+	test.HttpPageResult(t, test.HttpTestConfig{
+		Url: "http://localhost:53843/files", IsHtml: true,
+		Cookies:         []test.Cookie{{Name: "session_token", Value: "validsession"}},
+		RequiredContent: []string{`data-id="filesaddown"`},
+		ExcludedContent: []string{"unlimitedDownload"},
+	})
+}

@@ -66,7 +66,9 @@ function initFilesPage() {
         var n = selected().length;
         bar.classList.toggle("d-none", !selecting);
         document.getElementById("fgs-selcount").textContent = n + " selected";
-        bar.querySelectorAll("[data-act]").forEach(function (b) { b.disabled = n === 0; });
+        // Greyed out rather than disabled: some actions disable their own
+        // button while they run, and a selection change must not undo that
+        bar.classList.toggle("fgs-none-selected", n === 0);
         // A prepared set belongs to the selection it was made for
         var photos = bar.querySelector("[data-act=photos]");
         if (photos && window.FGS && FGS.resetSaveToPhotos) FGS.resetSaveToPhotos(photos);
@@ -245,6 +247,12 @@ function initFilesPage() {
             createOneLink(tiles, act);
         } else if (what === "photos" && FGS.saveToPhotos) {
             FGS.saveToPhotos(asItems(tiles), act);
+        } else if (what === "add-to-collection") {
+            openCollect(tiles);
+        } else if (what === "change-expiry") {
+            openExpiry(tiles);
+        } else if (what === "delete") {
+            bulkDelete(tiles, act);
         }
     });
 
@@ -321,9 +329,250 @@ function initFilesPage() {
             case "qr": showQrCode(url); break;
             case "edit": editFromMenu(menu, tile, false); break;
             case "replace": editFromMenu(menu, tile, true); break;
+            case "add-to-collection": openCollect([tile]); break;
             case "delete": deleteFile(id); break;
         }
     });
+    // Per-file data for the bulk actions, from the file's "⋯" menu in the
+    // grid, which is always in the DOM
+    function fileData(tile) {
+        var menu = tile.querySelector("[data-fgs-file-menu]");
+        var d = function (k) { return menu.getAttribute("data-" + k); };
+        return { id: d("id"), name: tile.getAttribute("data-name"), e2e: d("e2e") === "true",
+            canEdit: d("can-edit") === "true", canDelete: d("can-delete") === "true",
+            downloads: parseInt(d("downloads"), 10) || 0, unlimitedDownloads: d("unlimited-downloads") === "true",
+            expire: parseInt(d("expire"), 10) || 0, unlimitedTime: d("unlimited-time") === "true" };
+    }
+    function plural(n, word) { return n + " " + word + (n === 1 ? "" : "s"); }
+    function errorText(error) { return error && error.message ? error.message : String(error); }
+
+    // "Add to collection…": pick one of your collections or start a new one.
+    // The server keeps only files this user may list; an end-to-end
+    // encrypted file would make it refuse the whole request, so those are
+    // left out here and the dialog says so.
+    var collectModal = document.getElementById("fgs-collect-modal");
+    var collectList = document.getElementById("fgs-collect-list");
+    var collectName = document.getElementById("fgs-collect-name");
+    var collectCreate = document.getElementById("fgs-collect-create");
+    var collectResult = document.getElementById("fgs-collect-result");
+    var collectIds = [];
+
+    function collectError(message) {
+        collectResult.className = "alert alert-danger mt-3";
+        collectResult.textContent = message;
+    }
+
+    function collectRequest(endpoint, body, label, urlFromData) {
+        collectResult.textContent = "";
+        collectResult.className = "";
+        return fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify(body)
+        })
+            .then(function (response) { return response.json(); })
+            .then(function (data) {
+                if (data.Result !== "OK") {
+                    collectError("Could not add: " + (data.ErrorMessage || "unknown error"));
+                    return;
+                }
+                showAutoLinkResult(urlFromData(data), null, { holderId: "fgs-collect-result", label: label });
+            })
+            .catch(function (error) { collectError("Could not add: " + errorText(error)); });
+    }
+
+    function renderCollections(collections) {
+        collectList.textContent = "";
+        if (!collections.length) {
+            var none = document.createElement("div");
+            none.className = "list-group-item text-muted";
+            none.textContent = "No collections yet.";
+            collectList.appendChild(none);
+            return;
+        }
+        collections.forEach(function (c) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-2";
+            var name = document.createElement("span");
+            name.textContent = c.name || "Untitled collection";
+            var count = document.createElement("span");
+            count.className = "text-muted small text-nowrap";
+            count.textContent = plural(c.files, "file");
+            b.appendChild(name);
+            b.appendChild(count);
+            b.addEventListener("click", function () {
+                if (!collectIds.length || b.disabled) return;
+                b.disabled = true;
+                collectRequest("./collections/modify", { id: c.id, addFileIds: collectIds },
+                    "Added to \u201c" + (c.name || "Untitled collection") + "\u201d:",
+                    function (data) { return collectModal.getAttribute("data-server-url") + "c?id=" + data.Id; })
+                    .then(function () { b.disabled = false; });
+            });
+            collectList.appendChild(b);
+        });
+    }
+
+    function openCollect(tiles) {
+        var usable = tiles.filter(function (t) { return !fileData(t).e2e; });
+        collectIds = usable.map(function (t) { return t.getAttribute("data-id"); });
+        var what = plural(usable.length, "file");
+        if (usable.length < tiles.length) {
+            what += " (" + plural(tiles.length - usable.length, "end-to-end encrypted file") + " left out: they cannot be in a collection)";
+        }
+        document.getElementById("fgs-collect-what").textContent = what;
+        collectResult.textContent = "";
+        collectResult.className = "";
+        collectName.value = usable.length === 1 ? usable[0].getAttribute("data-name") : usable.length + " files";
+        collectCreate.disabled = !usable.length;
+        collectList.textContent = "";
+        var loading = document.createElement("div");
+        loading.className = "list-group-item text-muted";
+        loading.textContent = "Loading your collections…";
+        collectList.appendChild(loading);
+        fetch("./collections/list", { credentials: "same-origin" })
+            .then(function (response) { return response.json(); })
+            .then(function (data) { renderCollections(Array.isArray(data) ? data : []); })
+            .catch(function (error) {
+                collectList.textContent = "";
+                collectError("Could not load your collections: " + errorText(error));
+            });
+        bootstrap.Modal.getOrCreateInstance(collectModal).show();
+    }
+
+    collectCreate.addEventListener("click", function () {
+        var name = collectName.value.trim();
+        if (!collectIds.length || collectCreate.disabled) return;
+        collectCreate.disabled = true; // each request makes a new collection
+        collectRequest("./collections/create", { name: name, fileIds: collectIds },
+            "New collection" + (name ? " \u201c" + name + "\u201d" : "") + ":",
+            function (data) { return data.Url; })
+            .then(function () { collectCreate.disabled = false; });
+    });
+
+    // "Change expiry & limits": one /api/files/modify per file, in turn.
+    // "Keep" sends the file's own current value, since the API always sets
+    // both; the password is always kept.
+    var expiryModal = document.getElementById("fgs-expiry-modal");
+    var expiryApply = document.getElementById("fgs-expiry-apply");
+    var expiryStatus = document.getElementById("fgs-expiry-status");
+    var expiryFailures = document.getElementById("fgs-expiry-failures");
+    var expiryDate = document.getElementById("fgs-expiry-date");
+    var limitNumber = document.getElementById("fgs-limit-number");
+    var expiryTiles = [], expiryChanged = false;
+
+    function localInputValue(date) {
+        var pad = function (n) { return (n < 10 ? "0" : "") + n; };
+        return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate()) +
+            "T" + pad(date.getHours()) + ":" + pad(date.getMinutes());
+    }
+    // Typing a date or a number picks its option
+    expiryDate.addEventListener("input", function () { document.getElementById("fgs-expiry-on").checked = true; });
+    limitNumber.addEventListener("input", function () { document.getElementById("fgs-limit-on").checked = true; });
+
+    function openExpiry(tiles) {
+        expiryTiles = tiles;
+        expiryChanged = false;
+        document.getElementById("fgs-expiry-keep").checked = true;
+        document.getElementById("fgs-limit-keep").checked = true;
+        expiryDate.value = localInputValue(new Date(Date.now() + 14 * 24 * 3600 * 1000));
+        expiryDate.min = localInputValue(new Date());
+        document.getElementById("fgs-expiry-what").textContent = plural(tiles.length, "file");
+        expiryStatus.textContent = "";
+        expiryFailures.textContent = "";
+        expiryApply.disabled = false;
+        bootstrap.Modal.getOrCreateInstance(expiryModal).show();
+    }
+
+    function failure(list, name, reason) {
+        var li = document.createElement("li");
+        li.textContent = name + ": " + reason;
+        list.appendChild(li);
+    }
+
+    expiryApply.addEventListener("click", async function () {
+        var expiryChoice = expiryModal.querySelector("input[name=fgs-expiry]:checked").value;
+        var limitChoice = expiryModal.querySelector("input[name=fgs-limit]:checked").value;
+        if (expiryChoice === "keep" && limitChoice === "keep") {
+            expiryStatus.textContent = "Nothing to change: pick a new expiry or download limit.";
+            return;
+        }
+        var expiryAt = 0, limit = 0;
+        if (expiryChoice === "date") {
+            var ms = new Date(expiryDate.value).getTime();
+            if (!expiryDate.value || isNaN(ms) || ms <= Date.now()) {
+                expiryStatus.textContent = "Pick an expiry date in the future.";
+                return;
+            }
+            expiryAt = Math.floor(ms / 1000);
+        }
+        if (limitChoice === "number") {
+            limit = parseInt(limitNumber.value, 10);
+            if (!(limit >= 1)) {
+                expiryStatus.textContent = "The download limit must be 1 or more.";
+                return;
+            }
+        }
+        expiryApply.disabled = true;
+        expiryFailures.textContent = "";
+        var failed = 0, total = expiryTiles.length;
+        for (var i = 0; i < total; i++) {
+            var f = fileData(expiryTiles[i]);
+            expiryStatus.textContent = "Updating " + (i + 1) + " of " + total + "…";
+            if (!f.canEdit) {
+                failed++;
+                failure(expiryFailures, f.name, "you may not edit this file");
+                continue;
+            }
+            // 0 means unlimited / never to the API
+            var downloads = limitChoice === "keep" ? (f.unlimitedDownloads ? 0 : f.downloads) : limit;
+            var expiry = expiryChoice === "keep" ? (f.unlimitedTime ? 0 : f.expire) : expiryAt;
+            try {
+                await apiFilesModify(f.id, downloads, expiry, "", true);
+                expiryChanged = true;
+            } catch (error) {
+                failed++;
+                failure(expiryFailures, f.name, errorText(error));
+            }
+        }
+        if (!failed) {
+            expiryStatus.textContent = "Updated " + plural(total, "file") + ".";
+            location.reload();
+            return;
+        }
+        expiryStatus.textContent = (total - failed) + " of " + plural(total, "file") + " updated; " + failed + " failed:";
+    });
+    // After a partial run the failures stay readable until the dialog closes
+    expiryModal.addEventListener("hidden.bs.modal", function () {
+        if (expiryChanged) location.reload();
+    });
+
+    // Bulk delete: asks first, then deletes each file in turn, at once (no
+    // undo, unlike the single delete) and reloads
+    async function bulkDelete(tiles, button) {
+        if (!confirm("Delete " + plural(tiles.length, "file") + "? This cannot be undone.")) return;
+        button.disabled = true;
+        var failures = [];
+        for (var i = 0; i < tiles.length; i++) {
+            var f = fileData(tiles[i]);
+            status.textContent = "Deleting " + (i + 1) + " of " + tiles.length + "…";
+            if (!f.canDelete) {
+                failures.push(f.name + ": you may not delete this file");
+                continue;
+            }
+            try {
+                await apiFilesDelete(f.id, 0);
+            } catch (error) {
+                failures.push(f.name + ": " + errorText(error));
+            }
+        }
+        if (failures.length) {
+            alert("Could not delete " + plural(failures.length, "file") + ":\n" + failures.join("\n"));
+        }
+        location.reload();
+    }
+
     // A file deleted from its menu leaves the selection
     if ("MutationObserver" in window) new MutationObserver(updateSelection).observe(grid, { childList: true });
 
@@ -334,6 +583,8 @@ function initFilesPage() {
             "order": [[3, "desc"]], // Uploaded; column 0 is the checkbox
             "columnDefs": [{ "targets": [0, 8], "orderable": false, "searchable": false }],
             "paging": false,
+            // Laid out while the grid may be showing: measured widths would be wrong
+            "autoWidth": false,
             "language": {
                 "info": "Files: _TOTAL_",
                 "emptyTable": "No files stored yet",

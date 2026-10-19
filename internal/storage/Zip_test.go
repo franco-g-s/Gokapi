@@ -50,7 +50,7 @@ func TestServeZipFiltersAndCounts(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/cz", nil)
-	n := ServeZip([]models.File{ok, limited, expired, request}, "trip", w, r)
+	n := ServeZip([]models.File{ok, limited, expired, request}, "trip", w, r, true)
 	test.IsEqualInt(t, n, 2)
 
 	zr, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
@@ -64,7 +64,28 @@ func TestServeZipFiltersAndCounts(t *testing.T) {
 
 	// A second zip no longer includes the exhausted file
 	w2 := httptest.NewRecorder()
-	test.IsEqualInt(t, ServeZip([]models.File{limited}, "trip", w2, r), 0)
+	test.IsEqualInt(t, ServeZip([]models.File{limited}, "trip", w2, r, true), 0)
+}
+
+// The owner's zip from the Files tab spends nothing, but still skips what
+// the counted path skips.
+func TestServeZipUncounted(t *testing.T) {
+	limited := zipTestFile(t, "zipnocount000000001", "LIMITED", func(f *models.File) {
+		f.UnlimitedDownloads = false
+		f.DownloadsRemaining = 1
+	})
+	expired := zipTestFile(t, "zipnocountexp000001", "EXPIRED", func(f *models.File) {
+		f.ExpireAt = time.Now().Add(-time.Hour).Unix()
+	})
+	for i := 0; i < 2; i++ {
+		w := httptest.NewRecorder()
+		n := ServeZip([]models.File{limited, expired}, "own", w, httptest.NewRequest("GET", "/files/zip", nil), false)
+		test.IsEqualInt(t, n, 1)
+		test.IsEqualInt(t, w.Code, 200)
+	}
+	test.IsEqualInt(t, database.GetDownloadsRemaining(limited.Id), 1)
+	stored, _ := database.GetMetaDataById(limited.Id)
+	test.IsEqualInt(t, stored.DownloadCount, 0)
 }
 
 // A remote file with server-side encryption can only be decrypted by the
@@ -91,7 +112,7 @@ func TestServeZipSkipsRemoteEncrypted(t *testing.T) {
 	test.IsEqualBool(t, found, true)
 
 	w := httptest.NewRecorder()
-	n := ServeZip([]models.File{f}, "trip", w, httptest.NewRequest("GET", "/cz", nil))
+	n := ServeZip([]models.File{f}, "trip", w, httptest.NewRequest("GET", "/cz", nil), true)
 	test.IsEqualInt(t, n, 0)
 	test.IsEqualInt(t, w.Code, 410)
 	test.IsEqualInt(t, database.GetDownloadsRemaining(f.Id), 3)

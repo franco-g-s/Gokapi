@@ -20,9 +20,13 @@ var ZipEntryTime = func(file models.File) time.Time {
 // ServeZip streams the downloadable subset of files as a store-only zip and
 // returns how many were included. Each file is re-resolved, so expired,
 // exhausted, file-request and client-decrypted (end-to-end, or encrypted on
-// remote storage) files are skipped, and
-// limited files are counted exactly as a single download through /cd would be.
-func ServeZip(files []models.File, name string, w http.ResponseWriter, r *http.Request) int {
+// remote storage) files are skipped either way.
+//
+// With countDownloads, each included file is counted exactly as a single
+// download through /cd would be - the public collection zip. Without it
+// nothing is counted - the owner's own zip from the Files tab, which must not
+// spend the download budget of the shares it is managing.
+func ServeZip(files []models.File, name string, w http.ResponseWriter, r *http.Request, countDownloads bool) int {
 	included := make([]models.File, 0, len(files))
 	now := time.Now().Unix()
 	for _, f := range files {
@@ -40,11 +44,15 @@ func ServeZip(files []models.File, name string, w http.ResponseWriter, r *http.R
 			apimutex.Unlock(apimutex.TypeMetaData, current.Id)
 			continue
 		}
-		current.DownloadsRemaining--
-		current.DownloadCount++
-		database.IncreaseDownloadCount(current.Id, !current.UnlimitedDownloads)
+		if countDownloads {
+			current.DownloadsRemaining--
+			current.DownloadCount++
+			database.IncreaseDownloadCount(current.Id, !current.UnlimitedDownloads)
+		}
 		apimutex.Unlock(apimutex.TypeMetaData, current.Id)
-		go sse.PublishDownloadCount(current)
+		if countDownloads {
+			go sse.PublishDownloadCount(current)
+		}
 		included = append(included, current)
 	}
 	if len(included) == 0 {

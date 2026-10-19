@@ -69,8 +69,9 @@
   // Save to Photos, in two taps: navigator.share needs a fresh tap, and a
   // share() after fetching large originals is likely to be rejected by Safari.
   // Tap 1 fetches the originals ("Preparing n/N"); tap 2 opens the share sheet,
-  // where "Save N Images" puts them straight into Photos. Always pass counted
-  // download URLs (/cd), never view or video URLs. Batching and the video limit
+  // where "Save N Images" puts them straight into Photos. Always pass the
+  // original-file download URLs (/cd on a board, counted; /files/download on
+  // the Files tab, uncounted), never view or video URLs. Batching and the video limit
   // are refined on-device in Part 3.
   var PHOTO_BATCH = 20;
   var VIDEO_MAX_BYTES = 500e6; // larger videos go to the zip instead
@@ -274,7 +275,7 @@
     v.querySelector(".fgs-v-name").textContent = it.name;
     var meta = [it.uploader, it.taken ? "Taken " + fmt(it.taken) : (it.uploaded ? "Uploaded " + fmt(it.uploaded) : ""), it.size].filter(Boolean);
     v.querySelector(".fgs-v-meta").textContent = meta.join(" \u00b7 ");
-    // Password-protected and client-side-encrypted files have no direct download URL: hide the button rather than render a dead link.
+    // Files without a direct download URL (end-to-end encrypted on the Files tab): hide the button rather than render a dead link.
     var dl = v.querySelector(".fgs-v-download");
     if (it.download) {
       dl.href = it.download; dl.setAttribute("download", it.name); dl.hidden = false;

@@ -23,12 +23,14 @@ func downloadCollectionZip(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "c?id="+collection.Id)
 		return
 	}
-	storage.ServeZip(collection.Files, collection.Name, w, r)
+	storage.ServeZip(collection.Files, collection.Name, w, r, true)
 }
 
 // downloadFilesZip serves the selected files from the Files tab as one zip.
 // Each ID must belong to the user, unless they may list other users' uploads;
 // anything else is silently dropped, leaving a 410 if nothing remains.
+// Not counted: the owner (or a PERM_LIST admin) fetching files they manage
+// must not spend the download budget of the links they shared (Ruling 18).
 func downloadFilesZip(w http.ResponseWriter, r *http.Request) {
 	addNoCacheHeader(w)
 	user, err := authentication.GetUserFromRequest(r)
@@ -43,5 +45,5 @@ func downloadFilesZip(w http.ResponseWriter, r *http.Request) {
 		}
 		files = append(files, f)
 	}
-	storage.ServeZip(files, "Files", w, r)
+	storage.ServeZip(files, "Files", w, r, false)
 }

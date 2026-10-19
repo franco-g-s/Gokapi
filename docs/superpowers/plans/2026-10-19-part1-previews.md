@@ -27,7 +27,8 @@
 - **No `immutable` caching of anything whose fingerprint is not in the URL.** Preview URLs carry `&v=<first 12 hex chars of SHA1>`.
 - **Viewing must never count as downloading.**
   - Preview and video-streaming routes never call `ServeFile`, `LogDownload` or `IncreaseDownloadCount`.
-  - Only explicit downloads count: `/cd`, `/downloadFile`, `/cz`, `/files/zip`.
+  - Only explicit downloads by a link holder count: `/cd`, `/downloadFile`, `/cz`.
+  - The owner (or a `PERM_LIST` admin) fetching from the Files tab does **not** count (Ruling 18): `/files/download` and `/files/zip` serve uncounted, like the upload page's presigned download. They would otherwise spend the download budget of the very links being managed.
 - **Worker errors go to stdout only, never the Status log.** Today's notifier (`~/apps/gokapi/gokapi-notify.py`) emails every `warning` line, and every unknown category, immediately. At most one summary log line is written per backfill run, using the existing `info` category, which the notifier ignores.
 - **Timestamps are stored as UTC Unix seconds.**
 - **New Go code goes in new files** wherever possible, so rebasing onto upstream stays cheap. Edits to existing upstream files stay small and are listed explicitly.

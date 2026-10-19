@@ -9,6 +9,7 @@ import (
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/helper"
 	"github.com/forceu/gokapi/internal/models"
+	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/webserver/authentication"
 )
 
@@ -39,14 +40,39 @@ func isListedFile(f models.FileApiOutput, now int64) bool {
 	return f.DownloadsRemaining > 0 || f.UnlimitedDownloads
 }
 
-// directDownloadUrl is the counted single-file download for a tile, or "" when
-// /downloadFile would answer with a page rather than the file (a password, or
-// decryption that has to happen in the browser).
+// directDownloadUrl is the uncounted single-file download for a tile, or ""
+// for an end-to-end encrypted file, which only the browser could decrypt.
+// Password-protected and remote-encrypted files have a URL: the owner needs no
+// password, and the server decrypts as it does for the upload page's download.
 func directDownloadUrl(f models.FileApiOutput) string {
-	if f.IsPasswordProtected || f.RequiresClientSideDecryption {
+	if f.IsEndToEndEncrypted {
 		return ""
 	}
-	return "./downloadFile?id=" + f.Id
+	return "./files/download?id=" + f.Id
+}
+
+// Handling of /files/download
+// The owner (or a PERM_LIST admin) downloading the original from the Files
+// tab. Not counted - they are managing the file, not consuming the share - as
+// the upload page's presigned download already is (Ruling 18). Anything the
+// user may not list is a 404, like a file that does not exist.
+func downloadOwnFile(w http.ResponseWriter, r *http.Request) {
+	addNoCacheHeader(w)
+	user, err := authentication.GetUserFromRequest(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	file, ok := storage.GetFile(r.URL.Query().Get("id"))
+	if !ok || file.IsFileRequest() || file.Encryption.IsEndToEndEncrypted ||
+		(file.UserId != user.Id && !user.HasPermissionListOtherUploads()) {
+		http.NotFound(w, r)
+		return
+	}
+	forceDecryption := file.Encryption.IsEncrypted && !file.Encryption.IsEndToEndEncrypted
+	if !storage.ServeFile(file, w, r, true, false, forceDecryption, true) {
+		http.NotFound(w, r)
+	}
 }
 
 // Handling of /files

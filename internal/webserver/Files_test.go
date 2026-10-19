@@ -12,6 +12,7 @@ import (
 
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/models"
+	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/test"
 )
 
@@ -126,4 +127,101 @@ func TestFilesZipOnlyOwnUnlessPermList(t *testing.T) {
 	test.IsNil(t, err)
 	resp.Body.Close()
 	test.IsEqualInt(t, resp.StatusCode, http.StatusUnauthorized)
+}
+
+func filesGet(t *testing.T, token, url string) (int, []byte) {
+	t.Helper()
+	req, err := http.NewRequest("GET", "http://localhost:53843"+url, nil)
+	test.IsNil(t, err)
+	if token != "" {
+		req.AddCookie(&http.Cookie{Name: "session_token", Value: token})
+	}
+	resp, err := http.DefaultClient.Do(req)
+	test.IsNil(t, err)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	test.IsNil(t, err)
+	return resp.StatusCode, body
+}
+
+func downloadState(t *testing.T, id string) (int, int) {
+	t.Helper()
+	f, ok := database.GetMetaDataById(id)
+	test.IsEqualBool(t, ok, true)
+	return database.GetDownloadsRemaining(id), f.DownloadCount
+}
+
+// Ruling 18: the owner (or a PERM_LIST admin) fetching from the Files tab
+// does not spend the download budget of the links they shared.
+func TestFilesDownloadsAreNotCounted(t *testing.T) {
+	limited := accessFile("filesdlcapped", func(f *models.File) {
+		f.Name = "capped.jpg"
+		f.SHA1 = "filesdlcappedsha"
+		f.UnlimitedDownloads = false
+		f.DownloadsRemaining = 2
+	})
+	pw := accessFile("filesdlpassword", func(f *models.File) { f.SHA1 = "filesdlpwsha"; f.PasswordHash = "x" })
+	e2e := accessFile("filesdle2e", func(f *models.File) { f.SHA1 = "filesdle2esha"; f.Encryption.IsEndToEndEncrypted = true })
+
+	for i := 0; i < 3; i++ {
+		code, body := filesGet(t, "validsession", "/files/download?id="+limited.Id)
+		test.IsEqualInt(t, code, http.StatusOK)
+		test.IsEqualInt(t, len(body), 4096)
+		code, _, body = filesZip(t, "validsession", limited.Id)
+		test.IsEqualInt(t, code, http.StatusOK)
+		test.IsEqualInt(t, len(zipEntries(t, body)), 1)
+	}
+	remaining, count := downloadState(t, limited.Id)
+	test.IsEqualInt(t, remaining, 2)
+	test.IsEqualInt(t, count, 0)
+
+	// The owner needs no password for their own file
+	code, _ := filesGet(t, "validsession", "/files/download?id="+pw.Id)
+	test.IsEqualInt(t, code, http.StatusOK)
+	// The admin holds PERM_LIST and may fetch user 7's files, also uncounted
+	code, _ = filesGet(t, filesAdminSession().Value, "/files/download?id="+limited.Id)
+	test.IsEqualInt(t, code, http.StatusOK)
+	remaining, count = downloadState(t, limited.Id)
+	test.IsEqualInt(t, remaining, 2)
+	test.IsEqualInt(t, count, 0)
+
+	// Someone else's file without PERM_LIST, an end-to-end encrypted file and
+	// an unknown id all look the same: 404
+	code, body := filesGet(t, "validsession", "/files/download?id=unlimitedDownload")
+	test.IsEqualInt(t, code, http.StatusNotFound)
+	test.IsEqualBool(t, bytes.Contains(body, []byte("def")), false)
+	code, _ = filesGet(t, "validsession", "/files/download?id="+e2e.Id)
+	test.IsEqualInt(t, code, http.StatusNotFound)
+	code, _ = filesGet(t, "validsession", "/files/download?id=doesnotexist")
+	test.IsEqualInt(t, code, http.StatusNotFound)
+	// Not logged in: refused like every other non-UI protected call
+	code, _ = filesGet(t, "", "/files/download?id="+limited.Id)
+	test.IsEqualInt(t, code, http.StatusUnauthorized)
+
+	// The tiles point at the uncounted route, password-protected ones included;
+	// only end-to-end encrypted files have no direct link
+	test.HttpPageResult(t, test.HttpTestConfig{
+		Url:     "http://localhost:53843/files",
+		IsHtml:  true,
+		Cookies: []test.Cookie{{Name: "session_token", Value: "validsession"}},
+		RequiredContent: []string{`data-download="./files/download?id=filesdlcapped"`,
+			`data-download="./files/download?id=filesdlpassword"`},
+		ExcludedContent: []string{`data-download="./files/download?id=filesdle2e"`, `data-download="./downloadFile`},
+	})
+}
+
+// The public collection zip still counts, exactly like /cd.
+func TestCollectionZipStillCounts(t *testing.T) {
+	limited := accessFile("czcounted", func(f *models.File) {
+		f.SHA1 = "czcountedsha"
+		f.UnlimitedDownloads = false
+		f.DownloadsRemaining = 2
+	})
+	collection, err := storage.CreateCollection(storage.CollectionParameters{FileIds: []string{limited.Id}}, models.User{Id: 7})
+	test.IsNil(t, err)
+	code, _ := filesGet(t, "", "/cz?id="+collection.Id)
+	test.IsEqualInt(t, code, http.StatusOK)
+	remaining, count := downloadState(t, limited.Id)
+	test.IsEqualInt(t, remaining, 1)
+	test.IsEqualInt(t, count, 1)
 }

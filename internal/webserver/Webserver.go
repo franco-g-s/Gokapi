@@ -133,6 +133,7 @@ func Start() {
 	mux.HandleFunc("/collections/list", requireLogin(listCollections, false, false))
 	mux.HandleFunc("/collections/delete", requireLogin(deleteCollection, false, false))
 	mux.HandleFunc("/files", requireLogin(showFiles, true, false))
+	mux.HandleFunc("/files/download", requireLogin(downloadOwnFile, false, false))
 	mux.HandleFunc("/files/zip", requireLogin(downloadFilesZip, false, false))
 	mux.HandleFunc("/c", showCollection)
 	mux.HandleFunc("/cd", downloadCollectionFile)

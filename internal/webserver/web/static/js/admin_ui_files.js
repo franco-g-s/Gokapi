@@ -107,14 +107,16 @@ function initFilesPage() {
         if (what === "zip") {
             downloadZip(tiles);
         } else if (what === "download") {
-            // Password-protected and client-decrypted files have no direct
-            // link, so a selection containing any of them goes as one zip
-            var missing = tiles.filter(function (t) { return !t.getAttribute("data-download"); }).length;
-            if (missing) {
-                status.textContent = missing + " of these can't be downloaded one by one, so the selection is coming as a .zip.";
-                downloadZip(tiles);
-            } else {
-                FGS.downloadSequentially(asItems(tiles), { button: act, status: status });
+            // Only end-to-end encrypted files lack a link: they can only be
+            // decrypted on their own download page, and the zip skips them
+            // too, so fetch the rest and say what was left out
+            var usable = tiles.filter(function (t) { return t.getAttribute("data-download"); });
+            var skipped = tiles.length - usable.length;
+            if (usable.length) FGS.downloadSequentially(asItems(usable), { button: act, status: status });
+            if (skipped) {
+                window.setTimeout(function () {
+                    status.textContent = skipped + " end-to-end encrypted file(s) left out: open each from its own download link.";
+                }, usable.length * 600 + 100); // after downloadSequentially's own last message
             }
         } else if (what === "photos" && FGS.saveToPhotos) {
             FGS.saveToPhotos(asItems(tiles), act);

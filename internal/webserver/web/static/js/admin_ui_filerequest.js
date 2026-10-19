@@ -124,7 +124,7 @@ function showToastFileDeletionFr(id, filename) {
     clearTimeout(toastId);
     toastId = setTimeout(() => {
         hideFileToast();
-    }, 5000);
+    }, UNDO_TOAST_MS);
 }
 
 

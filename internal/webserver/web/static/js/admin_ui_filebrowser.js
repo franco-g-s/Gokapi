@@ -104,7 +104,7 @@
             hideToast();
             toast.classList.add("show");
             clearTimeout(toastId);
-            toastId = setTimeout(hideFileToast, 5000);
+            toastId = setTimeout(hideFileToast, UNDO_TOAST_MS);
         }
         label.textContent = name;
     }

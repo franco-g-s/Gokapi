@@ -9,6 +9,11 @@ try {
 
 var toastId;
 
+// How long the "File deleted: Restore" toast stays: just under the 10 s the
+// server keeps a deleted file restorable, so Restore never offers a file that
+// is already gone
+var UNDO_TOAST_MS = 9000;
+
 function showToast(timeout, text) {
     let notification = document.getElementById("toastnotification");
     if (typeof text !== 'undefined')

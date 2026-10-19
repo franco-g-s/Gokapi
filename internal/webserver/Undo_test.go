@@ -46,3 +46,16 @@ func TestSingleFileDeleteKeepsUndo(t *testing.T) {
 	test.IsEqualBool(t, strings.Contains(string(source), "if (a.ids.length > 1) bulkDelete(a);"), true)
 	test.IsEqualBool(t, strings.Contains(string(source), "if (a.bulk) bulkDelete(a);"), false)
 }
+
+// The undo toast outlives neither the server's 10 s window nor falls short of
+// it by much: every place that shows it uses the one shared duration.
+func TestUndoToastLastsAlmostTheServerWindow(t *testing.T) {
+	all, err := staticFolderEmbedded.ReadFile("web/static/js/admin_ui_allPages.js")
+	test.IsNil(t, err)
+	test.IsEqualBool(t, strings.Contains(string(all), "var UNDO_TOAST_MS = 9000;"), true)
+	for _, name := range []string{"admin_ui_upload.js", "admin_ui_filerequest.js", "admin_ui_filebrowser.js"} {
+		source, err := staticFolderEmbedded.ReadFile("web/static/js/" + name)
+		test.IsNil(t, err)
+		test.IsEqualBool(t, strings.Contains(string(source), "UNDO_TOAST_MS"), true)
+	}
+}

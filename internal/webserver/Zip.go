@@ -10,8 +10,9 @@ import (
 	"github.com/forceu/gokapi/internal/webserver/errorHandling"
 )
 
-// downloadCollectionZip serves every live member of a collection as one zip.
-// Same gate as /cd: a password-protected collection needs its pc cookie.
+// downloadCollectionZip serves every live member of a collection as one zip,
+// or with files= only the selected ones (selectedMembers). Same gate as /cd:
+// a password-protected collection needs its pc cookie.
 func downloadCollectionZip(w http.ResponseWriter, r *http.Request) {
 	addNoCacheHeader(w)
 	collection, ok := storage.GetCollection(r.URL.Query().Get("id"))
@@ -23,7 +24,30 @@ func downloadCollectionZip(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "c?id="+collection.Id)
 		return
 	}
-	storage.ServeZip(collection.Files, collection.Name, w, r, true)
+	storage.ServeZip(selectedMembers(collection.Files, r), collection.Name, w, r, true)
+}
+
+// selectedMembers applies /cz's optional files= filter: the comma-separated
+// ids of the members to include. It only narrows the collection's own live
+// members - an id that is not one of them is ignored, never resolved - and a
+// filter that matches nothing yields nothing, never the whole collection.
+func selectedMembers(members []models.File, r *http.Request) []models.File {
+	if !r.URL.Query().Has("files") {
+		return members
+	}
+	wanted := make(map[string]bool)
+	for _, id := range strings.Split(r.URL.Query().Get("files"), ",") {
+		if id != "" {
+			wanted[id] = true
+		}
+	}
+	result := make([]models.File, 0, len(wanted))
+	for _, f := range members {
+		if wanted[f.Id] {
+			result = append(result, f)
+		}
+	}
+	return result
 }
 
 // downloadFilesZip serves the selected files from the Files tab as one zip.

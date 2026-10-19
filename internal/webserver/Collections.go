@@ -46,13 +46,9 @@ type CollectionView struct {
 	ExpiryString   string
 	NeverExpires   bool
 	Buttons        mediaButtons
-	Items          []collectionItem
-}
-
-// collectionItem pairs a member with its display URLs, scoped to the collection
-type collectionItem struct {
-	File    models.File
-	Preview previewInfo
+	// Browser is the shared file list (context collection-public): no
+	// management actions, downloads through /cd, previews scoped with &c=
+	Browser fileBrowser
 }
 
 // showCollection serves the public page for a collection. No login required -
@@ -113,10 +109,15 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 		TotalSize:      helper.ByteCountSI(collection.TotalSizeBytes),
 		Buttons:        mediaButtons{Count: len(collection.Files), ZipUrl: "./cz?id=" + collection.Id},
 	}
+	// Visitors are not users: the zero User gives no uploader, ownership or
+	// permissions, and the context keeps every management action out
+	items := make([]browserItem, 0, len(collection.Files))
 	for _, f := range collection.Files {
-		view.Items = append(view.Items, collectionItem{File: f,
-			Preview: previewUrls(r, f, collection.Id, "./cd?id="+collection.Id+"&file="+f.Id)})
+		items = append(items, browserItemFromFile(r, f, models.User{}, ctxCollectionPublic, collection.Id, nil))
 	}
+	view.Browser = newFileBrowser("fgs-collection", ctxCollectionPublic, items, models.User{})
+	view.Browser.CollectionId = collection.Id
+	view.Browser.ZipUrl = "./cz?id=" + collection.Id + "&files="
 	// Expiry is derived from the longest-lived member, not stored.
 	latest, never := collection.LatestExpiry()
 	view.NeverExpires = never

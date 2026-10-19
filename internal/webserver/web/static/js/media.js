@@ -9,6 +9,16 @@
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   };
 
+  // Every file on a collection page, in list order, as the counted /cd
+  // download URLs: saving to Photos is a download.
+  function collectionDownloads() {
+    return Array.prototype.map.call(document.querySelectorAll("[data-fgs-browser] .fgs-tile"), function (t) {
+      var url = t.getAttribute("data-download");
+      return { url: url ? new URL(url, window.location.href).href : "", name: t.getAttribute("data-name") || "",
+        bytes: parseInt(t.getAttribute("data-bytes"), 10) };
+    }).filter(function (it) { return it.url; });
+  }
+
   // Desktop: "Download all" fires each file in turn (unchanged behaviour).
   // iOS: Safari allows one download per tap, so Save to Photos is primary and
   // the zip is the fallback (the zip alone where navigator.canShare is missing).
@@ -17,6 +27,13 @@
     var all = root.querySelector("[data-fgs-download-all]");
     var zip = root.querySelector("[data-fgs-download-zip]");
     var help = root.querySelector("[data-fgs-help]");
+    var status = root.querySelector("#downloadAllStatus");
+    if (all) {
+      if (!collectionDownloads().length) all.style.display = "none";
+      all.addEventListener("click", function () {
+        FGS.downloadSequentially(collectionDownloads(), { button: all, status: status });
+      });
+    }
     if (FGS.isIOS()) {
       if (all) all.classList.add("d-none");
       if (zip) zip.classList.replace("btn-outline-light", "btn-light");
@@ -26,9 +43,7 @@
         photos.classList.remove("d-none");
         if (zip) zip.classList.replace("btn-light", "btn-outline-light");
         photos.addEventListener("click", function () {
-          var links = Array.prototype.slice.call(document.querySelectorAll("#collectiontable a[data-fileid]"));
-          // These are the counted download URLs: saving to Photos is a download.
-          FGS.saveToPhotos(links.map(function (a) { return { url: a.href, name: a.dataset.filename || "", bytes: parseInt(a.dataset.bytes, 10) }; }), photos);
+          FGS.saveToPhotos(collectionDownloads(), photos);
         });
       }
     }
@@ -437,58 +452,6 @@
     container.style.height = Math.max.apply(null, heights) + "px";
     return true;
   }
-
-  // The collection page's own board (html_collection.tmpl), until that page
-  // moves onto the shared file list
-  FGS.initBoard = function (board) {
-    if (!board || board.dataset.ready) return;
-    board.dataset.ready = "1";
-    var tiles = Array.prototype.slice.call(board.querySelectorAll(".fgs-board-item"));
-    function layout() { masonry(board, tiles); }
-    board._fgsLayout = layout;
-    function load(img, eager) {
-      if (eager) img.setAttribute("fetchpriority", "high");
-      img.src = img.dataset.src;
-    }
-    var imgs = tiles.map(function (t) { return t.querySelector("img[data-src]"); }).filter(Boolean);
-    imgs.slice(0, 12).forEach(function (img) { load(img, true); });
-    if ("IntersectionObserver" in window) {
-      var io = new IntersectionObserver(function (entries) {
-        entries.forEach(function (e) { if (e.isIntersecting) { load(e.target, false); io.unobserve(e.target); } });
-      }, { rootMargin: "1500px 0px" });
-      imgs.slice(12).forEach(function (img) { io.observe(img); });
-    } else {
-      imgs.slice(12).forEach(function (img) { load(img, false); });
-    }
-    board.addEventListener("click", function (e) {
-      var t = e.target.closest(".fgs-board-item");
-      if (t) FGS.openViewer(tiles.map(function (x) { return FGS.itemFromEl(x); }), tiles.indexOf(t));
-    });
-    layout();
-    var timer;
-    function later() { clearTimeout(timer); timer = setTimeout(layout, 120); }
-    if ("ResizeObserver" in window) new ResizeObserver(later).observe(board);
-    else window.addEventListener("resize", later);
-  };
-
-  // Board/List toggle, remembered per page type.
-  FGS.initLayoutToggle = function (toggle, board, list, key) {
-    if (!toggle || !board || !list) return;
-    function store(layout) { try { localStorage.setItem(key, layout); } catch (e) { /* private mode */ } }
-    function apply(layout) {
-      board.classList.toggle("d-none", layout !== "board");
-      list.classList.toggle("d-none", layout !== "list");
-      toggle.querySelectorAll("[data-layout]").forEach(function (b) {
-        var on = b.dataset.layout === layout;
-        b.classList.toggle("btn-light", on); b.classList.toggle("btn-outline-light", !on);
-      });
-      if (layout === "board") { FGS.initBoard(board); if (board._fgsLayout) board._fgsLayout(); }
-      store(layout);
-    }
-    toggle.addEventListener("click", function (e) { var b = e.target.closest("[data-layout]"); if (b) apply(b.dataset.layout); });
-    var saved = null; try { saved = localStorage.getItem(key); } catch (e) { /* private mode */ }
-    apply(saved === "board" || saved === "list" ? saved : toggle.dataset.layoutDefault);
-  };
 
   // ---------------------------------------------------------------------
   // The shared file list (html_file_browser.tmpl): Grid, Board and List over

@@ -85,6 +85,31 @@ function removeDownloadFileReference(fileId, frId) {
 }
 
 
+// The counterpart of removeDownloadFileReference, for an undone delete: the
+// button is rebuilt from the files the request's list holds now
+function addDownloadFileReference(root, frId) {
+    const btn = document.getElementById(`download-${frId}`);
+    if (!btn) return;
+    const fileIds = Array.from(root.querySelectorAll("[data-fgs-grid] .fgs-tile"))
+        .map(tile => tile.getAttribute("data-id"))
+        .filter(id => id);
+    const row = document.getElementById("row-" + frId);
+    const recordName = ((row && row.cells[0] && row.cells[0].textContent.trim()) || "Uploaded files")
+        .replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    btn.dataset.recordName = recordName;
+    if (fileIds.length === 0) {
+        btn.classList.add('disabled');
+        btn.removeAttribute('onclick');
+    } else if (fileIds.length === 1) {
+        btn.classList.remove('disabled');
+        btn.setAttribute('onclick', `downloadFileWithPresign('${fileIds[0]}');`);
+    } else {
+        btn.classList.remove('disabled');
+        btn.setAttribute('onclick', `downloadFilesZipWithPresign('${fileIds.join(',')}', '${recordName}');`);
+    }
+}
+
+
 function showToastFileDeletionFr(id, filename) {
     let notification = document.getElementById("toastnotificationUndo");
     let filenameToast = document.getElementById("toastFilename");
@@ -103,14 +128,25 @@ function showToastFileDeletionFr(id, filename) {
 }
 
 
+// Puts a deleted file back into its request's list, with the row's count and
+// its "Download all" button: no reload, which would collapse the open row.
 function handleUndoFr(button) {
     hideFileToast();
-    apiFilesRestore(button.dataset.fileid)
-        .then(data => {
-            window.location.reload();
+    let label = document.getElementById("toastFilename");
+    let name = label ? label.textContent : "the file";
+    let id = button.dataset.fileid;
+    FGS.restoreFile(id)
+        .then(result => {
+            result.roots.forEach(root => {
+                if (root.id.indexOf("fr-") !== 0) return;
+                const frId = root.id.slice(3);
+                changeFileCountFr(frId, 1);
+                addDownloadFileReference(root, frId);
+            });
+            FGS.undoToast(name, result);
         })
         .catch(error => {
-            alert("Unable to restore file: " + error);
+            FGS.undoToast(name, null, error);
             console.error('Error:', error);
         });
 }
@@ -540,6 +576,7 @@ function createFileRequestRow(jsonResult, user) {
     }
 
     function removeFile(a, id, name) {
+        FGS.rememberDeleted(id, [a.root]);
         forgetFile(a, id);
         showToastFileDeletionFr(id, name);
     }

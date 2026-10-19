@@ -109,9 +109,10 @@
         label.textContent = name;
     }
 
-    // One file from its menu: deleted after 10 s unless restored from the
-    // toast, and gone from every list on the page that shows it. The undo
-    // toast is named from the tile, not from a table row.
+    // One file from its menu or from the selection bar with one file
+    // selected: deleted after 10 s unless restored from the toast, and gone
+    // from every list on the page that shows it. The undo toast is named from
+    // the tile, not from a table row.
     function deleteOne(a) {
         var id = a.ids[0];
         var name = a.tiles[0].getAttribute("data-name") || "";
@@ -120,26 +121,96 @@
         apiFilesDelete(id, 10)
             .then(function () {
                 try { showDeletedToast(id, name); } catch (ignored) { /* page without the toast */ }
-                removeEverywhere(id);
+                rememberDeleted(id, removeEverywhere(id));
                 if (typeof notifyWorker === "function") notifyWorker({ type: "fileDeleted", id: id });
             })
             .catch(function (error) {
-                if (item) item.disabled = false;
                 alert("Unable to delete file: " + error);
                 console.error("Error:", error);
-            });
+            })
+            // The selection bar's button is reused for the next selection
+            .then(function () { if (item) item.disabled = false; });
     }
 
     // Every list on the page that shows the file (a file can be in several
-    // collections), so no list keeps a file that is gone or out of date
+    // collections), so no list keeps a file that is gone or out of date.
+    // Returns the lists' roots: where an undo puts the file back.
     function removeEverywhere(id) {
+        var from = [];
         FGS.eachFileBrowser(function (b) {
             if (!b.tile(id)) return;
+            from.push(b.root);
             b.removeItem(id);
             // A collection's row on the Collections page shows its figures
             if (b.context === "collection-admin") refreshCollectionSummary(b.root.getAttribute("data-collection-id"));
         });
+        return from;
     }
+
+    // --- Undo ---------------------------------------------------------------
+    // A single delete is scheduled 10 s ahead on the server. The lists it was
+    // taken out of are remembered here, so that restoring puts it back into
+    // exactly those, with no reload (a reload would collapse open rows).
+    var deletedFrom = {};
+    function rememberDeleted(id, roots) { deletedFrom[id] = roots || []; }
+    FGS.rememberDeleted = rememberDeleted;
+
+    // The file as the lists show it now: its current info plus its preview.
+    // The restore's own answer stands in when the info call fails.
+    function currentListItem(id, restored) {
+        var info = apiFilesListById(id).catch(function () { return restored; });
+        var preview = fetch("./files/previewinfo?id=" + encodeURIComponent(id), { credentials: "same-origin", cache: "no-store" })
+            .then(function (response) { return response.ok ? response.json() : undefined; })
+            .catch(function () { return undefined; });
+        return Promise.all([info, preview]);
+    }
+
+    // Restores a file whose delete is pending and puts it back into the lists
+    // it was removed from. Resolves to { name, roots, shown }: roots are the
+    // lists that took it (one already holding it is left alone), shown is false
+    // when a list could not be given it. Rejects when the restore itself failed.
+    FGS.restoreFile = function (id) {
+        var wanted = deletedFrom[id] || [];
+        return apiFilesRestore(id).then(function (data) {
+            delete deletedFrom[id];
+            var restored = data && data.FileInfo;
+            if (!restored || !restored.Id) throw new Error("Unexpected answer from the server");
+            return currentListItem(id, restored).then(function (pair) {
+                var item = pair[0] || restored, preview = pair[1];
+                var added = [], shown = true;
+                wanted.forEach(function (root) {
+                    try {
+                        var b = root.isConnected ? FGS.initFileBrowser(root) : null;
+                        if (!b) { shown = false; return; }
+                        if (b.tile(item.Id)) return;
+                        if (!b.addItem(item, preview)) { shown = false; return; }
+                        added.push(root);
+                        if (b.context === "collection-admin") refreshCollectionSummary(root.getAttribute("data-collection-id"));
+                    } catch (error) {
+                        shown = false;
+                        console.error("Could not show the restored file:", error);
+                    }
+                });
+                // Nothing recorded: the page cannot say where the file belongs
+                if (!wanted.length) shown = false;
+                if (typeof notifyWorker === "function") notifyWorker({ type: "fileAdded", item: item });
+                if (typeof isE2EEnabled !== "undefined" && isE2EEnabled && typeof GokapiE2EDecryptMenu === "function") {
+                    GokapiE2EDecryptMenu();
+                }
+                return { name: item.Name || restored.Name || "", roots: added, shown: shown };
+            });
+        });
+    };
+
+    // The toast after an undo: what happened, whichever way it went
+    FGS.undoToast = function (name, result, error) {
+        var text;
+        if (error) text = "Could not restore " + name + ": " + errorText(error);
+        else if (!result.shown) text = "Restored " + name + ", but it could not be shown here. Reload the page.";
+        else text = "Restored: " + name;
+        showToast(error || !result.shown ? 7000 : 2500, text);
+    };
+
     function updateEverywhere(file) {
         FGS.eachFileBrowser(function (b) { if (b.tile(file.Id)) b.updateItem(file); });
     }
@@ -498,8 +569,10 @@
         "add-to-collection": function (a) { openCollect(a.tiles); },
         "change-expiry": function (a) { openExpiry(a.tiles); },
         "link": createOneLink,
+        // One selected file is the menu's Delete (10 s undo); several are
+        // confirmed and permanent. a.bulk is no test: the bar always sets it.
         "delete": function (a) {
-            if (a.bulk) bulkDelete(a);
+            if (a.ids.length > 1) bulkDelete(a);
             else deleteOne(a);
         }
     });

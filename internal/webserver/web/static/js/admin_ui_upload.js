@@ -914,23 +914,17 @@ function hideFileToast() {
     document.getElementById("toastnotificationUndo").classList.remove("show");
 }
 
+// Restores the file and puts it back into the lists it was deleted from
+// (FGS.restoreFile). Never reloads the page: that would collapse open rows.
+// Whether it worked or not, the toast says so.
 function handleUndo(button) {
     hideFileToast();
-    apiFilesRestore(button.dataset.fileid)
-        .then(data => {
-            // The Files tab has no list of uploads to add the file back to
-            if (uploadBrowser() === null) {
-                location.reload();
-                return;
-            }
-            addUploadedFile(data.FileInfo);
-            notifyWorker({ type: "fileAdded", item: data.FileInfo });
-            if (isE2EEnabled) {
-                GokapiE2EDecryptMenu();
-            }
-        })
+    let label = document.getElementById("toastFilename");
+    let name = label ? label.textContent : "the file";
+    FGS.restoreFile(button.dataset.fileid)
+        .then(result => FGS.undoToast(name, result))
         .catch(error => {
-            alert("Unable to restore file: " + error);
+            FGS.undoToast(name, null, error);
             console.error('Error:', error);
         });
 }

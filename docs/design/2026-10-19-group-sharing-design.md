@@ -190,6 +190,37 @@ Revised 2026-10-19 after Franco tried the preview build.
 - **The Upload page** goes back to being only for uploading. The file table
   moves here.
 
+### One file list everywhere
+
+Decided 2026-10-19. Every file list on the site uses the same shared
+component, built from the Files tab: the same views, thumbnails, "⋯" menu,
+Select mode and selection bar, viewer, Square / True shape and size slider.
+Each page differs only in what it lists and which actions it allows.
+
+- **Views:** Grid · Board · List on every list. Board is the masonry layout
+  that keeps true proportions.
+- **Default view per page:**
+  - Files and Upload: Grid.
+  - Collection link page: List.
+  - Group page: Board.
+  - Collections admin member lists and File requests: List.
+- **Per-page content and actions:**
+
+| Page | Lists | ⋯ menu | Selection bar |
+|---|---|---|---|
+| Files | all your files (Everything for PERM_LIST) | Open, Download original, Copy link, Share…, QR code, Edit, Replace content, Add to collection…, Delete | Download, zip, Save to Photos, Create one link, Add to collection…, Change expiry & limits, Delete |
+| Upload | files uploaded in this visit, added live as each finishes | as Files | as Files |
+| Collections (admin), per collection | that collection's members | as Files, plus Remove from collection | as Files, plus Remove from collection |
+| File requests, per request | files uploaded to the request | Open, Download, Delete (no share link exists) | Download, zip, Save to Photos, Delete |
+| Collection link page (visitors) | the collection's live members | Open, Download | Download, zip, Save to Photos |
+
+- **Retired:** the custom upload-page "Create one link" bar in the branding
+  `admin.js`. It is removed at deploy, because the shared selection bar
+  replaces it.
+- **Access rule change:** previews of file-request uploads are visible to
+  their owner (the request's creator) and to PERM_LIST users. Everyone else
+  is still denied, as with `/d`.
+
 ### Viewer
 
 A full-screen overlay that opens from any grid, board or collection page.
@@ -226,8 +257,8 @@ Default layout:
 
 | Page | Default | Toggle |
 |---|---|---|
-| Collection page | List | Board / List |
-| Group page | Board | Board / List |
+| Collection page | List | Grid / Board / List |
+| Group page | Board | Grid / Board / List |
 
 Collection pages use the full width on desktop rather than a fixed narrow card;
 phones are unchanged. In the Collections tab, a collection's name opens its

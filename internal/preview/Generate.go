@@ -109,8 +109,11 @@ func generateVideo(parent context.Context, src, outDir, sha1 string) (models.Pre
 	thumb, view, poster := Paths(outDir, sha1)
 	// Uploads are untrusted: only local files, and only MOV/MP4 containers, so a
 	// renamed playlist (hls, concat) cannot make ffmpeg fetch or read other files.
+	// -f mov forces the MOV/MP4 demuxer on the probe too, so ffprobe never
+	// auto-detects (and opens) anything else; allowedContainer stays as a check.
 	probe, err := command(ctx, "ffprobe", "-v", "error", "-protocol_whitelist", "file", "-print_format", "json",
-		"-show_entries", "format=duration,format_name:format_tags:stream=codec_type,width,height:stream_side_data=rotation", src)
+		"-show_entries", "format=duration,format_name:format_tags:stream=codec_type,width,height:stream_side_data=rotation",
+		"-f", "mov", src)
 	if err != nil {
 		return models.Preview{}, err
 	}

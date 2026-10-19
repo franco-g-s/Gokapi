@@ -27,6 +27,13 @@ var ZipEntryTime = func(file models.File) time.Time {
 // nothing is counted - the owner's own zip from the Files tab, which must not
 // spend the download budget of the shares it is managing.
 func ServeZip(files []models.File, name string, w http.ResponseWriter, r *http.Request, countDownloads bool) int {
+	// A counted zip is only ever a GET: a HEAD (link previews, prefetchers)
+	// would otherwise spend a download on every member without sending one.
+	if countDownloads && r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return 0
+	}
 	included := make([]models.File, 0, len(files))
 	now := time.Now().Unix()
 	for _, f := range files {

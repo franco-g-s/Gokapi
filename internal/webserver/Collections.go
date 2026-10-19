@@ -129,9 +129,10 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 
 // downloadCollectionFile serves one member of a collection.
 //
-// Membership plus the collection's own limits are what authorise this, so the
-// member file's individual expiry is not re-checked - otherwise a file whose
-// own link had lapsed would vanish from an otherwise valid share.
+// Membership (and the collection's password, if any) authorises the request;
+// a collection has no expiry or download budget of its own. The member's own
+// limits still apply: GetCollectionFile only resolves live members, and
+// ServeFile re-checks expiry and counts the download against the file.
 func downloadCollectionFile(w http.ResponseWriter, r *http.Request) {
 	addNoCacheHeader(w)
 	collection, ok := storage.GetCollection(r.URL.Query().Get("id"))

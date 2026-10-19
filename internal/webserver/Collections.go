@@ -429,6 +429,13 @@ func modifyCollection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	database.SaveCollection(collection)
+	// Unlock tokens are keyed by collection id and live for 12 h, so a set,
+	// changed or removed password has to revoke them - otherwise anyone who
+	// knew the old password keeps the collection open. Done after the save,
+	// so the old password cannot mint a fresh token in between.
+	if request.Password != nil {
+		downloadPasswordToken.DeleteAllForFile(collection.Id)
+	}
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"Result": "OK", "Id": collection.Id, "Files": len(collection.FileIds)})
 }

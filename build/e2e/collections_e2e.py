@@ -259,7 +259,7 @@ check("page has the file picker modal", 'id="filePickerModal"' in page)
 check("picker lists selectable files", page.count("file-picker-check") >= 2,
       f"{page.count('file-picker-check')} entries")
 check("each collection row offers Add files", "collection-addfiles" in page)
-check("member rows are rendered for removal", "member-remove" in page)
+check("member rows are rendered for removal", 'data-menu="remove-from-collection"' in page)
 
 # ---- 16. no chained dialogs left in the create flows -----------------------
 page = opener.open(BASE + "/collections").read().decode()

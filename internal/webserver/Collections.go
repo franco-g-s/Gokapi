@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
+	"sort"
 	"time"
 
 	"github.com/forceu/gokapi/internal/configuration"
@@ -244,16 +246,11 @@ func deleteCollection(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.WriteString(w, `{"Result":"OK"}`)
 }
 
-// collectionMember is one file inside a collection, for the management page
-type collectionMember struct {
-	Id   string
-	Name string
-	Size string
-}
-
 // collectionInfo is one row in the admin collections list
 type collectionInfo struct {
-	Files        []collectionMember
+	// Browser lists the members in the shared file list (context
+	// collection-admin), one per collection
+	Browser      fileBrowser
 	Id           string
 	Name         string
 	Url          string
@@ -265,6 +262,17 @@ type collectionInfo struct {
 	OwnerName    string
 	IsOwn        bool
 	HasPassword  bool
+}
+
+// collectionExpiry is the "Available until" text of a collection: the expiry
+// of its longest-lived member, empty when one never expires (the caller says
+// "Unlimited" then)
+func collectionExpiry(collection *models.Collection) (text string, never bool) {
+	latest, never := collection.LatestExpiry()
+	if never {
+		return "", true
+	}
+	return time.Unix(latest, 0).Format("2006-01-02 15:04"), false
 }
 
 // showCollectionsAdmin renders the management list of collections
@@ -287,17 +295,21 @@ func showCollectionsAdmin(w http.ResponseWriter, r *http.Request) {
 		if collection.UserId != user.Id && !seeAll {
 			continue
 		}
-		latest, never := collection.LatestExpiry()
-		expiry := ""
-		if !never {
-			expiry = time.Unix(latest, 0).Format("2006-01-02 15:04")
-		}
-		members := make([]collectionMember, 0, len(collection.Files))
+		expiry, never := collectionExpiry(&collection)
+		items := make([]browserItem, 0, len(collection.Files))
 		for _, f := range collection.Files {
-			members = append(members, collectionMember{Id: f.Id, Name: f.Name, Size: f.Size})
+			items = append(items, browserItemFromFile(r, f, user, ctxCollectionAdmin, "", userNames))
 		}
+		sort.SliceStable(items, func(i, j int) bool {
+			if items[i].File.UploadDate != items[j].File.UploadDate {
+				return items[i].File.UploadDate > items[j].File.UploadDate
+			}
+			return items[i].File.Id > items[j].File.Id
+		})
+		browser := newFileBrowser("col-"+collection.Id, ctxCollectionAdmin, items, user)
+		browser.WithCollection(collection)
 		rows = append(rows, collectionInfo{
-			Files:        members,
+			Browser:      browser,
 			Id:           collection.Id,
 			Name:         collection.Name,
 			Url:          config.ServerUrl + "c?id=" + collection.Id,
@@ -347,6 +359,10 @@ type collectionModifyRequest struct {
 	// AddFileIds appends to the existing members, so a caller adding files does
 	// not need to know (or round-trip) the current member list.
 	AddFileIds []string `json:"addFileIds"`
+	// RemoveFileIds drops these members and keeps the rest, for the same
+	// reason: a page showing a stale member list must not, by replacing the
+	// list, silently remove files someone added since.
+	RemoveFileIds []string `json:"removeFileIds"`
 	// Password: nil leaves it untouched, "" removes it, anything else sets it.
 	// Stored hashed, so an existing password can be replaced but never read back.
 	Password *string `json:"password"`
@@ -398,6 +414,20 @@ func modifyCollection(w http.ResponseWriter, r *http.Request) {
 	if len(request.AddFileIds) > 0 {
 		request.FileIds = append(append([]string{}, collection.FileIds...), request.AddFileIds...)
 	}
+	if len(request.RemoveFileIds) > 0 {
+		kept := make([]string, 0, len(collection.FileIds))
+		for _, id := range collection.FileIds {
+			if !slices.Contains(request.RemoveFileIds, id) {
+				kept = append(kept, id)
+			}
+		}
+		if len(kept) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"Result":"error","ErrorMessage":"A collection needs at least one file"}`)
+			return
+		}
+		collection.FileIds = kept
+	}
 	if request.FileIds != nil {
 		permitted := make([]string, 0, len(request.FileIds))
 		seen := make(map[string]bool)
@@ -437,8 +467,17 @@ func modifyCollection(w http.ResponseWriter, r *http.Request) {
 	if request.Password != nil {
 		downloadPasswordToken.DeleteAllForFile(collection.Id)
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"Result": "OK", "Id": collection.Id, "Files": len(collection.FileIds)})
+	response := map[string]any{"Result": "OK", "Id": collection.Id, "Files": len(collection.FileIds)}
+	// What the management list shows for the row, so a page that changed the
+	// members can refresh it in place. Left out when nothing live remains.
+	if live, ok := storage.GetCollection(collection.Id); ok {
+		expiry, never := collectionExpiry(&live)
+		response["FileCount"] = len(live.Files)
+		response["TotalSize"] = helper.ByteCountSI(live.TotalSizeBytes)
+		response["Expiry"] = expiry
+		response["NeverExpires"] = never
+	}
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // listCollections returns the caller's collections as JSON, for the

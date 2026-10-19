@@ -917,6 +917,8 @@
         taken.textContent = fmt(info.TakenAt);
         if (dataTable) dataTable.row(row).invalidate("dom");
       }
+      // A replaced file's new preview is still being made: ask for it
+      if (info.Status === "pending") startPolling(id);
       layoutBoard();
     }
 
@@ -1067,8 +1069,12 @@
       tile.querySelector(".fgs-name").textContent = name;
       var small = tile.querySelector(".fgs-typeicon small");
       if (small) small.textContent = name.slice(0, 40);
+      // A new extension is a new type icon (on tiles and rows without a thumbnail)
+      var icon = fileTypeIcon(name);
+      Array.prototype.forEach.call(tile.querySelectorAll(".fgs-typeicon i"), function (i) { i.className = "bi " + icon; });
       fillMenu(menu, file, perms);
       if (row) {
+        Array.prototype.forEach.call(row.querySelectorAll(".fgs-list-icon i"), function (i) { i.className = "bi " + icon; });
         rowCheck(row).setAttribute("aria-label", "Select " + name);
         row.querySelector("td[data-col=name]").setAttribute("data-order", name);
         row.querySelector(".fgs-row-name").textContent = name;

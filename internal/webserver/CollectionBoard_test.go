@@ -19,6 +19,6 @@ func TestCollectionBoardMarkup(t *testing.T) {
 	test.HttpPageResult(t, test.HttpTestConfig{
 		Url: "http://localhost:53843/c?id=" + col.Id, IsHtml: true,
 		RequiredContent: []string{`data-layout-default="list"`, "fgs-board", "./p/thumb?id=" + f.Id, "&amp;c=" + col.Id, "fgs-viewer",
-			`id="fgs-collection-list"`, "fgs-open-viewer", "data-fgs-photos"},
+			`id="fgs-collection-list"`, "fgs-open-viewer", "data-fgs-photos", `data-bytes="1"`, `data-bytes="1">`},
 	})
 }

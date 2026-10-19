@@ -28,7 +28,7 @@
         photos.addEventListener("click", function () {
           var links = Array.prototype.slice.call(document.querySelectorAll("#collectiontable a[data-fileid]"));
           // These are the counted download URLs: saving to Photos is a download.
-          FGS.saveToPhotos(links.map(function (a) { return { url: a.href, name: a.dataset.filename || "" }; }), photos);
+          FGS.saveToPhotos(links.map(function (a) { return { url: a.href, name: a.dataset.filename || "", bytes: parseInt(a.dataset.bytes, 10) }; }), photos);
         });
       }
     }
@@ -85,49 +85,93 @@
     return (m && MIME_BY_EXT[m[1].toLowerCase()]) || blobType || "application/octet-stream";
   }
 
+  var PREPARE_MAX_BYTES = 1.5e9;  // per prepare tap; the rest goes in another batch or the zip
+  var VIDEO_RE = /\.(mov|mp4|m4v)$/i;
+
+  // Forget any prepared set and put the button back to its first-tap label.
+  // Called when the selection changes, and on unexpected failure.
+  FGS.resetSaveToPhotos = function (button) {
+    if (!button) return;
+    if (button._fgs) button._fgs.cancelled = true;
+    button._fgs = null;
+    if (button._fgsTimer) { window.clearTimeout(button._fgsTimer); button._fgsTimer = null; }
+    button.disabled = false;
+    if (button._fgsLabel !== undefined) button.innerHTML = button._fgsLabel;
+  };
+
+  // items: [{url, name, bytes}]. bytes is the stored size and is what decides
+  // what is fetched: /cd counts a download before it sends a body, so a file
+  // that can't be shared must be ruled out BEFORE the request, never after.
   FGS.saveToPhotos = function (list, button) {
     if (!navigator.canShare) { FGS.openHelpSheet(); return; }
     if (button._fgsLabel === undefined) button._fgsLabel = button.innerHTML;
     var state = button._fgs || (button._fgs = { files: null, next: 0 });
     if (state.busy) return;
+    if (button._fgsTimer) { window.clearTimeout(button._fgsTimer); button._fgsTimer = null; }
 
     if (!state.files) {
+      // Spend no download on files this browser can't share anyway
+      var probeOk = false;
+      try { probeOk = navigator.canShare({ files: [new File([""], "probe.jpg", { type: "image/jpeg" })] }); } catch (e) { /* unsupported */ }
+      if (!probeOk) { button._fgs = null; FGS.openHelpSheet(); return; }
+
       // Items without a url (password or client-side encrypted files) cannot be fetched
-      var items = (list || []).filter(function (it) { return it && it.url; });
-      var noUrl = (list || []).length - items.length;
-      if (!items.length) {
-        if (noUrl) alert(noUrl + " file(s) can't be fetched here. Use Download as .zip for those.");
-        return;
+      var all = list || [];
+      var noUrl = 0, bigVideos = 0, overCap = 0, failed = 0, total = 0;
+      var items = [];
+      all.forEach(function (it) {
+        if (!it || !it.url) { noUrl++; return; }
+        var known = typeof it.bytes === "number" && it.bytes >= 0;
+        if (known && VIDEO_RE.test(it.name) && it.bytes > VIDEO_MAX_BYTES) { bigVideos++; return; }
+        if (known) {
+          if (total + it.bytes > PREPARE_MAX_BYTES && items.length) { overCap++; return; }
+          total += it.bytes;
+        }
+        items.push(it);
+      });
+      function report() {
+        var notes = [];
+        if (bigVideos) notes.push(bigVideos + " large video(s) were left out");
+        if (overCap) notes.push(overCap + " file(s) didn't fit in this batch (save them in another batch)");
+        if (failed) notes.push(failed + " file(s) could not be fetched");
+        if (noUrl) notes.push(noUrl + " file(s) can't be fetched here");
+        if (notes.length) alert(notes.join("; ") + ". Use Download as .zip for those" + (failed ? ", or try again." : "."));
       }
+      if (!items.length) { button._fgs = null; report(); return; }
+
       state.busy = true;
       button.disabled = true;
-      var done = 0, files = [], bigVideos = 0, failed = 0;
+      var done = 0, files = [], fetched = 0;
       button.textContent = "Preparing 0/" + items.length + "…";
       var tick = function () { done++; button.textContent = "Preparing " + done + "/" + items.length + "…"; };
       items.reduce(function (p, it) {
         return p.then(function () {
+          if (state.cancelled) return null;
+          var known = typeof it.bytes === "number" && it.bytes >= 0;
+          // Size unknown: stop before a fetch that would pass the cap, so the
+          // rest is left for another batch
+          if (!known && fetched >= PREPARE_MAX_BYTES) { overCap++; return null; }
           return fetch(it.url, { credentials: "same-origin" }).then(function (r) {
             // An error page must never be wrapped up as a photo
             if (!r.ok) { failed++; return null; }
+            // Fallback only (size unknown): by now the request has been counted
             var len = parseInt(r.headers.get("Content-Length") || "0", 10);
-            if (/\.(mov|mp4|m4v)$/i.test(it.name) && len > VIDEO_MAX_BYTES) {
+            if (!known && VIDEO_RE.test(it.name) && len > VIDEO_MAX_BYTES) {
               bigVideos++;
               if (r.body && r.body.cancel) r.body.cancel();
               return null;
             }
             return r.blob();
           }).then(function (b) {
-            if (b) files.push(new File([b], it.name, { type: photoMime(it.name, b.type) }));
-            tick();
-          }, function () { failed++; tick(); });
+            if (b) { fetched += b.size; files.push(new File([b], it.name, { type: photoMime(it.name, b.type) })); }
+          }).catch(function () { failed++; }).then(tick);
         });
-      }, Promise.resolve()).then(function () {
+      }, Promise.resolve()).catch(function () {
+        failed++;
+      }).then(function () {
+        if (state.cancelled) return;  // selection changed meanwhile: drop it all
         state.busy = false;
         button.disabled = false;
-        var notes = [];
-        if (bigVideos) notes.push(bigVideos + " large video(s) were left out");
-        if (failed) notes.push(failed + " file(s) could not be fetched");
-        if (noUrl) notes.push(noUrl + " file(s) can't be fetched here");
         if (!files.length) {
           // Nothing usable: back to the first tap so they can retry
           button._fgs = null;
@@ -136,7 +180,10 @@
           state.files = files; state.next = 0;
           button.textContent = "Save to Photos" + (files.length > PHOTO_BATCH ? " (1/" + Math.ceil(files.length / PHOTO_BATCH) + ")" : "");
         }
-        if (notes.length) alert(notes.join("; ") + ". Use Download as .zip for those" + (failed ? ", or try again." : "."));
+        report();
+      }).catch(function () {
+        // Anything unexpected: leave the button usable rather than stuck
+        if (!state.cancelled) FGS.resetSaveToPhotos(button);
       });
       return;
     }
@@ -147,7 +194,15 @@
     navigator.share({ files: batch }).then(function () {
       state.busy = false;
       state.next += PHOTO_BATCH;
-      if (state.next >= state.files.length) { button.textContent = "Saved ✓"; button._fgs = null; return; }
+      if (state.next >= state.files.length) {
+        button.textContent = "Saved ✓"; button._fgs = null;
+        // Back to the first-tap label, so a later tap reads as a new action
+        button._fgsTimer = window.setTimeout(function () {
+          button._fgsTimer = null;
+          if (!button._fgs) button.innerHTML = button._fgsLabel;
+        }, 2000);
+        return;
+      }
       button.textContent = "Save to Photos (" + (state.next / PHOTO_BATCH + 1) + "/" + Math.ceil(state.files.length / PHOTO_BATCH) + ")";
     }, function (err) {
       // Cancelling the sheet is normal: keep the prepared files, they can tap again
@@ -171,7 +226,7 @@
     var d = function (k) { return el.getAttribute("data-" + k) || ""; };
     return { id: d("id"), name: d("name"), view: d("view"), video: d("video"), download: d("download"),
       uploader: d("uploader"), taken: parseInt(d("taken"), 10) || 0, uploaded: parseInt(d("uploaded"), 10) || 0,
-      size: d("size"), w: parseInt(d("w"), 10) || 0, h: parseInt(d("h"), 10) || 0 };
+      size: d("size"), bytes: parseInt(d("bytes"), 10), w: parseInt(d("w"), 10) || 0, h: parseInt(d("h"), 10) || 0 };
   };
 
   var v = null, items = [], at = 0, touchX = null, returnFocus = null;

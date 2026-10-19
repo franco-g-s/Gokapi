@@ -34,6 +34,9 @@ function initFilesPage() {
         var n = selected().length;
         bar.classList.toggle("d-none", n === 0);
         document.getElementById("fgs-selcount").textContent = n + " selected";
+        // A prepared set belongs to the selection it was made for
+        var photos = bar.querySelector("[data-act=photos]");
+        if (photos && window.FGS && FGS.resetSaveToPhotos) FGS.resetSaveToPhotos(photos);
     }
 
     function applyLayout(layout) {
@@ -79,7 +82,8 @@ function initFilesPage() {
 
     function asItems(tiles) {
         return tiles.map(function (t) {
-            return { url: t.getAttribute("data-download"), name: t.getAttribute("data-name") };
+            return { url: t.getAttribute("data-download"), name: t.getAttribute("data-name"),
+                bytes: parseInt(t.getAttribute("data-bytes"), 10) };
         });
     }
 

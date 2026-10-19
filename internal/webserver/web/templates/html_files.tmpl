@@ -31,7 +31,7 @@
             data-name="{{ .File.Name }}" data-download="{{ .Preview.Download }}"
             data-view="{{ .Preview.View }}" data-video="{{ .Preview.Video }}"
             data-uploader="{{ .Uploader }}" data-taken="{{ .TakenAt }}" data-uploaded="{{ .File.UploadDate }}"
-            data-size="{{ .File.Size }}" data-w="{{ .Preview.Width }}" data-h="{{ .Preview.Height }}">
+            data-size="{{ .File.Size }}" data-bytes="{{ .File.SizeBytes }}" data-w="{{ .Preview.Width }}" data-h="{{ .Preview.Height }}">
       <button class="fgs-tile-open" type="button" aria-label="Open {{ .File.Name }}">
         {{ if .Preview.Thumb }}
           <img loading="lazy" decoding="async" src="{{ .Preview.Thumb }}" alt="" style="background:{{ .Preview.Color }}">

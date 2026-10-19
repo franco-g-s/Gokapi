@@ -36,7 +36,7 @@
                 {{ range .Items }}
                 <figure class="fgs-board-item" data-id="{{ .File.Id }}" data-name="{{ .File.Name }}"
                         data-download="{{ .Preview.Download }}" data-view="{{ .Preview.View }}" data-video="{{ .Preview.Video }}"
-                        data-taken="{{ .Preview.TakenAt }}" data-uploaded="{{ .File.UploadDate }}" data-size="{{ .File.Size }}"
+                        data-taken="{{ .Preview.TakenAt }}" data-uploaded="{{ .File.UploadDate }}" data-size="{{ .File.Size }}" data-bytes="{{ .File.SizeBytes }}"
                         data-w="{{ .Preview.Width }}" data-h="{{ .Preview.Height }}" style="background:{{ .Preview.Color }}">
                     {{ if .Preview.Thumb }}<img data-src="{{ .Preview.Thumb }}" alt="" decoding="async">
                     {{ if .Preview.Video }}<span class="fgs-play"><i class="bi bi-play-fill"></i></span>{{ end }}
@@ -64,7 +64,8 @@
                                 <a class="btn btn-sm btn-outline-light"
                                    href="./cd?id={{ $.Collection.Id }}&amp;file={{ .Id }}"
                                    data-fileid="{{ .Id }}"
-                                   data-filename="{{ .Name }}">
+                                   data-filename="{{ .Name }}"
+                                   data-bytes="{{ .SizeBytes }}">
                                     <i class="bi bi-download"></i>
                                 </a>
                             </td>

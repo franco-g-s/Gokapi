@@ -556,10 +556,11 @@ function createFileRequestRow(jsonResult, user) {
         apiFilesDelete(id, 10)
             .then(() => removeFile(a, id, name))
             .catch(error => {
-                a.button.disabled = false;
                 alert("Unable to delete file: " + error);
                 console.error("Error:", error);
-            });
+            })
+            // The selection bar's button is reused for the next selection
+            .finally(() => { a.button.disabled = false; });
     }
 
     // Several files: asked first, then deleted at once (no undo), each taken

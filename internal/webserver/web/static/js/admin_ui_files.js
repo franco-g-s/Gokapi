@@ -2,14 +2,23 @@
 // All files named admin_*.js will be merged together and minimised by calling
 // go generate ./...
 
-// Files tab: grid/list, My files / Everything, icon size, multi-select.
+// Files tab: grid/list, My files / Everything, icon size, select mode.
 // Remembers choices in localStorage, like the upload page's defaults.
+//
+// Select mode is off by default: no checkboxes, and a tile or a name in the
+// list opens the viewer. With it on, the same clicks toggle selection. The
+// grid's checkboxes are the selection; the list's mirror them, because
+// DataTables takes filtered-out rows out of the DOM.
 function initFilesPage() {
     var root = document.getElementById("fgs-files");
     if (!root) return;
     var grid = document.getElementById("fgs-grid");
     var list = document.getElementById("fgs-list");
     var bar = document.getElementById("fgs-selectbar");
+    var status = document.getElementById("fgs-selstatus");
+    var selectToggle = root.querySelector("[data-fgs-select-toggle]");
+    var selecting = false;
+    var dataTable = null;
 
     root.querySelectorAll("[data-ts]").forEach(function (el) {
         var ts = parseInt(el.getAttribute("data-ts"), 10);
@@ -24,22 +33,80 @@ function initFilesPage() {
         });
     }
 
+    // id -> tile and list-row checkbox, collected before DataTables can
+    // detach any row
+    var tilesById = {}, rowChecksById = {};
+    grid.querySelectorAll(".fgs-tile").forEach(function (t) { tilesById[t.getAttribute("data-id")] = t; });
+    list.querySelectorAll("tr[data-row-id]").forEach(function (tr) {
+        rowChecksById[tr.getAttribute("data-row-id")] = tr.querySelector(".fgs-row-check");
+    });
+    function tileCheck(tile) { return tile.querySelector(".fgs-tile-check"); }
+
+    function currentLayout() { return root.getAttribute("data-view") === "list" ? "list" : "grid"; }
+
+    // The files the user can see, in the order they see them: the grid in
+    // page order, the list in the table's current sort and filter. Both skip
+    // what the My files / Everything switch hides, and files deleted since
+    // the page loaded.
+    function visibleTiles() {
+        if (currentLayout() === "list" && dataTable) {
+            return dataTable.rows({ order: "applied", search: "applied" }).nodes().toArray()
+                .filter(function (tr) { return !tr.classList.contains("d-none"); })
+                .map(function (tr) { return tilesById[tr.getAttribute("data-row-id")]; })
+                .filter(function (t) { return t && t.isConnected; });
+        }
+        return Array.prototype.slice.call(grid.querySelectorAll(".fgs-tile:not(.d-none)"));
+    }
+
     function selected() {
-        return Array.prototype.slice.call(grid.querySelectorAll(".fgs-tile-check:checked"))
-            .map(function (c) { return c.closest(".fgs-tile"); })
-            .filter(function (t) { return !t.classList.contains("d-none"); });
+        return visibleTiles().filter(function (t) { return tileCheck(t).checked; });
     }
 
     function updateSelection() {
         var n = selected().length;
-        bar.classList.toggle("d-none", n === 0);
+        bar.classList.toggle("d-none", !selecting);
         document.getElementById("fgs-selcount").textContent = n + " selected";
+        bar.querySelectorAll("[data-act]").forEach(function (b) { b.disabled = n === 0; });
         // A prepared set belongs to the selection it was made for
         var photos = bar.querySelector("[data-act=photos]");
         if (photos && window.FGS && FGS.resetSaveToPhotos) FGS.resetSaveToPhotos(photos);
         // ...and so does a link made from it
         var linkResult = document.getElementById("fgs-linkresult");
         if (linkResult) { linkResult.textContent = ""; linkResult.className = ""; }
+    }
+
+    function setChecked(id, on) {
+        var tile = tilesById[id];
+        if (tile) tileCheck(tile).checked = on;
+        if (rowChecksById[id]) rowChecksById[id].checked = on;
+    }
+
+    function toggleSelected(tile) {
+        setChecked(tile.getAttribute("data-id"), !tileCheck(tile).checked);
+        status.textContent = "";
+        updateSelection();
+    }
+
+    function setSelecting(on) {
+        selecting = on;
+        root.classList.toggle("fgs-selecting", on);
+        selectToggle.textContent = on ? "Done" : "Select";
+        selectToggle.setAttribute("aria-pressed", on ? "true" : "false");
+        selectToggle.classList.toggle("btn-light", on);
+        selectToggle.classList.toggle("btn-outline-light", !on);
+        // Leaving select mode drops the selection
+        if (!on) Object.keys(tilesById).forEach(function (id) { setChecked(id, false); });
+        status.textContent = "";
+        updateSelection();
+        // The checkbox column appeared or went away
+        if (dataTable && currentLayout() === "list") dataTable.columns.adjust();
+    }
+
+    // The viewer, over everything visible, starting at this file
+    function openAt(tile) {
+        if (!tile || !window.FGS || !FGS.openViewer || !FGS.itemFromEl) return;
+        var tiles = visibleTiles();
+        FGS.openViewer(tiles.map(FGS.itemFromEl), Math.max(0, tiles.indexOf(tile)));
     }
 
     // One collection link for the selection, through the same endpoint the
@@ -78,10 +145,15 @@ function initFilesPage() {
         list.classList.toggle("d-none", layout !== "list");
         setActive("data-layout", layout);
         localStorage.setItem("filesLayout", layout);
-        // The table was laid out while hidden, so its column widths are wrong
-        if (layout === "list" && window.jQuery && jQuery.fn.dataTable && jQuery.fn.dataTable.isDataTable("#fgs-filetable")) {
-            jQuery("#fgs-filetable").DataTable().columns.adjust();
+        if (dataTable) {
+            // The grid ignores the table's search box, so a search must not
+            // keep rows (and the elements the upload page's helpers look up
+            // by id) out of the DOM while the grid is showing
+            if (layout === "grid" && dataTable.search() !== "") dataTable.search("").draw();
+            // The table was laid out while hidden, so its column widths are wrong
+            if (layout === "list") dataTable.columns.adjust();
         }
+        updateSelection();
     }
 
     // Only users with PERM_LIST get the switch, and only they are ever sent
@@ -102,6 +174,7 @@ function initFilesPage() {
     root.querySelectorAll("button[data-scope]").forEach(function (b) {
         b.addEventListener("click", function () { applyScope(b.getAttribute("data-scope")); });
     });
+    selectToggle.addEventListener("click", function () { setSelecting(!selecting); });
 
     var size = document.getElementById("fgs-icon-size");
     size.value = localStorage.getItem("filesIconSize") || "160";
@@ -119,14 +192,19 @@ function initFilesPage() {
         });
     }
 
-    var status = document.getElementById("fgs-selstatus");
     function downloadZip(tiles) {
         window.location = "./files/zip?ids=" + tiles.map(function (t) {
             return encodeURIComponent(t.getAttribute("data-id"));
         }).join(",");
     }
 
-    grid.addEventListener("change", function () {
+    // A checkbox ticked directly, in either view
+    root.addEventListener("change", function (e) {
+        var check = e.target.closest(".fgs-tile-check, .fgs-row-check");
+        if (!check) return;
+        var tile = check.classList.contains("fgs-tile-check") ? check.closest(".fgs-tile")
+            : tilesById[check.closest("tr").getAttribute("data-row-id")];
+        if (tile) setChecked(tile.getAttribute("data-id"), check.checked);
         status.textContent = "";
         updateSelection();
     });
@@ -167,19 +245,29 @@ function initFilesPage() {
     }
     help.addEventListener("click", function () { FGS.openHelpSheet(); });
 
+    // A tile, or a name in the list: open it, or in select mode (de)select it
     grid.addEventListener("click", function (e) {
         var open = e.target.closest(".fgs-tile-open");
-        if (!open || !window.FGS || !FGS.openViewer || !FGS.itemFromEl) return;
-        var tiles = Array.prototype.slice.call(grid.querySelectorAll(".fgs-tile:not(.d-none)"));
-        FGS.openViewer(tiles.map(FGS.itemFromEl), tiles.indexOf(open.closest(".fgs-tile")));
+        if (!open) return;
+        var tile = open.closest(".fgs-tile");
+        if (selecting) toggleSelected(tile);
+        else openAt(tile);
+    });
+    list.addEventListener("click", function (e) {
+        var name = e.target.closest(".fgs-name-open");
+        if (!name) return;
+        var tile = tilesById[name.closest("tr").getAttribute("data-row-id")];
+        if (!tile) return;
+        if (selecting) toggleSelected(tile);
+        else openAt(tile);
     });
 
     if (window.jQuery && jQuery.fn.DataTable) {
         // No paging: the scope switch hides rows in the DOM, and the edit
         // dialog's "Replace content" list reads every row's name from it
-        jQuery("#fgs-filetable").DataTable({
-            "order": [[2, "desc"]],
-            "columnDefs": [{ "targets": 7, "orderable": false }],
+        dataTable = jQuery("#fgs-filetable").DataTable({
+            "order": [[3, "desc"]], // Uploaded; column 0 is the checkbox
+            "columnDefs": [{ "targets": [0, 8], "orderable": false, "searchable": false }],
             "paging": false,
             "language": {
                 "info": "Files: _TOTAL_",
@@ -187,6 +275,8 @@ function initFilesPage() {
                 "infoEmpty": "",
             }
         });
+        // A search changes which selected files are visible
+        dataTable.on("draw", updateSelection);
     }
     applyLayout(localStorage.getItem("filesLayout") || "grid");
     applyScope(localStorage.getItem("filesScope") || "mine");

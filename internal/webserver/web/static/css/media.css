@@ -9,6 +9,14 @@
 .fgs-tile-open{display:block;width:100%;aspect-ratio:1;padding:0;border:0;border-radius:10px;overflow:hidden;background:#232321}
 .fgs-tile-open img{width:100%;height:100%;object-fit:cover;display:block}
 .fgs-tile-check{position:absolute;top:.4rem;left:.4rem}
+/* Select mode: checkboxes only while selecting, in both views; the slider and shape toggle only in the grid */
+#fgs-files:not(.fgs-selecting) .fgs-tile-check,#fgs-files:not(.fgs-selecting) .fgs-col-check{display:none}
+#fgs-files[data-view=list] .fgs-grid-only{display:none!important}
+.fgs-selecting .fgs-tile:has(.fgs-tile-check:checked) .fgs-tile-open{outline:3px solid #f2f1ee;outline-offset:-3px}
+.fgs-col-check{width:2rem}
+.fgs-list-name{display:flex;align-items:center;gap:.6rem}
+.fgs-name-open{padding:0;border:0;text-align:left;color:inherit;text-decoration:none;word-break:break-all}
+.fgs-name-open:hover,.fgs-name-open:focus-visible{color:inherit;text-decoration:underline}
 .fgs-play{position:absolute;right:.4rem;bottom:2.6rem;background:rgba(0,0,0,.55);border-radius:50%;padding:.15rem .4rem}
 .fgs-typeicon{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;font-size:2.4rem;color:#9a9992}
 .fgs-typeicon small{font-size:.7rem;padding:0 .4rem;word-break:break-all}

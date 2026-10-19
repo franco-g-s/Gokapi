@@ -262,3 +262,18 @@ func TestFilesCreateOneLink(t *testing.T) {
 	test.IsEqualInt(t, code, http.StatusBadRequest)
 	test.IsEqualBool(t, result["ErrorMessage"].(string) != "", true)
 }
+
+// R4: select mode. Checkboxes appear only after "Select", in both views, and
+// the icon-size slider belongs to the grid.
+func TestFilesPageSelectMode(t *testing.T) {
+	accessFile("filesselect", func(f *models.File) { f.Name = "select.jpg" })
+	test.HttpPageResult(t, test.HttpTestConfig{
+		Url:     "http://localhost:53843/files",
+		IsHtml:  true,
+		Cookies: []test.Cookie{{Name: "session_token", Value: "validsession"}},
+		RequiredContent: []string{`data-fgs-select-toggle`, `>Select</button>`, `class="fgs-grid-only`,
+			`class="form-check-input fgs-row-check"`, `<th class="fgs-col-check">`,
+			// the name opens the viewer: a button styled as a link
+			`<button type="button" class="btn btn-link fgs-name-open"`, `<span id="cell-name-filesselect">select.jpg</span>`},
+	})
+}

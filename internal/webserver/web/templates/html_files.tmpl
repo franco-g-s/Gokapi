@@ -13,15 +13,16 @@
       <button type="button" class="btn btn-sm btn-light" data-layout="grid" aria-label="Grid"><i class="bi bi-grid-3x3-gap"></i></button>
       <button type="button" class="btn btn-sm btn-outline-light" data-layout="list" aria-label="List"><i class="bi bi-list-ul"></i></button>
     </div>
-    <input type="range" min="96" max="320" value="160" id="fgs-icon-size" aria-label="Icon size" class="form-range" style="width:8rem">
+    <input type="range" min="96" max="320" value="160" id="fgs-icon-size" aria-label="Icon size" class="fgs-grid-only form-range" style="width:8rem">
+    <button type="button" class="btn btn-sm btn-outline-light" data-fgs-select-toggle aria-pressed="false">Select</button>
   </div>
 
   <div class="fgs-selectbar d-none" id="fgs-selectbar">
     <span id="fgs-selcount"></span>
     <button type="button" class="btn btn-sm btn-light" data-act="download">Download</button>
     <button type="button" class="btn btn-sm btn-outline-light" data-act="zip">Download as .zip</button>
-    <button type="button" class="btn btn-sm btn-outline-light" data-act="link">Create one link</button>
     <button type="button" class="btn btn-sm btn-outline-light d-none" data-act="photos">Save to Photos</button>
+    <button type="button" class="btn btn-sm btn-outline-light" data-act="link">Create one link</button>
     <button type="button" class="btn btn-sm btn-link text-muted d-none" data-fgs-help aria-label="How to save to Photos"><i class="bi bi-question-circle"></i></button>
     <span id="fgs-selstatus" class="small text-muted" aria-live="polite"></span>
     <div id="fgs-linkresult" aria-live="polite"></div>
@@ -51,11 +52,15 @@
 
   <div class="table-responsive d-none" id="fgs-list">
     <table class="table table-dark align-middle" id="fgs-filetable" data-count-label="Files: ">
-      <thead><tr><th>Name</th><th>Uploaded by</th><th>Uploaded</th><th>Taken</th><th>Size</th><th>Expires</th><th>Downloads</th><th style="min-width:13em;">Actions</th></tr></thead>
+      <thead><tr><th class="fgs-col-check"></th><th>Name</th><th>Uploaded by</th><th>Uploaded</th><th>Taken</th><th>Size</th><th>Expires</th><th>Downloads</th><th style="min-width:13em;">Actions</th></tr></thead>
       <tbody>
       {{ range .Rows }}
-        <tr data-mine="{{ .Mine }}" id="row-{{ .File.Id }}">
-          <td id="cell-name-{{ .File.Id }}">{{ .File.Name }}</td><td>{{ .Uploader }}</td>
+        <tr data-mine="{{ .Mine }}" data-row-id="{{ .File.Id }}" id="row-{{ .File.Id }}">
+          <td class="fgs-col-check"><input type="checkbox" class="form-check-input fgs-row-check" aria-label="Select {{ .File.Name }}"></td>
+          <td data-order="{{ .File.Name }}"><div class="fgs-list-name">
+            <button type="button" class="btn btn-link fgs-name-open" title="Open"><span id="cell-name-{{ .File.Id }}">{{ .File.Name }}</span></button>
+          </div></td>
+          <td>{{ .Uploader }}</td>
           <td data-order="{{ .File.UploadDate }}"><span data-ts="{{ .File.UploadDate }}"></span></td>
           <td data-order="{{ .TakenAt }}">{{ if .TakenAt }}<span data-ts="{{ .TakenAt }}"></span>{{ else }}—{{ end }}</td>
           <td data-order="{{ .File.SizeBytes }}">{{ .File.Size }}</td>

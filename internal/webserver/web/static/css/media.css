@@ -60,3 +60,6 @@
 .fgs-board-item img{width:100%;height:100%;object-fit:cover;display:block}
 .fgs-open-viewer{color:inherit;text-decoration:none;word-break:break-all}
 .fgs-open-viewer:hover{text-decoration:underline}
+.collection-name-link{color:inherit;text-decoration:none;word-break:break-word}
+.collection-name-link:hover{text-decoration:underline}
+@media (min-width:992px){.file-card.fgs-collection-wide{max-width:min(1280px,100% - 2rem)}}

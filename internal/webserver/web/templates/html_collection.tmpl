@@ -1,7 +1,7 @@
 {{define "collection"}}{{template "header" .}}
 
 <div class="container-fluid download-wrapper p-4">
-    <div class="file-card card">
+    <div class="file-card card{{ if not .IsPasswordView }} fgs-collection-wide{{ end }}">
 {{ if .IsPasswordView }}
         <div class="card-body p-5 text-center">
             <h3 class="card-title mb-3">{{ .Collection.Name }}</h3>

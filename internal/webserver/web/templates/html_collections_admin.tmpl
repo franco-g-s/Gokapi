@@ -37,7 +37,7 @@
                 <tr id="collection-{{ .Id }}">
                   <td>
                     {{ if .HasPassword }}<i class="bi bi-lock-fill me-1" title="Password protected"></i>{{ end }}
-                    {{ .Name }}
+                    <a class="collection-name-link" href="./c?id={{ .Id }}">{{ .Name }}</a>
                     {{ if not .IsOwn }}<span class="badge bg-secondary ms-2">{{ .OwnerName }}</span>{{ end }}
                   </td>
                   <td>{{ .FileCount }}</td>

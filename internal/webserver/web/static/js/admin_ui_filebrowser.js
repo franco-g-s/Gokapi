@@ -71,8 +71,8 @@
     }
 
     // One file from its menu: deleted after 10 s unless restored from the
-    // toast, and gone from every list on the page that shows it. Not through
-    // deleteFile(): its row bookkeeping belongs to the upload page's old table.
+    // toast, and gone from every list on the page that shows it. The undo
+    // toast is named from the tile, not from a table row.
     function deleteOne(a) {
         var id = a.ids[0];
         var name = a.tiles[0].getAttribute("data-name") || "";
@@ -118,11 +118,17 @@
                 }
                 try {
                     await apiFilesDelete(f.id, 0);
-                    deleted++;
+                } catch (error) {
+                    failures.push(f.name + ": " + errorText(error));
+                    continue;
+                }
+                // Deleted on the server. Showing it must not turn it into a failure.
+                deleted++;
+                try {
                     removeEverywhere(f.id);
                     if (typeof notifyWorker === "function") notifyWorker({ type: "fileDeleted", id: f.id });
                 } catch (error) {
-                    failures.push(f.name + ": " + errorText(error));
+                    console.error("Error:", error);
                 }
             }
         } finally {

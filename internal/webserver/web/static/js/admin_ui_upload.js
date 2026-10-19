@@ -8,7 +8,16 @@ var isE2EEnabled = false;
 
 var isUploading = false;
 
-var rowCount = -1;
+// The upload page's list of files uploaded now: the shared file list
+// (html_file_browser.tmpl) in its "upload" context, or null on every other
+// page that loads the admin bundle
+function uploadBrowser() {
+    let root = document.querySelector('[data-fgs-browser][data-context="upload"]');
+    if (root === null || !window.FGS || !FGS.initFileBrowser) {
+        return null;
+    }
+    return FGS.initFileBrowser(root);
+}
 
 
 function initDropzone() {
@@ -265,7 +274,7 @@ function dropzoneGetFile(uid) {
 function requestFileInfo(fileId, uid) {
     apiFilesListById(fileId)
         .then(data => {
-            addRow(data);
+            addUploadedFile(data);
             notifyWorker({ type: "fileAdded", item: data });
             let file = dropzoneGetFile(uid);
             if (file == null) {
@@ -422,29 +431,28 @@ function editFile() {
 }
 
 // After a successful edit. The Files tab reloads; the upload page only holds
-// this session's uploads, which a reload would drop, so the row is rebuilt
-// from the API's answer instead.
+// this session's uploads, which a reload would drop, so the file is added
+// again from the API's answer instead. Its preview is asked for first: a
+// replaced content has a new one.
 function showEditedFile(fileInfo) {
-    if (document.getElementById("downloadtable") == null) {
+    let browser = uploadBrowser();
+    if (browser === null) {
         location.reload();
         return;
     }
-    let row = document.getElementById("row-" + sanitizeId(fileInfo.Id));
-    if (row != null) {
-        $(row.closest("table")).DataTable().row(row).remove();
-        row.remove();
-        if (rowCount != -1) {
-            rowCount = rowCount - 1;
-        }
-    }
-    addRow(fileInfo);
     let modal = bootstrap.Modal.getInstance(document.getElementById("modaledit"));
     if (modal != null) {
         modal.hide();
     }
-    if (isE2EEnabled) {
-        GokapiE2EDecryptMenu();
-    }
+    fetch("./files/previewinfo?id=" + encodeURIComponent(fileInfo.Id), { credentials: "same-origin", cache: "no-store" })
+        .then(response => response.ok ? response.json() : null)
+        .catch(() => null)
+        .then(preview => {
+            addUploadedFile(fileInfo, preview);
+            if (isE2EEnabled) {
+                GokapiE2EDecryptMenu();
+            }
+        });
 }
 
 function showEditModal(filename, id, downloads, expiry, password, unlimitedown, unlimitedtime, isE2e, canReplace) {
@@ -557,27 +565,6 @@ function getAllAvailableFiles() {
 }
 
 
-function deleteFile(id) {
-    // The Files tab's "⋯" menu has no per-file delete button
-    let deleteButton = document.getElementById("button-delete-" + id);
-    if (deleteButton != null) {
-        deleteButton.disabled = true;
-    }
-    apiFilesDelete(id, 10)
-        .then(data => {
-            changeRowCount(false, document.getElementById("row-" + id));
-            // Files tab: the grid tile goes with the list row
-            document.querySelectorAll('.fgs-tile[data-id="' + id + '"]').forEach(el => el.remove());
-            showToastFileDeletion(id);
-            notifyWorker({ type: "fileDeleted", id: id });
-        })
-        .catch(error => {
-            alert("Unable to delete file: " + error);
-            console.error('Error:', error);
-        });
-}
-
-
 function checkBoxChanged(checkBox, correspondingInput) {
     let disable = !checkBox.checked;
 
@@ -619,12 +606,12 @@ function setNewDownloadCount(id, downloadCount, downloadsRemaining) {
         setTimeout(() => downloadCell.classList.remove("updatedDownloadCount"), 500);
     }
     if (downloadsRemaining != -1) {
-        let downloadsRemainingCell = document.getElementById("cell-downloadsRemaining-" + id);
-        if (downloadsRemainingCell != null) {
-            downloadsRemainingCell.innerText = downloadsRemaining;
-            downloadsRemainingCell.classList.add("updatedDownloadCount");
-            setTimeout(() => downloadsRemainingCell.classList.remove("updatedDownloadCount"), 500);
-        }
+        // The edit dialog opens with the remaining downloads its "⋯" menu holds
+        document.querySelectorAll('[data-fgs-file-menu][data-id="' + sanitizeId(String(id)) + '"]').forEach(menu => {
+            if (menu.hasAttribute("data-downloads")) {
+                menu.setAttribute("data-downloads", downloadsRemaining);
+            }
+        });
     }
 }
 
@@ -675,17 +662,18 @@ function registerChangeHandler() {
                    	 window.location.href = "./login";
 		     }, 1000);
                 } else if (event.data.type === "fileAdded") {
-                    // Another tab finished an upload or restored a file — add the
-                    // row if it isn't already present (guard against duplicate IDs).
-                    if (document.getElementById("row-" + sanitizeId(event.data.item.Id)) == null) {
-                        addRow(event.data.item);
+                    // Another tab finished an upload or restored a file — add it
+                    // if it isn't already listed (guard against duplicate IDs).
+                    let browser = uploadBrowser();
+                    if (browser !== null && browser.tile(sanitizeId(event.data.item.Id)) === null) {
+                        addUploadedFile(event.data.item);
                     }
                 } else if (event.data.type === "fileDeleted") {
-                    // Another tab deleted a file — remove the row silently (no toast,
+                    // Another tab deleted a file — remove it silently (no toast,
                     // since this tab didn't initiate the deletion).
-                    let row = document.getElementById("row-" + sanitizeId(event.data.id));
-                    if (row != null) {
-                        changeRowCount(false, row);
+                    let browser = uploadBrowser();
+                    if (browser !== null) {
+                        browser.removeItem(sanitizeId(event.data.id));
                     }
                 } else if (event.data.type === "log") {
                     const { level, message, detail } = event.data;
@@ -801,280 +789,21 @@ function removeFileStatus(chunkId) {
 }
 
 
-function addRow(item) {
-    let table = document.getElementById("downloadtable");
-    let row = table.insertRow(0);
+// One file uploaded now (or restored, or edited) onto the upload page's list.
+// Without a preview the tile starts pending and the list polls for it.
+function addUploadedFile(item, preview) {
+    let browser = uploadBrowser();
+    if (browser === null) {
+        return null;
+    }
     item.Id = sanitizeId(item.Id);
-    row.id = "row-" + item.Id;
-    let cellFilename = row.insertCell(0);
-    let cellFileSize = row.insertCell(1);
-    let cellRemainingDownloads = row.insertCell(2);
-    let cellStoredUntil = row.insertCell(3);
-    let cellDownloadCount = row.insertCell(4);
-    let cellUrl = row.insertCell(5);
-    let cellButtons = row.insertCell(6);
-
-    cellFilename.innerText = item.Name;
-    cellFilename.id = "cell-name-" + item.Id;
-    cellDownloadCount.id = "cell-downloads-" + item.Id;
-    cellFileSize.innerText = item.Size;
-    if (item.UnlimitedDownloads) {
-        cellRemainingDownloads.innerText = "Unlimited";
-    } else {
-        cellRemainingDownloads.innerText = item.DownloadsRemaining;
-        cellRemainingDownloads.id = "cell-downloadsRemaining-" + item.Id;
-    }
-    if (item.UnlimitedTime) {
-        cellStoredUntil.innerText = "Unlimited";
-    } else {
-        cellStoredUntil.innerText = formatUnixTimestamp(item.ExpireAt);
-    }
-    cellDownloadCount.innerText = item.DownloadCount;
-
-    const link = document.createElement('a');
-    link.href = item.UrlDownload;
-    link.target = '_blank';
-    link.style.color = 'inherit';
-    link.id = 'url-href-' + item.Id;
-    link.textContent = item.Id;
-
-    cellUrl.appendChild(link);
-
-    if (item.IsPasswordProtected === true) {
-        const icon = document.createElement('i');
-        icon.className = 'bi bi-key';
-        icon.title = 'Password protected';
-        cellUrl.appendChild(document.createTextNode(' '));
-        cellUrl.appendChild(icon);
-    }
-
-    cellButtons.appendChild(createButtonGroup(item));
-
-
-    cellFilename.classList.add('newItem');
-    cellFileSize.classList.add('newItem');
-    cellRemainingDownloads.classList.add('newItem');
-    cellStoredUntil.classList.add('newItem');
-    cellDownloadCount.classList.add('newItem');
-    cellUrl.classList.add('newItem');
-    cellButtons.classList.add('newItem');
-    cellFileSize.setAttribute('data-order', item.SizeBytes);
-
-    changeRowCount(true, row);
+    browser.addItem(item, preview || undefined);
     return item.Id;
-}
-
-function createButtonGroup(item) {
-    const groupContainer = document.createElement("div");
-    groupContainer.className = "btn-toolbar justify-content-end";
-    groupContainer.setAttribute("role", "toolbar");
-
-    const group1 = document.createElement("div");
-    group1.className = "btn-group me-2";
-    group1.setAttribute("role", "group");
-
-    // === Button: Copy URL ===
-    const copyUrlBtn = document.createElement('button');
-    copyUrlBtn.type = 'button';
-    copyUrlBtn.className = 'copyurl btn btn-outline-light btn-sm';
-    copyUrlBtn.dataset.clipboardText = item.UrlDownload;
-    copyUrlBtn.id = 'url-button-' + item.Id;
-    copyUrlBtn.title = 'Copy URL';
-
-    const copyIcon = document.createElement('i');
-    copyIcon.className = 'bi bi-copy';
-    copyUrlBtn.appendChild(copyIcon);
-    copyUrlBtn.appendChild(document.createTextNode(' URL'));
-
-    copyUrlBtn.addEventListener('click', () => {
-        showToast(1000);
-    });
-
-    group1.appendChild(copyUrlBtn);
-
-    // Dropdown toggle for Hotlink
-    const btnDropdown1 = document.createElement("button");
-    btnDropdown1.type = "button";
-    btnDropdown1.className = "btn btn-outline-light btn-sm dropdown-toggle dropdown-toggle-split";
-    btnDropdown1.setAttribute("data-bs-toggle", "dropdown");
-    btnDropdown1.setAttribute("aria-expanded", "false");
-    group1.appendChild(btnDropdown1);
-
-    const dropdown1 = document.createElement("ul");
-    dropdown1.className = "dropdown-menu dropdown-menu-end";
-    dropdown1.setAttribute("data-bs-theme", "dark");
-
-    const liDr1 = document.createElement("li");
-    const aDr1 = document.createElement("a");
-    if (item.UrlHotlink !== "") {
-        aDr1.className = "dropdown-item copyurl";
-        aDr1.title = "Copy hotlink";
-        aDr1.style.cursor = "pointer";
-        aDr1.setAttribute("data-clipboard-text", item.UrlHotlink);
-        aDr1.onclick = () => showToast(1000);
-        aDr1.innerHTML = `<i class="bi bi-copy"></i> Hotlink`;
-    } else {
-        aDr1.className = "dropdown-item";
-        aDr1.innerText = "Hotlink not available";
-    }
-    liDr1.appendChild(aDr1);
-    dropdown1.appendChild(liDr1);
-
-    // Share options live in this same dropdown, matching html_admin.tmpl
-    const divLi = document.createElement("li");
-    const divHr = document.createElement("hr");
-    divHr.className = "dropdown-divider";
-    divLi.appendChild(divHr);
-    dropdown1.appendChild(divLi);
-
-    const shareLi = document.createElement("li");
-    shareLi.className = "native-share-item";
-    // Only meaningful where the Web Share API exists (mobile, Safari)
-    shareLi.style.display = navigator.share ? "" : "none";
-    const shareA = document.createElement("a");
-    shareA.className = "dropdown-item";
-    shareA.style.cursor = "pointer";
-    shareA.title = "Share via device";
-    shareA.onclick = () => shareNativeUrl(item.Id);
-    shareA.innerHTML = `<i class="bi bi-box-arrow-up"></i> Share...`;
-    shareLi.appendChild(shareA);
-    dropdown1.appendChild(shareLi);
-
-    const qrLi = document.createElement("li");
-    const qrA = document.createElement("a");
-    qrA.className = "dropdown-item";
-    qrA.id = `qrcode-${item.Id}`;
-    qrA.style.cursor = "pointer";
-    qrA.title = "Open QR Code";
-    qrA.onclick = () => showQrCode(item.UrlDownload);
-    qrA.innerHTML = `<i class="bi bi-qr-code"></i> QR Code`;
-    qrLi.appendChild(qrA);
-    dropdown1.appendChild(qrLi);
-
-    const emailLi = document.createElement("li");
-    const emailA = document.createElement("a");
-    emailA.className = "dropdown-item";
-    emailA.title = "Share via email";
-    emailA.id = `email-${item.Id}`;
-    emailA.target = "_blank";
-    emailA.href = `mailto:?body=${encodeURIComponent(item.UrlDownload)}`;
-    emailA.innerHTML = `<i class="bi bi-envelope"></i> Email`;
-    emailLi.appendChild(emailA);
-    dropdown1.appendChild(emailLi);
-
-    group1.appendChild(dropdown1);
-
-    // Button group for Download/Edit/Delete
-    const group2 = document.createElement("div");
-    group2.className = "btn-group";
-    group2.setAttribute("role", "group");
-    
-    
-    // === Button: Download ===
-    const btnDownload = document.createElement('button');
-    btnDownload.type = 'button';
-    btnDownload.className = 'btn btn-outline-light btn-sm';
-    btnDownload.title = 'Download';
-    if (item.RequiresClientSideDecryption) {
-        btnDownload.classList.add("disabled");
-    }
-
-    const downloadIcon = document.createElement('i');
-    downloadIcon.className = 'bi bi-download';
-    btnDownload.appendChild(downloadIcon);
-    btnDownload.appendChild(document.createTextNode(" Download"));
-
-    btnDownload.addEventListener('click', () => {
-        downloadFileWithPresign(item.Id);
-    });
-
-    group2.appendChild(btnDownload);
-
-    // === Button: Edit ===
-    const btnEdit = document.createElement('button');
-    btnEdit.type = 'button';
-    btnEdit.className = 'btn btn-outline-light btn-sm';
-    btnEdit.title = 'Edit';
-
-    const editIcon = document.createElement('i');
-    editIcon.className = 'bi bi-pencil';
-    btnEdit.appendChild(editIcon);
-
-    btnEdit.addEventListener('click', () => {
-        showEditModal(
-            item.Name,
-            item.Id,
-            item.DownloadsRemaining,
-            item.ExpireAt,
-            item.IsPasswordProtected,
-            item.UnlimitedDownloads,
-            item.UnlimitedTime,
-            item.IsEndToEndEncrypted,
-            canReplaceOwnFiles
-        );
-    });
-
-    group2.appendChild(btnEdit);
-
-    // === Button: Delete ===
-    const btnDelete = document.createElement('button');
-    btnDelete.type = 'button';
-    btnDelete.className = 'btn btn-outline-danger btn-sm';
-    btnDelete.title = 'Delete';
-    btnDelete.id = 'button-delete-' + item.Id;
-
-    const deleteIcon = document.createElement('i');
-    deleteIcon.className = 'bi bi-trash3';
-    btnDelete.appendChild(deleteIcon);
-
-    btnDelete.addEventListener('click', () => {
-        deleteFile(item.Id);
-    });
-    group2.appendChild(btnDelete);
-
-    groupContainer.appendChild(group1);
-    groupContainer.appendChild(group2);
-
-    return groupContainer;
 }
 
 function sanitizeId(str) {
     return str.replace(/[^a-zA-Z0-9]/g, '');
 }
-
-function changeRowCount(add, row) {
-    // The row's own table: the upload page's #maintable or the Files tab's list
-    let table = row.closest("table");
-    let datatable = $(table).DataTable();
-    let label = table.getAttribute("data-count-label") || "Files stored: ";
-    if (rowCount == -1) {
-        rowCount = datatable.rows().count();
-    }
-    if (add) {
-        rowCount = rowCount + 1;
-        datatable.row.add(row);
-        // The upload table starts empty, so drop its placeholder row
-        let placeholder = table.querySelector(".dataTables_empty");
-        if (placeholder != null) {
-            placeholder.closest("tr").remove();
-        }
-    } else {
-        rowCount = rowCount - 1;
-        row.classList.add("rowDeleting");
-        setTimeout(() => {
-            datatable.row(row).remove();
-            row.remove();
-        }, 290);
-    }
-
-    let infoEmpty = document.getElementsByClassName("dataTables_empty")[0];
-    if (typeof infoEmpty !== "undefined") {
-        infoEmpty.innerText = label + rowCount;
-    } else {
-        document.getElementsByClassName("dataTables_info")[0].innerText = label + rowCount;
-    }
-}
-
 
 function hideQrCode() {
     document.getElementById("qroverlay").style.display = "none";
@@ -1122,12 +851,12 @@ function handleUndo(button) {
     hideFileToast();
     apiFilesRestore(button.dataset.fileid)
         .then(data => {
-            // The Files tab has no upload table to add the row back to
-            if (document.getElementById("downloadtable") == null) {
+            // The Files tab has no list of uploads to add the file back to
+            if (uploadBrowser() === null) {
                 location.reload();
                 return;
             }
-            addRow(data.FileInfo);
+            addUploadedFile(data.FileInfo);
             notifyWorker({ type: "fileAdded", item: data.FileInfo });
             if (isE2EEnabled) {
                 GokapiE2EDecryptMenu();
@@ -1137,34 +866,6 @@ function handleUndo(button) {
             alert("Unable to restore file: " + error);
             console.error('Error:', error);
         });
-}
-
-
-// Opens the device share sheet. Called from the URL dropdown, so unlike the
-// old shareUrl() it has no dropdown of its own to fall back to - the menu
-// entry is simply hidden where the Web Share API is unavailable.
-function shareNativeUrl(id) {
-    if (!navigator.share) {
-        return;
-    }
-    let filename = document.getElementById("cell-name-" + id).innerText;
-    // The Files tab has no ID column; its copy button carries the same URL
-    let link = document.getElementById("url-href-" + id);
-    let url = link != null ? link.getAttribute("href") : document.getElementById("url-button-" + id).getAttribute("data-clipboard-text");
-    navigator.share({
-        title: filename,
-        url: url,
-    }).catch(() => { /* user dismissed the sheet */ });
-}
-
-// Reveal the share entries rendered server-side, once we know the API exists
-function revealNativeShareItems() {
-    if (!navigator.share) {
-        return;
-    }
-    document.querySelectorAll(".native-share-item").forEach(function (item) {
-        item.style.display = "";
-    });
 }
 
 

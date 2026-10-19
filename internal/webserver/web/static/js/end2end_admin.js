@@ -162,49 +162,57 @@ function setE2eUpload() {
 }
 
 
+// Puts the real names and the decryptable links (#cipher) onto the upload
+// page's list (the shared file list, html_file_browser.tmpl): the tile, its
+// list row and both "⋯" menus. Names only through textContent and setters.
 function decryptFileEntries(fileMap) {
-    let datatable = $('#maintable').DataTable();
-    const rows = datatable.rows().nodes();
+    let browser = uploadBrowser();
+    if (browser === null) return;
 
-    for (let i = 0; i < rows.length; i++) {
-        const cell = datatable.cell(i, 0).node();
-        const idAttr = $(cell).attr("id");
-        if (!idAttr) continue;
+    for (const id of Object.keys(fileMap)) {
+        const tile = browser.tile(id);
+        if (tile === null) continue; // not uploaded now
+        const row = browser.row(id);
+        const filename = fileMap[id][0];
+        const cipher = fileMap[id][1];
 
-
-        const id = idAttr.substring("cell-name-".length);
-        const entry = fileMap[id];
-        if (!entry) continue; // no matching file for this row
-
-        const filename = entry[0];
-        const cipher = entry[1];
-
-        // Column 0: filename
-        cell.textContent = filename;
-
-        // Column 5: update link
-        let urlNode = datatable.cell(i, 5).node();
-        let urlLink = urlNode.querySelector("a");
-        let url = urlLink.getAttribute("href");
-
+        const menus = [tile.querySelector("[data-fgs-file-menu]")];
+        if (row !== null) menus.push(row.querySelector("[data-fgs-file-menu]"));
+        let url = menus[0].getAttribute("data-url") || "";
         if (!url.includes(cipher)) {
             if (IncludeFilename) {
                 url = url.replace("/Encrypted%20File", "/" + encodeURIComponent(filename));
             }
             url += "#" + cipher;
-            urlLink.setAttribute("href", url);
         }
 
-        // Column 6: update button and QR/email
-        let buttonNode = datatable.cell(i, 6).node();
-        let button = buttonNode.querySelector("button");
-        button.setAttribute("data-clipboard-text", url);
+        tile.setAttribute("data-name", filename);
+        tile.querySelector(".fgs-name").textContent = filename;
+        const small = tile.querySelector(".fgs-typeicon small");
+        if (small) small.textContent = filename.slice(0, 40);
+        tile.querySelector(".fgs-tile-open").setAttribute("aria-label", "Open " + filename);
+        tile.querySelector(".fgs-tile-check").setAttribute("aria-label", "Select " + filename);
 
-        let qrElem = document.getElementById("qrcode-" + id);
-        if (qrElem) qrElem.onclick = () => showQrCode(url);
+        for (const menu of menus) {
+            if (menu === null) continue;
+            menu.setAttribute("data-url", url);
+            const copy = menu.querySelector("[data-menu=copy]");
+            if (copy) copy.setAttribute("data-clipboard-text", url);
+            const trigger = menu.querySelector(".fgs-menu-btn");
+            if (trigger) trigger.setAttribute("aria-label", "Actions for " + filename);
+        }
 
-        let emailElem = document.getElementById("email-" + id);
-        if (emailElem) emailElem.href = "mailto:?body=" + encodeURIComponent(url);
+        if (row !== null) {
+            row.querySelector(".fgs-row-name").textContent = filename;
+            row.querySelector("td[data-col=name]").setAttribute("data-order", filename);
+            row.querySelector(".fgs-row-check").setAttribute("aria-label", "Select " + filename);
+            const copyButton = row.querySelector(".copyurl:not([data-menu])");
+            if (copyButton) copyButton.setAttribute("data-clipboard-text", url);
+            const table = row.closest("table");
+            if (table && $.fn.dataTable.isDataTable(table)) {
+                $(table).DataTable().row(row).invalidate("dom");
+            }
+        }
     }
 }
 

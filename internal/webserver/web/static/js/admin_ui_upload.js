@@ -1261,8 +1261,11 @@ function clearAutoLinkResult() {
     holder.className = "";
 }
 
-function showAutoLinkResult(url, errorMessage) {
-    let holder = document.getElementById("autoCollectionResult");
+// opts (optional): holderId and label, so the Files tab's select bar can
+// reuse this for its "Create one link" result. Defaults are the upload page's.
+function showAutoLinkResult(url, errorMessage, opts) {
+    opts = opts || {};
+    let holder = document.getElementById(opts.holderId || "autoCollectionResult");
     if (holder === null) {
         return;
     }
@@ -1275,7 +1278,8 @@ function showAutoLinkResult(url, errorMessage) {
     holder.className = "alert alert-success mt-3 d-flex align-items-center gap-2";
 
     let label = document.createElement("span");
-    label.textContent = "One link for this upload:";
+    label.className = "text-nowrap";
+    label.textContent = opts.label || "One link for this upload:";
     holder.appendChild(label);
 
     let field = document.createElement("input");

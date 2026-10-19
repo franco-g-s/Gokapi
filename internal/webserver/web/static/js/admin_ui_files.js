@@ -37,6 +37,37 @@ function initFilesPage() {
         // A prepared set belongs to the selection it was made for
         var photos = bar.querySelector("[data-act=photos]");
         if (photos && window.FGS && FGS.resetSaveToPhotos) FGS.resetSaveToPhotos(photos);
+        // ...and so does a link made from it
+        var linkResult = document.getElementById("fgs-linkresult");
+        if (linkResult) { linkResult.textContent = ""; linkResult.className = ""; }
+    }
+
+    // One collection link for the selection, through the same endpoint the
+    // upload page's automatic link uses. The server again keeps only files
+    // this user may list, and refuses end-to-end encrypted ones.
+    function createOneLink(tiles, button) {
+        if (button.disabled) return;
+        button.disabled = true; // each request makes a new collection
+        var opts = { holderId: "fgs-linkresult", label: "One link for " + tiles.length + " file" + (tiles.length === 1 ? "" : "s") + ":" };
+        fetch("./collections/create", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({
+                name: tiles.length + " files",
+                fileIds: tiles.map(function (t) { return t.getAttribute("data-id"); })
+            })
+        })
+            .then(function (response) { return response.json(); })
+            .then(function (data) {
+                if (data.Result !== "OK") {
+                    showAutoLinkResult(null, data.ErrorMessage || "could not create link", opts);
+                    return;
+                }
+                showAutoLinkResult(data.Url, null, opts);
+            })
+            .catch(function (error) { showAutoLinkResult(null, String(error), opts); })
+            .then(function () { button.disabled = false; });
     }
 
     function applyLayout(layout) {
@@ -118,6 +149,8 @@ function initFilesPage() {
                     status.textContent = skipped + " end-to-end encrypted file(s) left out: open each from its own download link.";
                 }, usable.length * 600 + 100); // after downloadSequentially's own last message
             }
+        } else if (what === "link") {
+            createOneLink(tiles, act);
         } else if (what === "photos" && FGS.saveToPhotos) {
             FGS.saveToPhotos(asItems(tiles), act);
         }

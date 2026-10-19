@@ -5,8 +5,10 @@ package webserver
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,7 +34,7 @@ func TestFilesPage(t *testing.T) {
 		IsHtml:  true,
 		Cookies: []test.Cookie{filesAdminSession()},
 		RequiredContent: []string{`id="fgs-files"`, "My files", "Everything", `data-view="grid"`,
-			`data-id="unlimitedDownload"`, `data-id="filesmine"`, `id="fgs-filetable"`, `href="./files"`, `id="fgs-selstatus"`, `id="fgs-viewer"`, `data-bytes="1"`},
+			`data-id="unlimitedDownload"`, `data-id="filesmine"`, `id="fgs-filetable"`, `href="./files"`, `id="fgs-selstatus"`, `id="fgs-viewer"`, `data-bytes="1"`, `data-act="link"`, `id="fgs-linkresult"`},
 	})
 	// A user without PERM_LIST gets neither the switch nor anyone else's files
 	test.HttpPageResult(t, test.HttpTestConfig{
@@ -224,4 +226,39 @@ func TestCollectionZipStillCounts(t *testing.T) {
 	remaining, count := downloadState(t, limited.Id)
 	test.IsEqualInt(t, remaining, 1)
 	test.IsEqualInt(t, count, 1)
+}
+
+// Ruling 21: "Create one link" posts the selection to /collections/create,
+// which keeps only files the user may list and reports errors as JSON.
+func TestFilesCreateOneLink(t *testing.T) {
+	own := accessFile("fileslinkown", nil)
+	e2e := accessFile("fileslinke2e", func(f *models.File) { f.SHA1 = "fileslinke2esha"; f.Encryption.IsEndToEndEncrypted = true })
+	post := func(ids ...string) (int, map[string]any) {
+		body, _ := json.Marshal(map[string]any{"name": "2 files", "fileIds": ids})
+		req, err := http.NewRequest("POST", "http://localhost:53843/collections/create", bytes.NewReader(body))
+		test.IsNil(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(&http.Cookie{Name: "session_token", Value: "validsession"})
+		resp, err := http.DefaultClient.Do(req)
+		test.IsNil(t, err)
+		defer resp.Body.Close()
+		result := map[string]any{}
+		test.IsNil(t, json.NewDecoder(resp.Body).Decode(&result))
+		return resp.StatusCode, result
+	}
+
+	// Another user's file is dropped from the link, not added to it
+	code, result := post(own.Id, "unlimitedDownload")
+	test.IsEqualInt(t, code, http.StatusOK)
+	test.IsEqualString(t, result["Result"].(string), "OK")
+	test.IsEqualInt(t, int(result["Files"].(float64)), 1)
+	test.IsEqualBool(t, strings.Contains(result["Url"].(string), "c?id="), true)
+
+	// Nothing listable, or an end-to-end encrypted file: an error to show
+	code, result = post("unlimitedDownload")
+	test.IsEqualInt(t, code, http.StatusBadRequest)
+	test.IsEqualString(t, result["Result"].(string), "error")
+	code, result = post(own.Id, e2e.Id)
+	test.IsEqualInt(t, code, http.StatusBadRequest)
+	test.IsEqualBool(t, result["ErrorMessage"].(string) != "", true)
 }

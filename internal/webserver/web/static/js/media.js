@@ -19,6 +19,28 @@
     }).filter(function (it) { return it.url; });
   }
 
+  // The collection page's "Back" button. Shown only when the visitor came from
+  // another page of this site: a link opened from a chat has no same-origin
+  // referrer, and the password form posting back to /c has this very page as
+  // its referrer, so neither shows it. A history entry cannot be read, so
+  // history.back() is used when this tab has a history to go back through,
+  // and the referrer URL is navigated to otherwise (a link opened in a new tab).
+  FGS.initBackButton = function (button, referrer, here, historyLength) {
+    if (!button) return;
+    var from = referrer === undefined ? document.referrer : referrer;
+    if (!from) return;
+    var page = here || window.location;
+    var ref;
+    try { ref = new URL(from); } catch (e) { return; }
+    if (ref.origin !== page.origin || ref.pathname === page.pathname) return;
+    var length = historyLength === undefined ? window.history.length : historyLength;
+    button.classList.remove("d-none");
+    button.addEventListener("click", function () {
+      if (length > 1) window.history.back();
+      else window.location.href = ref.href;
+    });
+  };
+
   // Desktop: "Download all" fires each file in turn (unchanged behaviour).
   // iOS: Safari allows one download per tap, so Save to Photos is primary and
   // the zip is the fallback (the zip alone where navigator.canShare is missing).

@@ -367,3 +367,25 @@ func TestFilesAddToCollectionOnlyListable(t *testing.T) {
 		ExcludedContent: []string{"unlimitedDownload"},
 	})
 }
+
+// R4 fix 1: the Files tab's "Add to collection…" picker asks for ?mine=1 and
+// gets only the caller's own collections, even with PERM_LIST. Without the
+// parameter the list is unchanged.
+func TestCollectionsListMine(t *testing.T) {
+	friendFile := accessFile("fileslistfriend", nil) // user 7's
+	friends, err := storage.CreateCollection(storage.CollectionParameters{Name: "friend's", FileIds: []string{friendFile.Id}}, models.User{Id: 7})
+	test.IsNil(t, err)
+	mine, err := storage.CreateCollection(storage.CollectionParameters{Name: "admin's", FileIds: []string{"unlimitedDownload"}}, models.User{Id: 5})
+	test.IsNil(t, err)
+	list := func(url string) string {
+		code, body := filesGet(t, filesAdminSession().Value, url)
+		test.IsEqualInt(t, code, http.StatusOK)
+		return string(body)
+	}
+	all := list("/collections/list")
+	test.IsEqualBool(t, strings.Contains(all, friends.Id), true)
+	test.IsEqualBool(t, strings.Contains(all, mine.Id), true)
+	own := list("/collections/list?mine=1")
+	test.IsEqualBool(t, strings.Contains(own, friends.Id), false)
+	test.IsEqualBool(t, strings.Contains(own, mine.Id), true)
+}

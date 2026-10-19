@@ -275,7 +275,8 @@ function initFilesPage() {
         else openAt(tile);
     });
     list.addEventListener("click", function (e) {
-        var name = e.target.closest(".fgs-name-open");
+        // The thumbnail belongs to the name: it opens or (de)selects too
+        var name = e.target.closest(".fgs-name-open, .fgs-list-thumb");
         if (!name) return;
         var tile = tilesById[name.closest("tr").getAttribute("data-row-id")];
         if (!tile) return;
@@ -285,6 +286,10 @@ function initFilesPage() {
 
     // The "⋯" menu, the same in both views. Each entry reuses the upload
     // page's helper behind the button it replaces.
+    // ClipboardJS blurs whatever has focus once it has copied, so give it
+    // back to the "⋯" afterwards
+    function refocusLater(el) { window.setTimeout(function () { el.focus(); }, 0); }
+
     function copyText(text) {
         if (window.ClipboardJS && ClipboardJS.copy) {
             ClipboardJS.copy(text);
@@ -317,14 +322,18 @@ function initFilesPage() {
         var url = menu.getAttribute("data-url");
         // Dialogs and the viewer hand focus back to the "⋯", not to an
         // entry of the menu that just closed
-        menu.querySelector(".fgs-menu-btn").focus();
+        var trigger = menu.querySelector(".fgs-menu-btn");
+        trigger.focus();
         switch (item.getAttribute("data-menu")) {
             case "open": openAt(tile); break;
             case "download": FGS.downloadSequentially(asItems([tile])); break;
-            case "copy": showToast(1000); break; // ClipboardJS copies every .copyurl
+            case "copy": // ClipboardJS copies every .copyurl
+                showToast(1000);
+                refocusLater(trigger);
+                break;
             case "share":
                 if (navigator.share) shareNativeUrl(id);
-                else copyText(url);
+                else { copyText(url); refocusLater(trigger); }
                 break;
             case "qr": showQrCode(url); break;
             case "edit": editFromMenu(menu, tile, false); break;
@@ -339,9 +348,7 @@ function initFilesPage() {
         var menu = tile.querySelector("[data-fgs-file-menu]");
         var d = function (k) { return menu.getAttribute("data-" + k); };
         return { id: d("id"), name: tile.getAttribute("data-name"), e2e: d("e2e") === "true",
-            canEdit: d("can-edit") === "true", canDelete: d("can-delete") === "true",
-            downloads: parseInt(d("downloads"), 10) || 0, unlimitedDownloads: d("unlimited-downloads") === "true",
-            expire: parseInt(d("expire"), 10) || 0, unlimitedTime: d("unlimited-time") === "true" };
+            canEdit: d("can-edit") === "true", canDelete: d("can-delete") === "true" };
     }
     function plural(n, word) { return n + " " + word + (n === 1 ? "" : "s"); }
     function errorText(error) { return error && error.message ? error.message : String(error); }
@@ -375,11 +382,12 @@ function initFilesPage() {
             .then(function (data) {
                 if (data.Result !== "OK") {
                     collectError("Could not add: " + (data.ErrorMessage || "unknown error"));
-                    return;
+                    return false;
                 }
                 showAutoLinkResult(urlFromData(data), null, { holderId: "fgs-collect-result", label: label });
+                return true;
             })
-            .catch(function (error) { collectError("Could not add: " + errorText(error)); });
+            .catch(function (error) { collectError("Could not add: " + errorText(error)); return false; });
     }
 
     function renderCollections(collections) {
@@ -431,7 +439,7 @@ function initFilesPage() {
         loading.className = "list-group-item text-muted";
         loading.textContent = "Loading your collections…";
         collectList.appendChild(loading);
-        fetch("./collections/list", { credentials: "same-origin" })
+        fetch("./collections/list?mine=1", { credentials: "same-origin" })
             .then(function (response) { return response.json(); })
             .then(function (data) { renderCollections(Array.isArray(data) ? data : []); })
             .catch(function (error) {
@@ -448,12 +456,14 @@ function initFilesPage() {
         collectRequest("./collections/create", { name: name, fileIds: collectIds },
             "New collection" + (name ? " \u201c" + name + "\u201d" : "") + ":",
             function (data) { return data.Url; })
-            .then(function () { collectCreate.disabled = false; });
+            // Once made, it stays made: another click would create a second
+            // collection. Reopening the dialog starts over.
+            .then(function (ok) { collectCreate.disabled = ok; });
     });
 
     // "Change expiry & limits": one /api/files/modify per file, in turn.
-    // "Keep" sends the file's own current value, since the API always sets
-    // both; the password is always kept.
+    // "Keep" leaves that header out, so the server keeps whatever is stored
+    // now (not what the page loaded with); the password is always kept.
     var expiryModal = document.getElementById("fgs-expiry-modal");
     var expiryApply = document.getElementById("fgs-expiry-apply");
     var expiryStatus = document.getElementById("fgs-expiry-status");
@@ -525,9 +535,9 @@ function initFilesPage() {
                 failure(expiryFailures, f.name, "you may not edit this file");
                 continue;
             }
-            // 0 means unlimited / never to the API
-            var downloads = limitChoice === "keep" ? (f.unlimitedDownloads ? 0 : f.downloads) : limit;
-            var expiry = expiryChoice === "keep" ? (f.unlimitedTime ? 0 : f.expire) : expiryAt;
+            // null leaves it unchanged; 0 means unlimited / never to the API
+            var downloads = limitChoice === "keep" ? null : limit;
+            var expiry = expiryChoice === "keep" ? null : expiryAt;
             try {
                 await apiFilesModify(f.id, downloads, expiry, "", true);
                 expiryChanged = true;

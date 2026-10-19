@@ -442,7 +442,8 @@ func modifyCollection(w http.ResponseWriter, r *http.Request) {
 }
 
 // listCollections returns the caller's collections as JSON, for the
-// "add to existing collection" picker on the upload page.
+// "add to existing collection" picker on the upload page. ?mine=1 limits it
+// to collections the caller owns.
 func listCollections(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	user, err := authentication.GetUserFromRequest(r)
@@ -456,9 +457,12 @@ func listCollections(w http.ResponseWriter, r *http.Request) {
 		Name  string `json:"name"`
 		Files int    `json:"files"`
 	}
+	// ?mine=1 (the Files tab's picker): only the caller's own collections,
+	// even for a PERM_LIST admin, so a file is never added to someone else's
+	mineOnly := r.URL.Query().Get("mine") == "1"
 	result := make([]entry, 0)
 	for _, collection := range storage.GetAllCollectionsResolved() {
-		if collection.UserId != user.Id && !user.HasPermission(models.UserPermListOtherUploads) {
+		if collection.UserId != user.Id && (mineOnly || !user.HasPermission(models.UserPermListOtherUploads)) {
 			continue
 		}
 		result = append(result, entry{collection.Id, collection.Name, len(collection.Files)})

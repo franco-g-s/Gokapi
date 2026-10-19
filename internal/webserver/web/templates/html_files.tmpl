@@ -1,0 +1,99 @@
+{{ define "files" }}{{ template "header" . }}
+<div class="row"><div class="col"><div id="container" class="card" style="width:100%">
+<div class="card-body text-start" id="fgs-files" data-view="grid">
+  <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+    <h3 class="card-title mb-0 me-auto">Files</h3>
+    {{ if .CanSeeEveryone }}
+    <div class="btn-group" role="group" aria-label="Whose files">
+      <button type="button" class="btn btn-sm btn-light" data-scope="mine">My files</button>
+      <button type="button" class="btn btn-sm btn-outline-light" data-scope="all">Everything</button>
+    </div>
+    {{ end }}
+    <div class="btn-group" role="group" aria-label="Layout">
+      <button type="button" class="btn btn-sm btn-light" data-layout="grid" aria-label="Grid"><i class="bi bi-grid-3x3-gap"></i></button>
+      <button type="button" class="btn btn-sm btn-outline-light" data-layout="list" aria-label="List"><i class="bi bi-list-ul"></i></button>
+    </div>
+    <input type="range" min="96" max="320" value="160" id="fgs-icon-size" aria-label="Icon size" class="form-range" style="width:8rem">
+  </div>
+
+  <div class="fgs-selectbar d-none" id="fgs-selectbar">
+    <span id="fgs-selcount"></span>
+    <button type="button" class="btn btn-sm btn-light" data-act="download">Download</button>
+    <button type="button" class="btn btn-sm btn-outline-light" data-act="zip">Download as .zip</button>
+    <button type="button" class="btn btn-sm btn-outline-light d-none" data-act="photos">Save to Photos</button>
+    <button type="button" class="btn btn-sm btn-link text-muted d-none" data-fgs-help aria-label="How to save to Photos"><i class="bi bi-question-circle"></i></button>
+  </div>
+
+  <div class="fgs-grid" id="fgs-grid">
+    {{ range .Rows }}
+    <figure class="fgs-tile" data-mine="{{ .Mine }}" data-id="{{ .File.Id }}"
+            data-name="{{ .File.Name }}" data-download="{{ .Preview.Download }}"
+            data-view="{{ .Preview.View }}" data-video="{{ .Preview.Video }}"
+            data-uploader="{{ .Uploader }}" data-taken="{{ .TakenAt }}" data-uploaded="{{ .File.UploadDate }}"
+            data-size="{{ .File.Size }}" data-w="{{ .Preview.Width }}" data-h="{{ .Preview.Height }}">
+      <button class="fgs-tile-open" type="button" aria-label="Open {{ .File.Name }}">
+        {{ if .Preview.Thumb }}
+          <img loading="lazy" decoding="async" src="{{ .Preview.Thumb }}" alt="" style="background:{{ .Preview.Color }}">
+          {{ if .Preview.Video }}<span class="fgs-play"><i class="bi bi-play-fill"></i></span>{{ end }}
+        {{ else }}
+          <span class="fgs-typeicon"><i class="bi bi-file-earmark"></i><small>{{ .File.Name | printf "%.40s" }}</small></span>
+        {{ end }}
+      </button>
+      <input type="checkbox" class="form-check-input fgs-tile-check" aria-label="Select {{ .File.Name }}">
+      <figcaption><span class="fgs-name">{{ .File.Name }}</span>
+        <span class="fgs-meta">{{ .Uploader }} · <span data-ts="{{ .File.UploadDate }}"></span></span></figcaption>
+    </figure>
+    {{ end }}
+  </div>
+
+  <div class="table-responsive d-none" id="fgs-list">
+    <table class="table table-dark align-middle" id="fgs-filetable" data-count-label="Files: ">
+      <thead><tr><th>Name</th><th>Uploaded by</th><th>Uploaded</th><th>Taken</th><th>Size</th><th>Expires</th><th>Downloads</th><th style="min-width:13em;">Actions</th></tr></thead>
+      <tbody>
+      {{ range .Rows }}
+        <tr data-mine="{{ .Mine }}" id="row-{{ .File.Id }}">
+          <td id="cell-name-{{ .File.Id }}">{{ .File.Name }}</td><td>{{ .Uploader }}</td>
+          <td data-order="{{ .File.UploadDate }}"><span data-ts="{{ .File.UploadDate }}"></span></td>
+          <td data-order="{{ .TakenAt }}">{{ if .TakenAt }}<span data-ts="{{ .TakenAt }}"></span>{{ else }}—{{ end }}</td>
+          <td data-order="{{ .File.SizeBytes }}">{{ .File.Size }}</td>
+          {{ if .File.UnlimitedTime }}<td data-order="9223372036854775807">Never</td>{{ else }}<td data-order="{{ .File.ExpireAt }}"><span data-ts="{{ .File.ExpireAt }}"></span></td>{{ end }}
+          <td id="cell-downloads-{{ .File.Id }}">{{ .File.DownloadCount }}</td>
+          <td>
+          <div class="btn-toolbar justify-content-end" role="toolbar" >
+            <div class="btn-group me-2" role="group">
+               {{ template "admin_button_copyurl" (newAdminButtonContext .File $.ActiveUser)}}
+            </div>
+            <div class="btn-group" role="group">
+               {{ template "admin_button_download" (newAdminButtonContext .File $.ActiveUser) }}
+               {{ template "admin_button_edit" (newAdminButtonContext .File $.ActiveUser) }}
+               {{ template "admin_button_delete" (newAdminButtonContext .File $.ActiveUser) }}
+           </div>
+          </div></td>
+        </tr>
+      {{ end }}
+      </tbody>
+    </table>
+  </div>
+  {{ template "media_viewer" }}
+  {{ template "media_help_sheet" }}
+</div></div></div></div>
+
+{{ template "admin_modal_edit" }}
+
+<div id="toastnotification" class="toastnotification" data-default="URL copied to clipboard">Toast Text</div>
+<div id="toastnotificationUndo" class="toastnotification">
+  File deleted: <span id="toastFilename"></span>
+  <span id="toastUndoButton" class="toast-undo" onclick="handleUndo(this)">Restore</span>
+</div>
+<div id="qroverlay">
+  <div id="qrcode"></div>
+</div>
+
+<script src="./js/min/admin.min.{{ template "js_admin_version"}}.js"></script>
+<script>
+initFilesPage();
+revealNativeShareItems();
+</script>
+{{ template "pagename" "Files"}}
+{{ template "customjs" .}}
+{{ template "footer" true}}{{ end }}

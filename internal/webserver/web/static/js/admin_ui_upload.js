@@ -510,6 +510,8 @@ function deleteFile(id) {
     apiFilesDelete(id, 10)
         .then(data => {
             changeRowCount(false, document.getElementById("row-" + id));
+            // Files tab: the grid tile goes with the list row
+            document.querySelectorAll('.fgs-tile[data-id="' + id + '"]').forEach(el => el.remove());
             showToastFileDeletion(id);
             notifyWorker({ type: "fileDeleted", id: id });
         })
@@ -985,13 +987,21 @@ function sanitizeId(str) {
 }
 
 function changeRowCount(add, row) {
-    let datatable = $('#maintable').DataTable();
+    // The row's own table: the upload page's #maintable or the Files tab's list
+    let table = row.closest("table");
+    let datatable = $(table).DataTable();
+    let label = table.getAttribute("data-count-label") || "Files stored: ";
     if (rowCount == -1) {
         rowCount = datatable.rows().count();
     }
     if (add) {
         rowCount = rowCount + 1;
         datatable.row.add(row);
+        // The upload table starts empty, so drop its placeholder row
+        let placeholder = table.querySelector(".dataTables_empty");
+        if (placeholder != null) {
+            placeholder.closest("tr").remove();
+        }
     } else {
         rowCount = rowCount - 1;
         row.classList.add("rowDeleting");
@@ -1003,9 +1013,9 @@ function changeRowCount(add, row) {
 
     let infoEmpty = document.getElementsByClassName("dataTables_empty")[0];
     if (typeof infoEmpty !== "undefined") {
-        infoEmpty.innerText = "Files stored: " + rowCount;
+        infoEmpty.innerText = label + rowCount;
     } else {
-        document.getElementsByClassName("dataTables_info")[0].innerText = "Files stored: " + rowCount;
+        document.getElementsByClassName("dataTables_info")[0].innerText = label + rowCount;
     }
 }
 
@@ -1056,6 +1066,11 @@ function handleUndo(button) {
     hideFileToast();
     apiFilesRestore(button.dataset.fileid)
         .then(data => {
+            // The Files tab has no upload table to add the row back to
+            if (document.getElementById("downloadtable") == null) {
+                location.reload();
+                return;
+            }
             addRow(data.FileInfo);
             notifyWorker({ type: "fileAdded", item: data.FileInfo });
             if (isE2EEnabled) {
@@ -1077,7 +1092,9 @@ function shareNativeUrl(id) {
         return;
     }
     let filename = document.getElementById("cell-name-" + id).innerText;
-    let url = document.getElementById("url-href-" + id).getAttribute("href");
+    // The Files tab has no ID column; its copy button carries the same URL
+    let link = document.getElementById("url-href-" + id);
+    let url = link != null ? link.getAttribute("href") : document.getElementById("url-button-" + id).getAttribute("data-clipboard-text");
     navigator.share({
         title: filename,
         url: url,

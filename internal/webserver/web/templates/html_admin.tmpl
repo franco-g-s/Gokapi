@@ -103,8 +103,9 @@
   <span id="errormessage" ></span>
 </div>
 		<br><br>
+		<p class="small text-muted mt-2 mb-1">Files you upload now appear below. Everything you have shared is in <a href="./files">Files</a>.</p>
 		<div class="table-responsive">
-			<table id="maintable" class="table table-dark">
+			<table id="maintable" class="table table-dark" data-count-label="Uploaded now: ">
 				<thead>
 					<tr>
 						<th scope="col" style="text-align: center;">Filename</th>
@@ -117,42 +118,6 @@
 					</tr>
 				</thead>
 				<tbody id="downloadtable">
-{{ range .Items }}
-	{{ if not (or .IsPendingDeletion .IsFileRequest) }}	
-		{{ if  or (gt .ExpireAt $.TimeNow) (.UnlimitedTime) }}
-			{{ if or (gt .DownloadsRemaining 0) (.UnlimitedDownloads) }}
-					<tr id="row-{{ .Id }}">
-						<td id="cell-name-{{ .Id }}">{{ .Name }}</td>
-						<td data-order="{{ .SizeBytes }}">{{ .Size }}</td>
-				{{ if .UnlimitedDownloads }}
-						<td>Unlimited</td>
-				{{ else }}
-						<td id="cell-downloadsRemaining-{{ .Id }}">{{ .DownloadsRemaining }}</td>
-				{{ end }}
-				{{ if .UnlimitedTime }}
-						<td>Unlimited</td>
-				{{ else }}
-						<td><span id="cell-expireatstring-{{ .Id }}"></span></td>
-						 <script>insertFormattedDate({{ .ExpireAt }}, "cell-expireatstring-{{ .Id }}");</script>
-				{{ end }}
-						<td id="cell-downloads-{{ .Id }}">{{ .DownloadCount }}</td>
-						<td><a id="url-href-{{ .Id }}" target="_blank" href="{{ .UrlDownload }}">{{ .Id }}</a>{{ if .IsPasswordProtected }}  <i title="Password protected" class="bi bi-key"></i>{{ end }}</td>
-						<td>
-						<div class="btn-toolbar justify-content-end" role="toolbar" >
-						  <div class="btn-group me-2" role="group">
-						     {{ template "admin_button_copyurl" (newAdminButtonContext . $.ActiveUser)}}
-						  </div>
-						  <div class="btn-group" role="group">
-						     {{ template "admin_button_download" (newAdminButtonContext . $.ActiveUser) }}
-						     {{ template "admin_button_edit" (newAdminButtonContext . $.ActiveUser) }}
-						     {{ template "admin_button_delete" (newAdminButtonContext . $.ActiveUser) }}
-						 </div>
-						</div></td>
-					</tr>
-			{{ end }}
-		{{ end }}
-	{{ end }}
-{{ end }}
 				</tbody>
 			</table>
 		      </div>
@@ -203,8 +168,8 @@
 		} ],
 	    "paging": false,
 	    "language": {
-	      "info": "Files stored: _TOTAL_",
-	      "emptyTable": "No files stored yet",
+	      "info": "Uploaded now: _TOTAL_",
+	      "emptyTable": "Nothing uploaded yet",
 	      "infoEmpty": "",
 	    }
 	    });

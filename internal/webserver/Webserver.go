@@ -132,6 +132,8 @@ func Start() {
 	mux.HandleFunc("/collections/modify", requireLogin(modifyCollection, false, false))
 	mux.HandleFunc("/collections/list", requireLogin(listCollections, false, false))
 	mux.HandleFunc("/collections/delete", requireLogin(deleteCollection, false, false))
+	mux.HandleFunc("/files", requireLogin(showFiles, true, false))
+	mux.HandleFunc("/files/zip", requireLogin(downloadFilesZip, false, false))
 	mux.HandleFunc("/c", showCollection)
 	mux.HandleFunc("/cd", downloadCollectionFile)
 	mux.HandleFunc("/cz", downloadCollectionZip)
@@ -830,6 +832,8 @@ const (
 	ViewFileRequests
 	// ViewCollections is the identifier for the collections menu
 	ViewCollections
+	// ViewFiles is the identifier for the Files tab
+	ViewFiles = 6
 )
 
 // Converts the globalConfig variable to an AdminView struct to pass the infos to
@@ -845,7 +849,7 @@ func (u *AdminView) convertGlobalConfig(view int, user models.User) *AdminView {
 	u.CustomContent = customStaticInfo
 	switch view {
 	// The collections page needs the same file list, for its file picker.
-	case ViewMain, ViewCollections:
+	case ViewMain, ViewCollections, ViewFiles:
 		for _, element := range database.GetAllMetadata() {
 			if element.UserId != user.Id && !user.HasPermissionListOtherUploads() {
 				continue

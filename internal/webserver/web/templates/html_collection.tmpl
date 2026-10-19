@@ -63,9 +63,7 @@
 </div>
 
 <script>
-// Download all: fetch each file in turn rather than zipping. No archive to
-// unpack, no in-browser memory ceiling, and the recipient gets the original
-// files. Browsers ask once to allow multiple downloads, then queue them.
+// Download all: each file in turn, via the shared FGS.downloadSequentially
 (function () {
     var button = document.getElementById("downloadAllButton");
     var status = document.getElementById("downloadAllStatus");
@@ -75,26 +73,9 @@
     if (!links.length) { button.style.display = "none"; return; }
 
     button.addEventListener("click", function () {
-        button.disabled = true;
-        var index = 0;
-        (function next() {
-            if (index >= links.length) {
-                status.textContent = "Started " + links.length + " downloads.";
-                button.disabled = false;
-                return;
-            }
-            var source = links[index];
-            var a = document.createElement("a");
-            a.href = source.getAttribute("href");
-            a.download = source.getAttribute("data-filename") || "";
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            index++;
-            status.textContent = "Starting download " + index + " of " + links.length + "...";
-            // Spacing the clicks keeps the browser from dropping queued downloads.
-            window.setTimeout(next, 600);
-        })();
+        FGS.downloadSequentially(links.map(function (source) {
+            return { url: source.getAttribute("href"), name: source.getAttribute("data-filename") || "" };
+        }), { button: button, status: status });
     });
 })();
 </script>

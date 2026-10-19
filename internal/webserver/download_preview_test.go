@@ -15,7 +15,9 @@ func TestDownloadPageShowsPreview(t *testing.T) {
 	database.SavePreview(models.Preview{Sha1: "dlsha1", Status: models.PreviewReady, Kind: models.PreviewKindImage, Width: 3, Height: 4, Updated: 1})
 	test.HttpPageResult(t, test.HttpTestConfig{
 		Url: "http://localhost:53843/d?id=" + f.Id, IsHtml: true,
-		RequiredContent: []string{"./p/view?id=" + f.Id},
+		RequiredContent: []string{"./p/view?id=" + f.Id, `class="fgs-download-preview"`},
+		// The preview replaces the 70px icon slot, it does not sit inside it
+		ExcludedContent: []string{`class="icon-container"`},
 	})
 
 	// Password prompt: a ready preview exists, but it must not be shown before the password is entered

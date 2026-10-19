@@ -4,21 +4,23 @@
     <div class="file-card card">
         <div class="card-body p-5 text-center">
             
+            {{ if and .Preview.View (not .EndToEndEncryption) }}
+                <img src="{{ .Preview.View }}" alt="" class="fgs-download-preview"
+                     width="{{ .Preview.Width }}" height="{{ .Preview.Height }}"
+                     style="background:{{ .Preview.Color }}">
+            {{ else }}
             <div class="icon-container">
                 {{ if .EndToEndEncryption }}
                     <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" class="bi bi-lock-fill" viewBox="0 0 16 16">
                         <path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/>
                     </svg>
-                {{ else if .Preview.View }}
-                    <img src="{{ .Preview.View }}" alt="" class="fgs-download-preview"
-                         width="{{ .Preview.Width }}" height="{{ .Preview.Height }}"
-                         style="background:{{ .Preview.Color }}">
                 {{ else }}
                     <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" class="bi bi-file-earmark-code-fill" viewBox="0 0 16 16">
                         <path d="M9.293 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.707A1 1 0 0 0 13.707 4L10 .293A1 1 0 0 0 9.293 0zM9.5 3.5v-2l3 3h-2a1 1 0 0 1-1-1z"/>
                     </svg>
                 {{ end }}
             </div>
+            {{ end }}
 
             {{ if .EndToEndEncryption }}
                 <h4 id="filename" class="card-title filename-text mb-2">Decrypting...</h4>

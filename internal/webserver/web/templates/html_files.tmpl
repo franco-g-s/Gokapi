@@ -11,6 +11,11 @@
 {{ template "file_browser_support" }}
 
 <script src="./js/min/admin.min.{{ template "js_admin_version"}}.js"></script>
+<script>
+// Shares the upload page's event stream across tabs, so a file deleted in
+// another tab (and a download counted anywhere) shows here as it happens
+registerChangeHandler();
+</script>
 {{ template "pagename" "Files"}}
 {{ template "customjs" .}}
 {{ template "footer" true}}{{ end }}

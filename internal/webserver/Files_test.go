@@ -313,7 +313,7 @@ func TestFilesPageFileMenuAndThumbs(t *testing.T) {
 			`<span class="fgs-list-thumb fgs-list-icon" aria-hidden="true"><i class="bi bi-file-earmark-pdf"></i></span>`,
 			`data-fgs-file-menu`, `data-menu="open"`, `data-menu="download"`, `data-menu="copy"`, `data-menu="share"`,
 			`data-menu="qr"`, `data-menu="edit"`, `data-menu="replace"`, `data-menu="add-to-collection"`, `data-menu="delete"`,
-			`data-menu="hotlink"`, `data-menu="email"`, `href="mailto:?body=`,
+			`data-menu="hotlink"`, `data-menu="email"`, `href="mailto:?body=`, "registerChangeHandler();",
 			"Download original", "Copy link", "Copy hotlink", "Share…", "QR code", "Email", "Replace content", "Add to collection…",
 			// the visible copy icon next to the list's menu, with the upload page's id
 			`id="url-button-filesthumb"`,

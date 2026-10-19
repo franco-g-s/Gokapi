@@ -26,7 +26,26 @@
                 </p>
             </div>
 
-            <div class="table-responsive">
+            <div class="d-flex justify-content-end mb-2" data-fgs-layout-toggle data-layout-default="list">
+                <div class="btn-group" role="group" aria-label="Layout">
+                    <button type="button" class="btn btn-sm btn-outline-light" data-layout="board">Board</button>
+                    <button type="button" class="btn btn-sm btn-light" data-layout="list">List</button>
+                </div>
+            </div>
+            <div class="fgs-board d-none" id="fgs-board">
+                {{ range .Items }}
+                <figure class="fgs-board-item" data-id="{{ .File.Id }}" data-name="{{ .File.Name }}"
+                        data-download="{{ .Preview.Download }}" data-view="{{ .Preview.View }}" data-video="{{ .Preview.Video }}"
+                        data-taken="{{ .Preview.TakenAt }}" data-uploaded="{{ .File.UploadDate }}" data-size="{{ .File.Size }}"
+                        data-w="{{ .Preview.Width }}" data-h="{{ .Preview.Height }}" style="background:{{ .Preview.Color }}">
+                    {{ if .Preview.Thumb }}<img data-src="{{ .Preview.Thumb }}" alt="" decoding="async">
+                    {{ if .Preview.Video }}<span class="fgs-play"><i class="bi bi-play-fill"></i></span>{{ end }}
+                    {{ else }}<span class="fgs-typeicon"><i class="bi bi-file-earmark"></i><small>{{ .File.Name }}</small></span>{{ end }}
+                </figure>
+                {{ end }}
+            </div>
+
+            <div class="table-responsive" id="fgs-collection-list">
                 <table class="table table-dark align-middle" id="collectiontable">
                     <thead>
                         <tr>
@@ -36,9 +55,10 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {{ range .Collection.Files }}
+                        {{ range $i, $item := .Items }}
+                        {{ with $item.File }}
                         <tr>
-                            <td class="collection-filename">{{ .Name }}</td>
+                            <td class="collection-filename"><button type="button" class="btn btn-link p-0 text-start fgs-open-viewer" data-index="{{ $i }}">{{ .Name }}</button></td>
                             <td>{{ .Size }}</td>
                             <td class="text-end">
                                 <a class="btn btn-sm btn-outline-light"
@@ -50,12 +70,14 @@
                             </td>
                         </tr>
                         {{ end }}
+                        {{ end }}
                     </tbody>
                 </table>
             </div>
 
             {{ template "media_download_buttons" .Buttons }}
             {{ template "media_help_sheet" }}
+            {{ template "media_viewer" }}
 
         </div>
 {{ end }}
@@ -80,7 +102,22 @@
 })();
 </script>
 
-<script>FGS.initDownloadButtons(document.querySelector("[data-fgs-downloads]"));</script>
+<script>
+FGS.initDownloadButtons(document.querySelector("[data-fgs-downloads]"));
+(function () {
+    var board = document.getElementById("fgs-board");
+    if (!board) return;
+    FGS.initLayoutToggle(document.querySelector("[data-fgs-layout-toggle]"),
+        board, document.getElementById("fgs-collection-list"), "collectionLayout");
+    // Filename in the list opens the viewer at that row. The board's tiles carry the item data.
+    document.getElementById("fgs-collection-list").addEventListener("click", function (e) {
+        var b = e.target.closest(".fgs-open-viewer");
+        if (!b) return;
+        var tiles = Array.prototype.slice.call(board.querySelectorAll(".fgs-board-item"));
+        FGS.openViewer(tiles.map(function (t) { return FGS.itemFromEl(t); }), parseInt(b.getAttribute("data-index"), 10) || 0);
+    });
+})();
+</script>
 
 {{ template "pagename" "PublicCollection"}}
 {{ template "customjs" .}}

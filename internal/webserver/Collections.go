@@ -46,6 +46,13 @@ type CollectionView struct {
 	ExpiryString   string
 	NeverExpires   bool
 	Buttons        mediaButtons
+	Items          []collectionItem
+}
+
+// collectionItem pairs a member with its display URLs, scoped to the collection
+type collectionItem struct {
+	File    models.File
+	Preview previewInfo
 }
 
 // showCollection serves the public page for a collection. No login required -
@@ -105,6 +112,10 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 		FileCount:      len(collection.Files),
 		TotalSize:      helper.ByteCountSI(collection.TotalSizeBytes),
 		Buttons:        mediaButtons{Count: len(collection.Files), ZipUrl: "./cz?id=" + collection.Id},
+	}
+	for _, f := range collection.Files {
+		view.Items = append(view.Items, collectionItem{File: f,
+			Preview: previewUrls(f, collection.Id, "./cd?id="+collection.Id+"&file="+f.Id)})
 	}
 	// Expiry is derived from the longest-lived member, not stored.
 	latest, never := collection.LatestExpiry()

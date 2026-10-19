@@ -187,4 +187,65 @@
     if (e.key === "ArrowLeft") go(-1);
     if (e.key === "ArrowRight") go(1);
   });
+
+  // Masonry by shortest column. Heights come from stored dimensions, so the
+  // whole board is placed before any image arrives and nothing jumps.
+  FGS.initBoard = function (board) {
+    if (!board || board.dataset.ready) return;
+    board.dataset.ready = "1";
+    var tiles = Array.prototype.slice.call(board.querySelectorAll(".fgs-board-item"));
+    function layout() {
+      var width = board.clientWidth, gap = 8;
+      var cols = Math.max(2, Math.round(width / 260));
+      var colW = (width - gap * (cols - 1)) / cols, heights = [];
+      for (var i = 0; i < cols; i++) heights.push(0);
+      tiles.forEach(function (t) {
+        var w = parseInt(t.dataset.w, 10), h = parseInt(t.dataset.h, 10);
+        var tileH = (w && h) ? colW * h / w : colW;
+        var c = heights.indexOf(Math.min.apply(null, heights));
+        t.style.cssText += ";position:absolute;width:" + colW + "px;height:" + tileH + "px;left:" + (c * (colW + gap)) + "px;top:" + heights[c] + "px";
+        heights[c] += tileH + gap;
+      });
+      board.style.height = Math.max.apply(null, heights) + "px";
+    }
+    function load(img, eager) {
+      if (eager) img.setAttribute("fetchpriority", "high");
+      img.src = img.dataset.src;
+    }
+    var imgs = tiles.map(function (t) { return t.querySelector("img[data-src]"); });
+    imgs.slice(0, 12).forEach(function (img) { if (img) load(img, true); });
+    if ("IntersectionObserver" in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { if (e.isIntersecting) { load(e.target, false); io.unobserve(e.target); } });
+      }, { rootMargin: "1500px 0px" });
+      imgs.slice(12).forEach(function (img) { if (img) io.observe(img); });
+    } else {
+      imgs.slice(12).forEach(function (img) { if (img) load(img, false); });
+    }
+    board.addEventListener("click", function (e) {
+      var t = e.target.closest(".fgs-board-item");
+      if (t) FGS.openViewer(tiles.map(function (x) { return FGS.itemFromEl(x); }), tiles.indexOf(t));
+    });
+    layout();
+    var timer; window.addEventListener("resize", function () { clearTimeout(timer); timer = setTimeout(layout, 120); });
+  };
+
+  // Board/List toggle, remembered per page type.
+  FGS.initLayoutToggle = function (toggle, board, list, key) {
+    if (!toggle || !board || !list) return;
+    function store(layout) { try { localStorage.setItem(key, layout); } catch (e) { /* private mode */ } }
+    function apply(layout) {
+      board.classList.toggle("d-none", layout !== "board");
+      list.classList.toggle("d-none", layout !== "list");
+      toggle.querySelectorAll("[data-layout]").forEach(function (b) {
+        var on = b.dataset.layout === layout;
+        b.classList.toggle("btn-light", on); b.classList.toggle("btn-outline-light", !on);
+      });
+      if (layout === "board") FGS.initBoard(board);
+      store(layout);
+    }
+    toggle.addEventListener("click", function (e) { var b = e.target.closest("[data-layout]"); if (b) apply(b.dataset.layout); });
+    var saved = null; try { saved = localStorage.getItem(key); } catch (e) { /* private mode */ }
+    apply(saved === "board" || saved === "list" ? saved : toggle.dataset.layoutDefault);
+  };
 })();

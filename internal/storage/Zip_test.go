@@ -12,9 +12,12 @@ import (
 	"time"
 
 	"github.com/forceu/gokapi/internal/configuration"
+	"github.com/forceu/gokapi/internal/configuration/cloudconfig"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/models"
+	"github.com/forceu/gokapi/internal/storage/filesystem/s3filesystem/aws"
 	"github.com/forceu/gokapi/internal/test"
+	"github.com/forceu/gokapi/internal/test/testconfiguration"
 )
 
 func zipTestFile(t *testing.T, id, content string, mutate func(*models.File)) models.File {
@@ -62,4 +65,36 @@ func TestServeZipFiltersAndCounts(t *testing.T) {
 	// A second zip no longer includes the exhausted file
 	w2 := httptest.NewRecorder()
 	test.IsEqualInt(t, ServeZip([]models.File{limited}, "trip", w2, r), 0)
+}
+
+// A remote file with server-side encryption can only be decrypted by the
+// client. Zipping it would stream ciphertext that looks like the file, and
+// count a download for it.
+func TestServeZipSkipsRemoteEncrypted(t *testing.T) {
+	if !aws.IsIncludedInBuild {
+		t.Fatal("needs the awsmock build tag")
+	}
+	testconfiguration.EnableS3()
+	defer testconfiguration.DisableS3()
+	config, ok := cloudconfig.Load()
+	test.IsEqualBool(t, ok, true)
+	test.IsEqualBool(t, aws.Init(config.Aws), true)
+
+	f := models.File{Id: "zipaws0000000000001", Name: "remote.jpg", Size: "20 MB",
+		SHA1: "x341354656543213246465465465432456898794", AwsBucket: "gokapi-test",
+		ExpireAt: time.Now().Add(time.Hour).Unix(), DownloadsRemaining: 3, UserId: 5}
+	f.Encryption.IsEncrypted = true
+	database.SaveMetaData(f)
+	// Leave no remote file behind for CleanUp in later tests
+	defer database.DeleteMetaData(f.Id)
+	_, found := GetFile(f.Id)
+	test.IsEqualBool(t, found, true)
+
+	w := httptest.NewRecorder()
+	n := ServeZip([]models.File{f}, "trip", w, httptest.NewRequest("GET", "/cz", nil))
+	test.IsEqualInt(t, n, 0)
+	test.IsEqualInt(t, w.Code, 410)
+	test.IsEqualInt(t, database.GetDownloadsRemaining(f.Id), 3)
+	stored, _ := database.GetMetaDataById(f.Id)
+	test.IsEqualInt(t, stored.DownloadCount, 0)
 }

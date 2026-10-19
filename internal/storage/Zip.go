@@ -19,14 +19,17 @@ var ZipEntryTime = func(file models.File) time.Time {
 
 // ServeZip streams the downloadable subset of files as a store-only zip and
 // returns how many were included. Each file is re-resolved, so expired,
-// exhausted, file-request and end-to-end encrypted files are skipped, and
+// exhausted, file-request and client-decrypted (end-to-end, or encrypted on
+// remote storage) files are skipped, and
 // limited files are counted exactly as a single download through /cd would be.
 func ServeZip(files []models.File, name string, w http.ResponseWriter, r *http.Request) int {
 	included := make([]models.File, 0, len(files))
 	now := time.Now().Unix()
 	for _, f := range files {
 		current, ok := GetFile(f.Id)
-		if !ok || current.UploadRequestId != "" || current.Encryption.IsEndToEndEncrypted {
+		// Files only the client can decrypt (end-to-end, or encrypted on
+		// remote storage) would go into the zip as ciphertext
+		if !ok || current.UploadRequestId != "" || current.Encryption.IsEndToEndEncrypted || current.RequiresClientDecryption() {
 			continue
 		}
 		apimutex.Lock(apimutex.TypeMetaData, current.Id)

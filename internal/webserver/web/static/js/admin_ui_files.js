@@ -43,6 +43,10 @@ function initFilesPage() {
         list.classList.toggle("d-none", layout !== "list");
         setActive("data-layout", layout);
         localStorage.setItem("filesLayout", layout);
+        // The table was laid out while hidden, so its column widths are wrong
+        if (layout === "list" && window.jQuery && jQuery.fn.dataTable && jQuery.fn.dataTable.isDataTable("#fgs-filetable")) {
+            jQuery("#fgs-filetable").DataTable().columns.adjust();
+        }
     }
 
     // Only users with PERM_LIST get the switch, and only they are ever sent
@@ -79,7 +83,17 @@ function initFilesPage() {
         });
     }
 
-    grid.addEventListener("change", updateSelection);
+    var status = document.getElementById("fgs-selstatus");
+    function downloadZip(tiles) {
+        window.location = "./files/zip?ids=" + tiles.map(function (t) {
+            return encodeURIComponent(t.getAttribute("data-id"));
+        }).join(",");
+    }
+
+    grid.addEventListener("change", function () {
+        status.textContent = "";
+        updateSelection();
+    });
     bar.addEventListener("click", function (e) {
         var act = e.target.closest("[data-act]");
         if (!act) return;
@@ -87,11 +101,17 @@ function initFilesPage() {
         if (!tiles.length) return;
         var what = act.getAttribute("data-act");
         if (what === "zip") {
-            window.location = "./files/zip?ids=" + tiles.map(function (t) {
-                return encodeURIComponent(t.getAttribute("data-id"));
-            }).join(",");
+            downloadZip(tiles);
         } else if (what === "download") {
-            FGS.downloadSequentially(asItems(tiles));
+            // Password-protected and client-decrypted files have no direct
+            // link, so a selection containing any of them goes as one zip
+            var missing = tiles.filter(function (t) { return !t.getAttribute("data-download"); }).length;
+            if (missing) {
+                status.textContent = missing + " of these can't be downloaded one by one, so the selection is coming as a .zip.";
+                downloadZip(tiles);
+            } else {
+                FGS.downloadSequentially(asItems(tiles), { button: act, status: status });
+            }
         } else if (what === "photos" && FGS.saveToPhotos) {
             FGS.saveToPhotos(asItems(tiles), act);
         }

@@ -383,12 +383,12 @@ function editFile() {
     apiFilesModify(id, allowedDownloads, expiryTimestamp, password, originalPassword)
         .then(data => {
             if (!replaceFile) {
-                location.reload();
+                showEditedFile(data);
                 return;
             }
             apiFilesReplace(id, replaceId)
                 .then(data => {
-                    location.reload();
+                    showEditedFile(data);
                 })
                 .catch(error => {
                     alert("Unable to edit file: " + error);
@@ -401,6 +401,32 @@ function editFile() {
             console.error('Error:', error);
             button.disabled = false;
         });
+}
+
+// After a successful edit. The Files tab reloads; the upload page only holds
+// this session's uploads, which a reload would drop, so the row is rebuilt
+// from the API's answer instead.
+function showEditedFile(fileInfo) {
+    if (document.getElementById("downloadtable") == null) {
+        location.reload();
+        return;
+    }
+    let row = document.getElementById("row-" + sanitizeId(fileInfo.Id));
+    if (row != null) {
+        $(row.closest("table")).DataTable().row(row).remove();
+        row.remove();
+        if (rowCount != -1) {
+            rowCount = rowCount - 1;
+        }
+    }
+    addRow(fileInfo);
+    let modal = bootstrap.Modal.getInstance(document.getElementById("modaledit"));
+    if (modal != null) {
+        modal.hide();
+    }
+    if (isE2EEnabled) {
+        GokapiE2EDecryptMenu();
+    }
 }
 
 function showEditModal(filename, id, downloads, expiry, password, unlimitedown, unlimitedtime, isE2e, canReplace) {

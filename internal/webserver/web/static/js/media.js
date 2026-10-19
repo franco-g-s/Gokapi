@@ -227,7 +227,7 @@
 
   FGS.itemFromEl = function (el) {
     var d = function (k) { return el.getAttribute("data-" + k) || ""; };
-    return { id: d("id"), name: d("name"), view: d("view"), video: d("video"), download: d("download"),
+    return { id: d("id"), name: d("name"), view: d("view"), video: d("video"), kind: d("kind"), download: d("download"),
       uploader: d("uploader"), taken: parseInt(d("taken"), 10) || 0, uploaded: parseInt(d("uploaded"), 10) || 0,
       size: d("size"), bytes: parseInt(d("bytes"), 10), w: parseInt(d("w"), 10) || 0, h: parseInt(d("h"), 10) || 0 };
   };
@@ -282,8 +282,9 @@
     } else {
       dl.removeAttribute("href"); dl.hidden = true;
     }
-    // Photos are shown as a smaller preview; say so wherever the original can be fetched
-    v.querySelector(".fgs-v-lowres").hidden = !(it.view && !it.video && it.download);
+    // Photos are shown as a smaller preview; say so wherever the original can be fetched.
+    // Kind, not the stream URL: a capped video withholds the stream but still shows only a poster.
+    v.querySelector(".fgs-v-lowres").hidden = !(it.view && it.kind === "image" && it.download);
     v.querySelector(".fgs-v-prev").disabled = at === 0;
     v.querySelector(".fgs-v-next").disabled = at === items.length - 1;
     // Warm the neighbour so arrowing feels instant

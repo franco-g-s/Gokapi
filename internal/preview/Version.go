@@ -48,8 +48,9 @@ func regenerateOnVersionChange() int {
 	}
 	marker := filepath.Join(Dir(), generatorVersionFile)
 	if err := os.WriteFile(marker, []byte(strconv.Itoa(GeneratorVersion)), 0600); err != nil {
-		// stdout only. Rows are already gone and backfill rebuilds them; the next
-		// start finds no marker and has nothing left to remove.
+		// stdout only. The rows are already gone and the backfill rebuilds them,
+		// but with no marker every restart wipes and rebuilds all previews again
+		// until the write works (permissions, full disk). Hence the stdout line.
 		fmt.Printf("preview: cannot write %s: %v\n", marker, err)
 	}
 	if len(known) > 0 {

@@ -31,7 +31,7 @@
     {{ range .Rows }}
     <figure class="fgs-tile" data-mine="{{ .Mine }}" data-id="{{ .File.Id }}"
             data-name="{{ .File.Name }}" data-download="{{ .Preview.Download }}"
-            data-view="{{ .Preview.View }}" data-video="{{ .Preview.Video }}"
+            data-view="{{ .Preview.View }}" data-video="{{ .Preview.Video }}" data-kind="{{ .Preview.Kind }}"
             data-uploader="{{ .Uploader }}" data-taken="{{ .TakenAt }}" data-uploaded="{{ .File.UploadDate }}"
             data-size="{{ .File.Size }}" data-bytes="{{ .File.SizeBytes }}" data-w="{{ .Preview.Width }}" data-h="{{ .Preview.Height }}">
       <button class="fgs-tile-open" type="button" aria-label="Open {{ .File.Name }}">

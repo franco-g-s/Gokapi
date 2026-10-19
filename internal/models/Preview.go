@@ -1,5 +1,7 @@
 package models
 
+import "strconv"
+
 // Preview holds what the preview worker learned about one stored blob. It is
 // keyed by SHA1 rather than file ID, because identical uploads share storage
 // and therefore share their preview.
@@ -26,10 +28,13 @@ const (
 	PreviewKindVideo   = "video"
 )
 
-// Version is the cache-busting token placed in preview URLs.
+// Version is the cache-busting token placed in preview URLs. Preview URLs are
+// cached as immutable, so it changes whenever the outputs are regenerated:
+// Updated is stamped when the worker saves the ready row.
 func (p Preview) Version() string {
-	if len(p.Sha1) < 12 {
-		return p.Sha1
+	sha := p.Sha1
+	if len(sha) > 12 {
+		sha = sha[:12]
 	}
-	return p.Sha1[:12]
+	return sha + "-" + strconv.FormatInt(p.Updated, 36)
 }

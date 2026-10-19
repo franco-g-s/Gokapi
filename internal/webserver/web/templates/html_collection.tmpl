@@ -35,7 +35,7 @@
             <div class="fgs-board d-none" id="fgs-board">
                 {{ range .Items }}
                 <figure class="fgs-board-item" data-id="{{ .File.Id }}" data-name="{{ .File.Name }}"
-                        data-download="{{ .Preview.Download }}" data-view="{{ .Preview.View }}" data-video="{{ .Preview.Video }}"
+                        data-download="{{ .Preview.Download }}" data-view="{{ .Preview.View }}" data-video="{{ .Preview.Video }}" data-kind="{{ .Preview.Kind }}"
                         data-taken="{{ .Preview.TakenAt }}" data-uploaded="{{ .File.UploadDate }}" data-size="{{ .File.Size }}" data-bytes="{{ .File.SizeBytes }}"
                         data-w="{{ .Preview.Width }}" data-h="{{ .Preview.Height }}" style="background:{{ .Preview.Color }}">
                     {{ if .Preview.Thumb }}<img data-src="{{ .Preview.Thumb }}" alt="" decoding="async">

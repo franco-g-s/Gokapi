@@ -266,6 +266,7 @@ func TestPreviewRoutes(t *testing.T) {
 	thumb, _, _ := preview.Paths(preview.Dir(), "routesha1")
 	test.IsNil(t, os.WriteFile(thumb, []byte("RIFFxxxxWEBP"), 0600))
 	database.SavePreview(models.Preview{Sha1: "routesha1", Status: models.PreviewReady, Kind: models.PreviewKindVideo, Updated: 1})
+	ver := models.Preview{Sha1: "routesha1", Updated: 1}.Version()
 
 	get := func(h http.HandlerFunc, url string) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
@@ -273,8 +274,17 @@ func TestPreviewRoutes(t *testing.T) {
 		return w
 	}
 
-	w := get(servePreviewFile("thumb"), "/p/thumb?id="+f.Id+"&v=routesha1")
+	w := get(servePreviewFile("thumb"), "/p/thumb?id="+f.Id+"&v="+ver)
 	test.IsEqualInt(t, w.Code, 200)
+	test.IsEqualString(t, w.Header().Get("Cache-Control"), "private, max-age=31536000, immutable")
+
+	// the token follows the row: regenerating (a new Updated) retires cached URLs
+	oldVer := ver
+	database.SavePreview(models.Preview{Sha1: "routesha1", Status: models.PreviewReady, Kind: models.PreviewKindVideo, Updated: 2})
+	w = get(servePreviewFile("thumb"), "/p/thumb?id="+f.Id+"&v="+oldVer)
+	test.IsEqualString(t, w.Header().Get("Cache-Control"), "private, no-cache")
+	ver = models.Preview{Sha1: "routesha1", Updated: 2}.Version()
+	w = get(servePreviewFile("thumb"), "/p/thumb?id="+f.Id+"&v="+ver)
 	test.IsEqualString(t, w.Header().Get("Cache-Control"), "private, max-age=31536000, immutable")
 
 	// immutable only with the matching version
@@ -285,7 +295,7 @@ func TestPreviewRoutes(t *testing.T) {
 	test.IsEqualString(t, w.Header().Get("Cache-Control"), "private, no-cache")
 
 	// no poster was written
-	w = get(servePreviewFile("poster"), "/p/poster?id="+f.Id+"&v=routesha1")
+	w = get(servePreviewFile("poster"), "/p/poster?id="+f.Id+"&v="+ver)
 	test.IsEqualInt(t, w.Code, 404)
 	test.IsEqualString(t, w.Header().Get("Cache-Control"), "no-store")
 
@@ -307,7 +317,7 @@ func TestPreviewRoutes(t *testing.T) {
 	test.IsEqualBool(t, after.DownloadsRemaining == before.DownloadsRemaining, true)
 
 	// the routes are registered on the real server
-	resp, err := http.Get("http://localhost:53843/p/thumb?id=" + f.Id + "&v=routesha1")
+	resp, err := http.Get("http://localhost:53843/p/thumb?id=" + f.Id + "&v="+ver)
 	test.IsNil(t, err)
 	resp.Body.Close()
 	test.IsEqualInt(t, resp.StatusCode, 200)
@@ -378,17 +388,22 @@ func TestPreviewUrls(t *testing.T) {
 	test.IsEqualString(t, info.Status, models.PreviewPending)
 	test.IsEqualString(t, info.Thumb, "")
 
-	database.SavePreview(models.Preview{Sha1: f.SHA1, Status: models.PreviewReady, Kind: models.PreviewKindImage, Width: 3, Height: 2, Color: "#000000", TakenAt: 5})
+	database.SavePreview(models.Preview{Sha1: f.SHA1, Status: models.PreviewReady, Kind: models.PreviewKindImage, Width: 3, Height: 2, Color: "#000000", TakenAt: 5, Updated: 72})
 	info = previewUrls(anonRq, f, "colid", "d?id=x")
-	test.IsEqualString(t, info.Thumb, "./p/thumb?id="+f.Id+"&v=urlssha1abcd&c=colid")
-	test.IsEqualString(t, info.View, "./p/view?id="+f.Id+"&v=urlssha1abcd&c=colid")
+	test.IsEqualString(t, info.Thumb, "./p/thumb?id="+f.Id+"&v=urlssha1abcd-20&c=colid") // 72 = "20" in base 36
+	test.IsEqualString(t, info.View, "./p/view?id="+f.Id+"&v=urlssha1abcd-20&c=colid")
+	test.IsEqualString(t, info.Kind, models.PreviewKindImage)
 	test.IsEqualString(t, info.Video, "")
 	test.IsEqualInt(t, info.Width, 3)
 	test.IsEqualInt64(t, info.TakenAt, 5)
 
-	database.SavePreview(models.Preview{Sha1: f.SHA1, Status: models.PreviewReady, Kind: models.PreviewKindVideo})
+	database.SavePreview(models.Preview{Sha1: f.SHA1, Status: models.PreviewReady, Kind: models.PreviewKindVideo, Updated: 72})
 	info = previewUrls(anonRq, f, "", "d?id=x")
-	test.IsEqualString(t, info.Video, "./p/video?id="+f.Id+"&v=urlssha1abcd")
+	test.IsEqualString(t, info.Video, "./p/video?id="+f.Id+"&v=urlssha1abcd-20")
+
+	// regenerated (new Updated): the URL changes, so browsers refetch
+	database.SavePreview(models.Preview{Sha1: f.SHA1, Status: models.PreviewReady, Kind: models.PreviewKindVideo, Updated: 73})
+	test.IsEqualString(t, previewUrls(anonRq, f, "", "d?id=x").Thumb, "./p/thumb?id="+f.Id+"&v=urlssha1abcd-21")
 }
 
 // Ruling 19: a capped video streams only for its uploader or a PERM_LIST

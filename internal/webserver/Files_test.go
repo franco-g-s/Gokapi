@@ -34,7 +34,7 @@ func TestFilesPage(t *testing.T) {
 		IsHtml:  true,
 		Cookies: []test.Cookie{filesAdminSession()},
 		RequiredContent: []string{`id="fgs-files"`, "My files", "Everything", `data-view="grid"`,
-			`data-id="unlimitedDownload"`, `data-id="filesmine"`, `id="fgs-filetable"`, `href="./files"`, `id="fgs-selstatus"`, `id="fgs-viewer"`, `data-bytes="1"`, `data-act="link"`, `id="fgs-linkresult"`},
+			`data-id="unlimitedDownload"`, `data-id="filesmine"`, `id="fgs-filetable"`, `href="./files"`, `id="fgs-selstatus"`, `id="fgs-viewer"`, `data-bytes="1"`, `data-kind="`, `data-act="link"`, `id="fgs-linkresult"`},
 	})
 	// A user without PERM_LIST gets neither the switch nor anyone else's files
 	test.HttpPageResult(t, test.HttpTestConfig{

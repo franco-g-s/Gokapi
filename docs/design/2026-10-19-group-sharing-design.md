@@ -60,13 +60,18 @@ and each is useful before the next one starts.
 Sidebar order (the custom `admin.js` sidebar):
 
 Upload · **Files** · **Groups** · Collections · File requests ·
-Members *(admin)* · API · Status *(admin)* · **Settings** · Logout
+Users *(admin)* · API · Status *(admin)* · **Settings** · Logout
 
 At the bottom there is a "View as…" switch, shown to the admin only. The
-current "Users" page is relabelled **Members**.
+site-wide Users page keeps its name; "members" refers only to the people in a
+group.
 
 The Upload page's "Combine each upload into one link" toggle defaults to
 **on** when no preference has been saved yet.
+
+From part 2, the Upload page also has an **"Upload to"** selector: *My files*
+(the default) or any group you belong to. Uploading into a group from here is
+the same as uploading on the group page.
 
 ---
 
@@ -155,9 +160,9 @@ cannot cache it, because the pages are private.
 - **List view:** columns are name · uploaded by · uploaded · taken · size ·
   expires · downloads.
 - **Actions:** the existing ones, all through existing endpoints: copy link,
-  share, edit, delete, add to collection.
-- **Multi-select:** download, download as zip, and Save to Photos on
-  iOS/iPadOS.
+  share, edit, delete, add to collection. From part 2, also **add to group**.
+- **Multi-select:** download, download as zip, Save to Photos on iOS/iPadOS,
+  and (from part 2) **add to group**.
 - **The Upload page** goes back to being only for uploading. The file table
   moves here.
 
@@ -223,6 +228,18 @@ since media is already compressed):
 
 This applies to collection pages, group pages and Files tab multi-select.
 
+**Help on phones.** On iPhone and iPad, a small **?** button sits next to the
+download buttons. It opens a short sheet titled "Downloaded to Files? Here's
+how to get them into Photos":
+
+1. Open the **Files** app and go to **Downloads**.
+2. If it's a zip, tap it once to unzip it into a folder, then open the folder.
+3. Tap **⋯** → **Select**, then select the photos and videos you want.
+4. Tap **Share** → **Save N Images** (or **Save N Videos**).
+
+It also explains that the photos keep their original date and time, so they
+land in the right place in the Photos timeline.
+
 ### Upload button
 
 The file input is configured in the way Apple documents for receiving original
@@ -266,8 +283,20 @@ Files uploaded into a group are ordinary Gokapi files with these settings:
 - unlimited downloads;
 - expiry equal to the group's expiry, or unlimited if the group never expires.
 
-Extending a group extends its files. A file uploaded to a group belongs to that
-one group.
+Extending a group extends its files.
+
+**Adding existing files.** Files you already uploaded can be added to a group,
+from the Files tab (per file or multi-select) or by picking the group in the
+Upload page's "Upload to" selector. When a file joins a group:
+
+- it gets unlimited downloads;
+- its expiry is extended to the group's if that is later. It is never
+  shortened.
+
+`GroupFiles` is a join table, so a file can be in several groups. Its expiry is
+the latest of its own and all its groups'. Removing a file from a group does not
+shorten its expiry. Adding a file goes through the same duplicate check as
+uploading. Only your own files can be added; the admin can add anyone's.
 
 ### Creating and joining
 
@@ -347,9 +376,9 @@ in `CollectionsSeen`. Their Collections tab gains a **Shared with me** section
 listing those collections. Anonymous visitors are unaffected, and nothing is
 recorded for them.
 
-### Members page
+### Users page
 
-The existing Users page, admin only, extended with:
+The existing Users page, admin only, keeps its name and gains:
 
 - each person's file count, total size and groups;
 - a per-person view of everything that person uploaded, using the Files grid.
@@ -357,7 +386,9 @@ The existing Users page, admin only, extended with:
 ### Testing
 
 - Go tests: membership and role rules, code reset, rate limiting on join,
-  expiry propagation when a group is extended, the duplicate lookup, and that
+  expiry propagation when a group is extended, adding an existing file
+  (never shortens its expiry, lifts its download limit), the duplicate lookup,
+  and that
   `CanView` grants access to group members and only to them.
 - Playwright tests:
   - create a group, then join it as a second user by link and by code;
@@ -388,7 +419,7 @@ files (or a zip), and the Photos app's import keeps their metadata.
 
 ### "View as…" (admin only)
 
-- Choose a person from the Members page or from the sidebar switch.
+- Choose a person from the Users page or from the sidebar switch.
 - The server then renders every page with that person's visibility: their
   sidebar, files, groups and collections. A banner reads **"Viewing as Anna ·
   read-only · Exit"**.

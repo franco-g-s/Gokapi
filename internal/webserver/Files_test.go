@@ -33,15 +33,17 @@ func TestFilesPage(t *testing.T) {
 		Url:     "http://localhost:53843/files",
 		IsHtml:  true,
 		Cookies: []test.Cookie{filesAdminSession()},
-		RequiredContent: []string{`id="fgs-files"`, "My files", "Everything", `data-view="grid"`,
-			`data-id="unlimitedDownload"`, `data-id="filesmine"`, `id="fgs-filetable"`, `href="./files"`, `id="fgs-selstatus"`, `id="fgs-viewer"`, `data-bytes="1"`, `data-kind="`, `data-act="link"`, `id="fgs-linkresult"`},
+		RequiredContent: []string{`id="fgs-files"`, `data-fgs-browser`, `data-context="files"`, "My files", "Everything", `data-default-view="grid"`,
+			`data-layout="grid"`, `data-layout="board"`, `data-layout="list"`,
+			`data-id="unlimitedDownload"`, `data-id="filesmine"`, `id="fgs-files-table"`, `href="./files"`, `id="fgs-files-selstatus"`, `id="fgs-viewer"`, `data-bytes="1"`, `data-kind="`, `data-act="link"`, `id="fgs-files-linkresult"`,
+			"<th>Uploaded by</th>"},
 	})
 	// A user without PERM_LIST gets neither the switch nor anyone else's files
 	test.HttpPageResult(t, test.HttpTestConfig{
 		Url:             "http://localhost:53843/files",
 		IsHtml:          true,
 		Cookies:         []test.Cookie{{Name: "session_token", Value: "validsession"}},
-		RequiredContent: []string{`id="fgs-files"`, `data-view="grid"`, `data-id="filesmine"`},
+		RequiredContent: []string{`id="fgs-files"`, `data-context="files"`, `data-default-view="grid"`, `data-id="filesmine"`},
 		ExcludedContent: []string{"My files", "Everything", "unlimitedDownload"},
 	})
 	test.HttpPageResult(t, test.HttpTestConfig{
@@ -272,9 +274,9 @@ func TestFilesPageSelectMode(t *testing.T) {
 		IsHtml:  true,
 		Cookies: []test.Cookie{{Name: "session_token", Value: "validsession"}},
 		RequiredContent: []string{`data-fgs-select-toggle`, `>Select</button>`, `class="fgs-grid-only`,
-			`class="form-check-input fgs-row-check"`, `<th class="fgs-col-check">`,
+			`class="form-check-input fgs-row-check"`, `<th class="fgs-col-check" data-fgs-nosort>`,
 			// the name opens the viewer: a button styled as a link
-			`<button type="button" class="btn btn-link fgs-name-open"`, `<span id="cell-name-filesselect">select.jpg</span>`},
+			`<button type="button" class="btn btn-link fgs-name-open"`, `<span class="fgs-row-name" id="cell-name-filesselect">select.jpg</span>`},
 	})
 }
 
@@ -388,4 +390,28 @@ func TestCollectionsListMine(t *testing.T) {
 	own := list("/collections/list?mine=1")
 	test.IsEqualBool(t, strings.Contains(own, friends.Id), false)
 	test.IsEqualBool(t, strings.Contains(own, mine.Id), true)
+}
+
+// The Files tab is the shared component, context "files"
+func TestFilesPageIsFileBrowser(t *testing.T) {
+	accessFile("filesbrowser01", func(f *models.File) { f.Name = "browser.jpg" })
+	test.HttpPageResult(t, test.HttpTestConfig{
+		Url:     "http://localhost:53843/files",
+		IsHtml:  true,
+		Cookies: []test.Cookie{{Name: "session_token", Value: "validsession"}},
+		RequiredContent: []string{`data-fgs-browser`, `data-context="files"`, `data-default-view="grid"`,
+			`data-layout="grid"`, `data-layout="board"`, `data-layout="list"`, ">Grid<", ">Board<", ">List<",
+			`data-zip-url="./files/zip?ids="`, `data-info-url="./files/previewinfo?id="`,
+			`data-fgs-tpl="tile"`, `data-fgs-tpl="row"`, "No files yet",
+			`id="fgs-files-selstatus"`, `id="fgs-files-linkresult"`, `data-preview-status="`},
+		ExcludedContent: []string{`data-menu="remove-from-collection"`, `data-act="remove-from-collection"`, "initFilesPage"},
+	})
+}
+
+// Live adds need the templates outside the table, so DataTables never sees them
+func TestFileBrowserTemplatesOutsideTable(t *testing.T) {
+	_, body := filesGet(t, "validsession", "/files")
+	tableEnd := bytes.Index(body, []byte("</table>"))
+	tpl := bytes.Index(body, []byte(`data-fgs-tpl="row"`))
+	test.IsEqualBool(t, tableEnd > 0 && tpl > tableEnd, true)
 }

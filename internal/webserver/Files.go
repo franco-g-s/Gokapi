@@ -15,15 +15,6 @@ import (
 	"github.com/forceu/gokapi/internal/webserver/authentication"
 )
 
-type fileRow struct {
-	File     models.FileApiOutput
-	Uploader string
-	Mine     bool
-	TakenAt  int64
-	Preview  previewInfo
-	Icon     string // Bootstrap icon for files without a thumbnail
-}
-
 var fileTypeIcons = map[string]string{}
 
 func init() {
@@ -53,11 +44,11 @@ func fileTypeIcon(name string) string {
 	return "bi-file-earmark"
 }
 
-// FilesView is the Files tab: the upload table's actions over a Finder-like grid
+// FilesView is the Files tab: the shared file browser over every file the
+// user may list
 type FilesView struct {
 	AdminView
-	Rows           []fileRow
-	CanSeeEveryone bool
+	Browser fileBrowser
 }
 
 // isListedFile is the upload table's filter: no pending deletions, no file
@@ -108,8 +99,8 @@ func downloadOwnFile(w http.ResponseWriter, r *http.Request) {
 }
 
 // Handling of /files
-// Every file the user may see, as a grid of thumbnails or a list. Users
-// without PERM_LIST only ever receive their own files.
+// Every file the user may see, in the shared file browser (context "files").
+// Users without PERM_LIST only ever receive their own files.
 func showFiles(w http.ResponseWriter, r *http.Request) {
 	user, err := authentication.GetUserFromRequest(r)
 	if err != nil {
@@ -117,15 +108,17 @@ func showFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	config := configuration.Get()
-	view := FilesView{CanSeeEveryone: user.HasPermissionListOtherUploads()}
+	view := FilesView{}
 	view.AdminView = *(&AdminView{}).convertGlobalConfig(ViewFiles, user)
+	seeEveryone := user.HasPermissionListOtherUploads()
 	names := map[int]string{}
 	for _, u := range database.GetAllUsers() {
 		names[u.Id] = u.Name
 	}
 	now := time.Now().Unix()
+	items := make([]browserItem, 0)
 	for _, f := range database.GetAllMetadata() {
-		if f.UserId != user.Id && !view.CanSeeEveryone {
+		if f.UserId != user.Id && !seeEveryone {
 			continue
 		}
 		out, err := f.ToFileApiOutput(config.ServerUrl, config.IncludeFilename)
@@ -133,17 +126,15 @@ func showFiles(w http.ResponseWriter, r *http.Request) {
 		if !isListedFile(out, now) {
 			continue
 		}
-		row := fileRow{File: out, Uploader: names[f.UserId], Mine: f.UserId == user.Id, Icon: fileTypeIcon(out.Name)}
-		row.Preview = previewUrls(r, f, "", directDownloadUrl(out))
-		row.TakenAt = row.Preview.TakenAt
-		view.Rows = append(view.Rows, row)
+		items = append(items, browserItemFromFile(r, f, user, ctxFiles, "", names))
 	}
-	sort.SliceStable(view.Rows, func(i, j int) bool {
-		if view.Rows[i].File.UploadDate != view.Rows[j].File.UploadDate {
-			return view.Rows[i].File.UploadDate > view.Rows[j].File.UploadDate
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].File.UploadDate != items[j].File.UploadDate {
+			return items[i].File.UploadDate > items[j].File.UploadDate
 		}
-		return view.Rows[i].File.Id > view.Rows[j].File.Id
+		return items[i].File.Id > items[j].File.Id
 	})
-	err = templateFolder.ExecuteTemplate(w, "files", &view) // a pointer, so the template can call User methods with pointer receivers
+	view.Browser = newFileBrowser("fgs-files", ctxFiles, items, user)
+	err = templateFolder.ExecuteTemplate(w, "files", &view)
 	helper.CheckIgnoreTimeout(err)
 }

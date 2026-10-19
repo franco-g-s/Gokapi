@@ -416,27 +416,35 @@
 
   // Masonry by shortest column. Heights come from stored dimensions, so the
   // whole board is placed before any image arrives and nothing jumps.
+  // Places tiles in the shortest column, sized from their data-w / data-h
+  // (square without them). Returns false while the container is hidden:
+  // nothing sensible to compute, and a later show lays out again.
+  function masonry(container, tiles) {
+    var width = container.clientWidth, gap = 8;
+    if (!width) return false;
+    var cols = Math.max(2, Math.round(width / 260));
+    var colW = (width - gap * (cols - 1)) / cols, heights = [];
+    for (var i = 0; i < cols; i++) heights.push(0);
+    tiles.forEach(function (t) {
+      var w = parseInt(t.dataset.w, 10), h = parseInt(t.dataset.h, 10);
+      var tileH = (w && h) ? colW * h / w : colW;
+      var c = heights.indexOf(Math.min.apply(null, heights));
+      var st = t.style;
+      st.position = "absolute"; st.width = colW + "px"; st.height = tileH + "px";
+      st.left = (c * (colW + gap)) + "px"; st.top = heights[c] + "px";
+      heights[c] += tileH + gap;
+    });
+    container.style.height = Math.max.apply(null, heights) + "px";
+    return true;
+  }
+
+  // The collection page's own board (html_collection.tmpl), until that page
+  // moves onto the shared file list
   FGS.initBoard = function (board) {
     if (!board || board.dataset.ready) return;
     board.dataset.ready = "1";
     var tiles = Array.prototype.slice.call(board.querySelectorAll(".fgs-board-item"));
-    function layout() {
-      var width = board.clientWidth, gap = 8;
-      if (!width) return; // hidden: nothing sensible to compute, and a later show relays out
-      var cols = Math.max(2, Math.round(width / 260));
-      var colW = (width - gap * (cols - 1)) / cols, heights = [];
-      for (var i = 0; i < cols; i++) heights.push(0);
-      tiles.forEach(function (t) {
-        var w = parseInt(t.dataset.w, 10), h = parseInt(t.dataset.h, 10);
-        var tileH = (w && h) ? colW * h / w : colW;
-        var c = heights.indexOf(Math.min.apply(null, heights));
-        var st = t.style;
-        st.position = "absolute"; st.width = colW + "px"; st.height = tileH + "px";
-        st.left = (c * (colW + gap)) + "px"; st.top = heights[c] + "px";
-        heights[c] += tileH + gap;
-      });
-      board.style.height = Math.max.apply(null, heights) + "px";
-    }
+    function layout() { masonry(board, tiles); }
     board._fgsLayout = layout;
     function load(img, eager) {
       if (eager) img.setAttribute("fetchpriority", "high");
@@ -481,4 +489,640 @@
     var saved = null; try { saved = localStorage.getItem(key); } catch (e) { /* private mode */ }
     apply(saved === "board" || saved === "list" ? saved : toggle.dataset.layoutDefault);
   };
+
+  // ---------------------------------------------------------------------
+  // The shared file list (html_file_browser.tmpl): Grid, Board and List over
+  // one set of tiles, Select mode, the selection bar, the viewer in visible
+  // order, live thumbnails and live adds. Pages differ only in their context
+  // (data-context) and the actions it allows. Management actions are not
+  // here: the admin bundle supplies them through FGS.registerFileActions.
+  // ---------------------------------------------------------------------
+
+  // action key -> handler, for every context or for one context. A handler
+  // receives one argument:
+  //   { browser, root, context, tiles, ids, items, bulk, button, trigger,
+  //     menu, status, linkResult }
+  // tiles are the files' grid tiles (they carry every data-* attribute),
+  // items the FGS.itemFromEl of each, bulk is true for the selection bar,
+  // button the element clicked, trigger the "⋯" button that opened the menu
+  // (focus goes back to it), menu the file's [data-fgs-file-menu] element.
+  // A registered handler wins over the built-in open / download / zip /
+  // photos, and a context's own handler wins over one for every context.
+  var fileActions = { all: {}, byContext: {} };
+  FGS.registerFileActions = function (map, context) {
+    var target = fileActions.all;
+    if (context) target = fileActions.byContext[context] = fileActions.byContext[context] || {};
+    Object.keys(map || {}).forEach(function (k) { target[k] = map[k]; });
+  };
+  function fileAction(context, key) {
+    var own = fileActions.byContext[context];
+    return (own && own[key]) || fileActions.all[key] || null;
+  }
+
+  var POLL_EVERY_MS = 3000, POLL_FOR_MS = 120000, POLL_BATCH = 8;
+  var VIEWS = ["grid", "board", "list"];
+
+  function setData(el, name, value) {
+    if (el) el.setAttribute("data-" + name, value === undefined || value === null ? "" : String(value));
+  }
+  function formatTimes(scope) {
+    Array.prototype.forEach.call(scope.querySelectorAll("[data-ts]"), function (el) {
+      var ts = parseInt(el.getAttribute("data-ts"), 10);
+      el.textContent = ts ? fmt(ts) : "";
+    });
+  }
+
+  FGS.initFileBrowser = function (root) {
+    if (!root) return null;
+    if (root.fgsBrowser) return root.fgsBrowser;
+    var context = root.getAttribute("data-context") || "";
+    var grid = root.querySelector("[data-fgs-grid]");
+    var listWrap = root.querySelector("[data-fgs-list]");
+    var table = listWrap.querySelector("table");
+    var tbody = table.tBodies[0];
+    var bar = root.querySelector("[data-fgs-selectbar]");
+    var selCount = bar.querySelector(".fgs-selcount");
+    var status = bar.querySelector(".fgs-selstatus");
+    var linkResult = bar.querySelector(".fgs-linkresult");
+    var selectToggle = root.querySelector("[data-fgs-select-toggle]");
+    var countEl = root.querySelector(".fgs-count");
+    var size = root.querySelector(".fgs-size");
+    var tplTile = root.querySelector("template[data-fgs-tpl=tile]");
+    var tplRow = root.querySelector("template[data-fgs-tpl=row]");
+    var infoUrl = root.getAttribute("data-info-url") || "";
+    var zipUrl = root.getAttribute("data-zip-url") || "";
+    var manages = !!(tplTile && tplTile.content.querySelector("[data-menu=edit]"));
+    var selecting = false, view = null, scope = "all", dataTable = null, api = null;
+    var tilesById = {}, rowsById = {};
+
+    // Choices are remembered per context. The Files tab keeps the choices
+    // made before it moved onto this component.
+    var legacyKeys = context === "files" ? { view: "filesLayout", shape: "filesTileShape", size: "filesIconSize", scope: "filesScope" } : {};
+    function load(k) {
+      try {
+        var v = localStorage.getItem("fgsBrowser." + context + "." + k);
+        if (v === null && legacyKeys[k]) v = localStorage.getItem(legacyKeys[k]);
+        return v;
+      } catch (e) { return null; }
+    }
+    function store(k, v) { try { localStorage.setItem("fgsBrowser." + context + "." + k, v); } catch (e) { /* private mode */ } }
+
+    function setActive(attr, value) {
+      root.querySelectorAll("button[" + attr + "]").forEach(function (b) {
+        if (!root.contains(b) || b.closest("[data-fgs-browser]") !== root) return;
+        var on = b.getAttribute(attr) === value;
+        b.classList.toggle("btn-light", on);
+        b.classList.toggle("btn-outline-light", !on);
+      });
+    }
+
+    function tileCheck(tile) { return tile.querySelector(".fgs-tile-check"); }
+    function rowCheck(row) { return row && row.querySelector(".fgs-row-check"); }
+    function idOf(el) { return el.getAttribute("data-id"); }
+    function menuOf(tile) { return tile.querySelector("[data-fgs-file-menu]"); }
+
+    // id -> tile and list row, collected before DataTables can detach a row
+    function index(tile, row) {
+      tilesById[idOf(tile)] = tile;
+      if (row) rowsById[row.getAttribute("data-row-id")] = row;
+    }
+    Array.prototype.forEach.call(grid.querySelectorAll(".fgs-tile"), function (t) { index(t, null); });
+    Array.prototype.forEach.call(tbody.querySelectorAll("tr[data-row-id]"), function (tr) {
+      rowsById[tr.getAttribute("data-row-id")] = tr;
+    });
+
+    // The files the user sees, in the order they see them: Grid and Board in
+    // page order, List in the table's current sort and filter. Hidden by the
+    // scope switch or deleted since: left out.
+    function visibleTiles() {
+      if (view === "list") {
+        var rows = dataTable ? dataTable.rows({ order: "applied", search: "applied" }).nodes().toArray()
+          : Array.prototype.slice.call(tbody.rows);
+        return rows.filter(function (tr) { return !tr.classList.contains("d-none"); })
+          .map(function (tr) { return tilesById[tr.getAttribute("data-row-id")]; })
+          .filter(function (t) { return t && t.isConnected; });
+      }
+      return Array.prototype.filter.call(grid.children, function (t) {
+        return t.classList.contains("fgs-tile") && !t.classList.contains("d-none");
+      });
+    }
+    function selected() { return visibleTiles().filter(function (t) { return tileCheck(t).checked; }); }
+
+    function refreshCount() {
+      var all = Object.keys(tilesById).length;
+      var shown = Array.prototype.filter.call(grid.children, function (t) {
+        return t.classList.contains("fgs-tile") && !t.classList.contains("d-none");
+      }).length;
+      if (countEl) countEl.textContent = (root.getAttribute("data-count-label") || "Files: ") + shown;
+      root.classList.toggle("fgs-is-empty", all === 0);
+    }
+
+    function updateSelection() {
+      var n = selected().length;
+      bar.classList.toggle("d-none", !selecting);
+      selCount.textContent = n + " selected";
+      // Greyed out rather than disabled: some actions disable their own
+      // button while they run, and a selection change must not undo that
+      bar.classList.toggle("fgs-none-selected", n === 0);
+      // A prepared set, or a link made from it, belongs to its selection
+      var photos = bar.querySelector("[data-act=photos]");
+      if (photos) FGS.resetSaveToPhotos(photos);
+      if (linkResult) { linkResult.textContent = ""; linkResult.className = "fgs-linkresult"; }
+    }
+
+    function setChecked(id, on) {
+      var tile = tilesById[id];
+      if (tile) tileCheck(tile).checked = on;
+      var check = rowCheck(rowsById[id]);
+      if (check) check.checked = on;
+    }
+    function toggleSelected(tile) {
+      setChecked(idOf(tile), !tileCheck(tile).checked);
+      status.textContent = "";
+      updateSelection();
+    }
+    function setSelecting(on) {
+      selecting = !!on;
+      root.classList.toggle("fgs-selecting", selecting);
+      selectToggle.textContent = selecting ? "Done" : "Select";
+      selectToggle.setAttribute("aria-pressed", selecting ? "true" : "false");
+      selectToggle.classList.toggle("btn-light", selecting);
+      selectToggle.classList.toggle("btn-outline-light", !selecting);
+      // Leaving select mode drops the selection
+      if (!selecting) Object.keys(tilesById).forEach(function (id) { setChecked(id, false); });
+      status.textContent = "";
+      updateSelection();
+      // The checkbox column appeared or went away
+      if (dataTable && view === "list") dataTable.columns.adjust();
+    }
+
+    // The viewer, over everything visible, starting at this file
+    function openAt(tile) {
+      if (!tile) return;
+      var tiles = visibleTiles();
+      FGS.openViewer(tiles.map(FGS.itemFromEl), Math.max(0, tiles.indexOf(tile)));
+    }
+
+    // Board: the grid's own tiles in masonry, true proportions, no captions
+    function layoutBoard() {
+      if (view !== "board") return;
+      masonry(grid, visibleTiles());
+    }
+    function clearBoard() {
+      Array.prototype.forEach.call(grid.querySelectorAll(".fgs-tile"), function (t) {
+        ["position", "width", "height", "left", "top"].forEach(function (p) { t.style[p] = ""; });
+      });
+      grid.style.height = "";
+    }
+    var boardTimer = null;
+    function layoutLater() { window.clearTimeout(boardTimer); boardTimer = window.setTimeout(layoutBoard, 120); }
+    if ("ResizeObserver" in window) new ResizeObserver(layoutLater).observe(grid);
+    else window.addEventListener("resize", layoutLater);
+
+    function applyView(v) {
+      if (VIEWS.indexOf(v) < 0) v = root.getAttribute("data-default-view") || "grid";
+      var was = view;
+      view = v;
+      root.setAttribute("data-current-view", v);
+      grid.classList.toggle("d-none", v === "list");
+      listWrap.classList.toggle("d-none", v !== "list");
+      grid.classList.toggle("fgs-board-mode", v === "board");
+      if (was === "board" && v !== "board") clearBoard();
+      setActive("data-layout", v);
+      store("view", v);
+      if (dataTable) {
+        // The tiles ignore the table's search box, so a search must not keep
+        // rows (and the ids the upload page's helpers look up) out of the DOM
+        // while the tiles are showing
+        if (v !== "list" && dataTable.search() !== "") dataTable.search("").draw();
+        // The table was laid out while hidden, so its column widths are wrong
+        if (v === "list") dataTable.columns.adjust();
+      }
+      layoutBoard();
+      updateSelection();
+    }
+
+    // Only users with PERM_LIST get the switch, and only they are ever sent
+    // other users' files. Without the switch everything shown is their own.
+    function hideForScope(el) {
+      el.classList.toggle("d-none", scope === "mine" && el.getAttribute("data-mine") !== "true");
+    }
+    function applyScope(s) {
+      if (!root.querySelector("button[data-scope]")) { scope = "all"; return; }
+      scope = s === "all" ? "all" : "mine";
+      Object.keys(tilesById).forEach(function (id) { hideForScope(tilesById[id]); });
+      Object.keys(rowsById).forEach(function (id) { hideForScope(rowsById[id]); });
+      setActive("data-scope", scope);
+      store("scope", scope);
+      refreshCount();
+      layoutBoard();
+      updateSelection();
+    }
+
+    // Square crops every thumbnail to fill its tile; True shape shows the
+    // whole picture, letterboxed. Grid only: Board always keeps proportions.
+    function applyShape(shape) {
+      if (shape !== "true") shape = "square";
+      grid.classList.toggle("fgs-shape-true", shape === "true");
+      setActive("data-shape", shape);
+      store("shape", shape);
+    }
+    function applySize() {
+      grid.style.setProperty("--fgs-tile", size.value + "px");
+      store("size", size.value);
+    }
+
+    function asItems(tiles) {
+      return tiles.map(function (t) {
+        return { url: t.getAttribute("data-download"), name: t.getAttribute("data-name"),
+          bytes: parseInt(t.getAttribute("data-bytes"), 10) };
+      });
+    }
+
+    function actionArg(tiles, button, bulk, menu, trigger) {
+      return { browser: api, root: root, context: context, tiles: tiles, ids: tiles.map(idOf),
+        items: tiles.map(FGS.itemFromEl), bulk: bulk, button: button, trigger: trigger || button,
+        menu: menu || (tiles.length === 1 ? menuOf(tiles[0]) : null), status: status, linkResult: linkResult };
+    }
+
+    // Built-in selection-bar actions: the ones visitors have too
+    function bulkDownload(tiles, button) {
+      // Files without a link (end-to-end encrypted on the Files tab) can only
+      // be decrypted on their own download page; the zip skips them too, so
+      // fetch the rest and say what was left out
+      var usable = tiles.filter(function (t) { return t.getAttribute("data-download"); });
+      var skipped = tiles.length - usable.length;
+      if (usable.length) FGS.downloadSequentially(asItems(usable), { button: button, status: status });
+      if (skipped) {
+        window.setTimeout(function () {
+          status.textContent = manages
+            ? skipped + " end-to-end encrypted file(s) left out: open each from its own download link."
+            : skipped + " file(s) left out: they cannot be downloaded here.";
+        }, usable.length * 600 + 100); // after downloadSequentially's own last message
+      }
+    }
+    function bulkZip(tiles) {
+      if (!zipUrl) return;
+      window.location = zipUrl + tiles.map(function (t) { return encodeURIComponent(idOf(t)); }).join(",");
+    }
+
+    bar.addEventListener("click", function (e) {
+      var act = e.target.closest("[data-act]");
+      if (!act || !bar.contains(act)) return;
+      var tiles = selected();
+      if (!tiles.length) return;
+      var what = act.getAttribute("data-act");
+      var handler = fileAction(context, what);
+      if (handler) { handler(actionArg(tiles, act, true, null)); return; }
+      if (what === "download") bulkDownload(tiles, act);
+      else if (what === "zip") bulkZip(tiles);
+      else if (what === "photos") FGS.saveToPhotos(asItems(tiles), act);
+    });
+
+    var help = bar.querySelector("[data-fgs-help]");
+    if (FGS.isIOS()) {
+      // Safari allows one download per tap, so the zip and Save to Photos
+      // are the way to take several at once
+      var dl = bar.querySelector("[data-act=download]");
+      var photos = bar.querySelector("[data-act=photos]");
+      if (dl && (photos || bar.querySelector("[data-act=zip]"))) dl.classList.add("d-none");
+      if (photos) photos.classList.remove("d-none");
+      if (help) help.classList.remove("d-none");
+    }
+    if (help) help.addEventListener("click", function () { FGS.openHelpSheet(); });
+
+    // A checkbox ticked directly, in either view
+    root.addEventListener("change", function (e) {
+      var check = e.target.closest(".fgs-tile-check, .fgs-row-check");
+      if (!check || check.closest("[data-fgs-browser]") !== root) return;
+      var id = check.classList.contains("fgs-tile-check") ? idOf(check.closest(".fgs-tile"))
+        : check.closest("tr").getAttribute("data-row-id");
+      setChecked(id, check.checked);
+      status.textContent = "";
+      updateSelection();
+    });
+
+    // A tile, or a name or thumbnail in the list: open it, or in select mode
+    // (de)select it
+    grid.addEventListener("click", function (e) {
+      var open = e.target.closest(".fgs-tile-open");
+      if (!open) return;
+      var tile = open.closest(".fgs-tile");
+      if (selecting) toggleSelected(tile);
+      else openAt(tile);
+    });
+    listWrap.addEventListener("click", function (e) {
+      var name = e.target.closest(".fgs-name-open, .fgs-list-thumb");
+      if (!name) return;
+      var tr = name.closest("tr[data-row-id]");
+      var tile = tr && tilesById[tr.getAttribute("data-row-id")];
+      if (!tile) return;
+      if (selecting) toggleSelected(tile);
+      else openAt(tile);
+    });
+
+    // The "⋯" menu, and the list's quick buttons, in every view
+    root.addEventListener("click", function (e) {
+      var item = e.target.closest("[data-menu]");
+      if (!item || item.disabled || item.closest("[data-fgs-browser]") !== root) return;
+      var menu = item.closest("[data-fgs-file-menu]");
+      var holder = menu || item.closest("tr[data-row-id]");
+      if (!holder) return;
+      var tile = tilesById[holder.getAttribute(menu ? "data-id" : "data-row-id")];
+      if (!tile) return;
+      // Dialogs and the viewer hand focus back to the "⋯", not to an entry
+      // of the menu that just closed
+      var trigger = menu ? menu.querySelector(".fgs-menu-btn") : item;
+      trigger.focus();
+      var what = item.getAttribute("data-menu");
+      var handler = fileAction(context, what);
+      if (handler) handler(actionArg([tile], item, false, menu || menuOf(tile), trigger));
+      else if (what === "open") openAt(tile);
+      else if (what === "download") FGS.downloadSequentially(asItems([tile]));
+    });
+
+    // Live thumbnails: a tile whose preview is still being made asks for it
+    // every few seconds for a while, and shows it once it is ready
+    var polls = {}, inFlight = {}, pollTimer = null, pollCursor = 0;
+    function startPolling(id) {
+      if (!infoUrl || polls[id]) return;
+      polls[id] = Date.now() + POLL_FOR_MS;
+      if (!pollTimer) pollTimer = window.setInterval(pollTick, POLL_EVERY_MS);
+    }
+    function pollTick() {
+      var now = Date.now();
+      Object.keys(polls).forEach(function (id) { if (polls[id] < now || !tilesById[id]) delete polls[id]; });
+      var ids = Object.keys(polls);
+      if (!ids.length) { window.clearInterval(pollTimer); pollTimer = null; return; }
+      if (document.hidden) return;
+      var batch = [];
+      for (var i = 0; i < Math.min(POLL_BATCH, ids.length); i++) batch.push(ids[(pollCursor + i) % ids.length]);
+      pollCursor = (pollCursor + batch.length) % ids.length;
+      batch.forEach(function (id) {
+        if (inFlight[id]) return;
+        inFlight[id] = true;
+        fetch(infoUrl + encodeURIComponent(id), { credentials: "same-origin", cache: "no-store" })
+          .then(function (r) {
+            if (!r.ok) { if (r.status === 404 || r.status === 401) delete polls[id]; return null; }
+            return r.json();
+          })
+          .then(function (info) {
+            if (!info || !info.Status || info.Status === "pending") return;
+            delete polls[id];
+            applyPreview(id, info);
+          })
+          .catch(function () { /* try again next tick */ })
+          .then(function () { delete inFlight[id]; });
+      });
+    }
+
+    function thumbImg(className, info) {
+      var img = document.createElement("img");
+      if (className) img.className = className;
+      img.decoding = "async";
+      img.alt = "";
+      img.src = info.Thumb;
+      if (info.Color) img.style.background = info.Color;
+      return img;
+    }
+
+    // A preview (the /files/previewinfo or /p/info answer) onto the tile and
+    // its list row. The download URL is the page's own and is left alone.
+    function applyPreview(id, info) {
+      var tile = tilesById[id];
+      if (!tile || !info) return;
+      var row = rowsById[id];
+      setData(tile, "preview-status", info.Status);
+      setData(tile, "view", info.View);
+      setData(tile, "video", info.Video);
+      setData(tile, "kind", info.Kind);
+      setData(tile, "w", info.Width || 0);
+      setData(tile, "h", info.Height || 0);
+      if (info.TakenAt) setData(tile, "taken", info.TakenAt);
+      if (info.Thumb) {
+        var open = tile.querySelector(".fgs-tile-open");
+        open.textContent = "";
+        open.appendChild(thumbImg("", info));
+        if (info.Video) {
+          var play = document.createElement("span");
+          play.className = "fgs-play";
+          var icon = document.createElement("i");
+          icon.className = "bi bi-play-fill";
+          play.appendChild(icon);
+          open.appendChild(play);
+        }
+        var old = row && row.querySelector(".fgs-list-thumb");
+        if (old) old.parentNode.replaceChild(thumbImg("fgs-list-thumb", info), old);
+      }
+      var taken = row && row.querySelector("td[data-col=taken]");
+      if (taken && info.TakenAt) {
+        taken.setAttribute("data-order", String(info.TakenAt));
+        taken.textContent = fmt(info.TakenAt);
+        if (dataTable) dataTable.row(row).invalidate("dom");
+      }
+      layoutBoard();
+    }
+
+    Object.keys(tilesById).forEach(function (id) {
+      if (tilesById[id].getAttribute("data-preview-status") === "pending") startPolling(id);
+    });
+
+    // Live adds (the upload page): a tile and a row from the <template>s,
+    // filled in with textContent and setters only. file is a FileApiOutput
+    // (or anything with its field names), preview a previewInfo or nothing.
+    function fillMenu(menu, file, perms) {
+      setData(menu, "id", file.Id);
+      var trigger = menu.querySelector(".fgs-menu-btn");
+      if (trigger) trigger.setAttribute("aria-label", "Actions for " + (file.Name || ""));
+      if (manages) {
+        setData(menu, "url", file.UrlDownload);
+        setData(menu, "downloads", file.DownloadsRemaining);
+        setData(menu, "unlimited-downloads", !!file.UnlimitedDownloads);
+        setData(menu, "expire", file.ExpireAt);
+        setData(menu, "unlimited-time", !!file.UnlimitedTime);
+        setData(menu, "password", !!file.IsPasswordProtected);
+        setData(menu, "e2e", !!file.IsEndToEndEncrypted);
+        setData(menu, "can-edit", perms.edit);
+        setData(menu, "can-delete", perms.del);
+        setData(menu, "can-replace", perms.replace);
+      }
+      var e2e = !!file.IsEndToEndEncrypted;
+      menu.querySelectorAll("[data-menu]").forEach(function (b) {
+        var k = b.getAttribute("data-menu");
+        if (k === "copy") b.setAttribute("data-clipboard-text", file.UrlDownload || "");
+        if (k === "download" || k === "add-to-collection") b.disabled = e2e;
+        if (k === "edit") b.disabled = !perms.edit;
+        if (k === "replace") b.disabled = !perms.replace;
+        if (k === "delete") b.disabled = !perms.del;
+      });
+    }
+
+    function addItem(file, preview) {
+      if (!file || !file.Id || !tplTile || !tplRow) return null;
+      preview = preview || {};
+      if (tilesById[file.Id]) removeItem(file.Id);
+      var id = String(file.Id);
+      var userId = parseInt(root.getAttribute("data-user-id"), 10) || 0;
+      var mine = file.UploaderId === undefined || file.UploaderId === null || file.UploaderId === userId;
+      var flag = function (k) { return root.getAttribute("data-perm-" + k) === "true"; };
+      var perms = { edit: mine || flag("edit-others"), del: mine || flag("delete-others") };
+      perms.replace = perms.edit && !file.IsEndToEndEncrypted && ((mine && flag("replace")) || flag("replace-others"));
+      var download = preview.Download || (manages && !file.IsEndToEndEncrypted ? "./files/download?id=" + encodeURIComponent(id) : "");
+      var uploader = mine ? (root.getAttribute("data-user-name") || "") : "";
+      var name = file.Name || "";
+
+      var tile = tplTile.content.firstElementChild.cloneNode(true);
+      setData(tile, "mine", mine);
+      setData(tile, "id", id);
+      setData(tile, "name", name);
+      setData(tile, "download", download);
+      setData(tile, "uploader", uploader);
+      setData(tile, "uploaded", file.UploadDate || 0);
+      setData(tile, "size", file.Size);
+      setData(tile, "bytes", file.SizeBytes);
+      setData(tile, "taken", preview.TakenAt || 0);
+      tile.querySelector(".fgs-tile-open").setAttribute("aria-label", "Open " + name);
+      tileCheck(tile).setAttribute("aria-label", "Select " + name);
+      var small = tile.querySelector(".fgs-typeicon small");
+      if (small) small.textContent = name.slice(0, 40);
+      tile.querySelector(".fgs-name").textContent = name;
+      tile.querySelector(".fgs-meta-uploader").textContent = uploader ? uploader + " · " : "";
+      setData(tile.querySelector("figcaption [data-ts]"), "ts", file.UploadDate || 0);
+      fillMenu(menuOf(tile), file, perms);
+
+      var row = tplRow.content.firstElementChild.cloneNode(true);
+      setData(row, "mine", mine);
+      setData(row, "row-id", id);
+      if (manages) row.id = "row-" + id;
+      rowCheck(row).setAttribute("aria-label", "Select " + name);
+      var nameCell = row.querySelector("td[data-col=name]");
+      nameCell.setAttribute("data-order", name);
+      var nameSpan = row.querySelector(".fgs-row-name");
+      nameSpan.textContent = name;
+      if (manages) nameSpan.id = "cell-name-" + id;
+      var cell = function (k) { return row.querySelector("td[data-col=" + k + "]"); };
+      if (cell("uploader")) cell("uploader").textContent = uploader;
+      cell("uploaded").setAttribute("data-order", String(file.UploadDate || 0));
+      setData(cell("uploaded").querySelector("[data-ts]"), "ts", file.UploadDate || 0);
+      cell("taken").setAttribute("data-order", String(preview.TakenAt || 0));
+      cell("taken").textContent = preview.TakenAt ? fmt(preview.TakenAt) : "—";
+      cell("size").setAttribute("data-order", String(file.SizeBytes || 0));
+      cell("size").textContent = file.Size || "";
+      if (cell("expires")) {
+        if (file.UnlimitedTime) {
+          cell("expires").setAttribute("data-order", "9223372036854775807");
+          cell("expires").textContent = "Never";
+        } else {
+          cell("expires").setAttribute("data-order", String(file.ExpireAt || 0));
+          cell("expires").textContent = fmt(file.ExpireAt);
+        }
+      }
+      if (cell("downloads")) {
+        cell("downloads").id = "cell-downloads-" + id;
+        cell("downloads").textContent = String(file.DownloadCount || 0);
+      }
+      var copy = row.querySelector(".copyurl");
+      if (copy) {
+        copy.id = "url-button-" + id;
+        copy.setAttribute("data-clipboard-text", file.UrlDownload || "");
+      }
+      fillMenu(row.querySelector("[data-fgs-file-menu]"), file, perms);
+      formatTimes(tile);
+      formatTimes(row);
+
+      grid.insertBefore(tile, grid.firstChild);
+      index(tile, row);
+      if (dataTable) dataTable.row.add(row).draw(false);
+      else tbody.insertBefore(row, tbody.firstChild);
+      hideForScope(tile);
+      hideForScope(row);
+      if (preview.Status === "ready") applyPreview(id, preview);
+      else if (!file.IsEndToEndEncrypted && (!preview.Status || preview.Status === "pending")) startPolling(id);
+      refreshCount();
+      layoutBoard();
+      updateSelection();
+      return tile;
+    }
+
+    function removeItem(id) {
+      var tile = tilesById[id], row = rowsById[id];
+      delete tilesById[id];
+      delete rowsById[id];
+      delete polls[id];
+      if (tile && tile.parentNode) tile.parentNode.removeChild(tile);
+      if (row) {
+        if (dataTable) dataTable.row(row).remove().draw(false);
+        if (row.parentNode) row.parentNode.removeChild(row);
+      }
+      refreshCount();
+      layoutBoard();
+      updateSelection();
+    }
+
+    api = {
+      root: root,
+      context: context,
+      addItem: addItem,
+      removeItem: removeItem,
+      applyPreview: applyPreview,
+      tile: function (id) { return tilesById[id] || null; },
+      row: function (id) { return rowsById[id] || null; },
+      selected: selected,
+      visible: visibleTiles,
+      setSelecting: setSelecting,
+      view: function () { return view; },
+      relayout: layoutBoard
+    };
+    root.fgsBrowser = api;
+
+    // Wiring, then the remembered (or default) state
+    root.querySelectorAll("button[data-layout]").forEach(function (b) {
+      b.addEventListener("click", function () { applyView(b.getAttribute("data-layout")); });
+    });
+    root.querySelectorAll("button[data-scope]").forEach(function (b) {
+      b.addEventListener("click", function () { applyScope(b.getAttribute("data-scope")); });
+    });
+    root.querySelectorAll("button[data-shape]").forEach(function (b) {
+      b.addEventListener("click", function () { applyShape(b.getAttribute("data-shape")); });
+    });
+    selectToggle.addEventListener("click", function () { setSelecting(!selecting); });
+    if (size) {
+      size.value = load("size") || "160";
+      size.addEventListener("input", applySize);
+      applySize();
+    }
+    applyShape(load("shape") || "square");
+    formatTimes(root.querySelector(".fgs-views"));
+
+    if (window.jQuery && jQuery.fn && jQuery.fn.DataTable) {
+      var heads = Array.prototype.slice.call(table.tHead.rows[0].cells);
+      var sortAt = heads.findIndex(function (th) { return th.hasAttribute("data-fgs-sort"); });
+      var noSort = [];
+      heads.forEach(function (th, i) { if (th.hasAttribute("data-fgs-nosort")) noSort.push(i); });
+      // No paging: the scope switch hides rows in the DOM, and the edit
+      // dialog's "Replace content" list reads every row's name from it
+      dataTable = jQuery(table).DataTable({
+        "order": sortAt >= 0 ? [[sortAt, "desc"]] : [],
+        "columnDefs": [{ "targets": noSort, "orderable": false, "searchable": false }],
+        "paging": false,
+        "info": false,
+        // Laid out while the tiles may be showing: measured widths would be wrong
+        "autoWidth": false,
+        "language": { "emptyTable": "No files yet", "zeroRecords": "No matching files" }
+      });
+      // A search changes which selected files are visible
+      dataTable.on("draw", updateSelection);
+    }
+    var savedView = load("view");
+    applyView(VIEWS.indexOf(savedView) >= 0 ? savedView : root.getAttribute("data-default-view"));
+    applyScope(load("scope") || "mine");
+    refreshCount();
+    return api;
+  };
+
+  function initAllFileBrowsers() {
+    Array.prototype.forEach.call(document.querySelectorAll("[data-fgs-browser]"), FGS.initFileBrowser);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initAllFileBrowsers);
+  else initAllFileBrowsers();
 })();

@@ -392,6 +392,9 @@ func ReplaceFile(fileId, newFileContentId string, delete bool) (models.File, err
 	file.SizeBytes = newFileContent.SizeBytes
 	file.Encryption = newFileContent.Encryption
 	database.SaveMetaData(file)
+	if OnBlobAdded != nil {
+		OnBlobAdded(file)
+	}
 	if delete {
 		DeleteFile(newFileContent.Id, true)
 	}
@@ -807,6 +810,13 @@ func FileExists(file models.File, dataDir string) bool {
 	return exists
 }
 
+// OnBlobDeleted is called when the last file using a blob is removed. Set by
+// the preview package; nil-safe.
+var OnBlobDeleted func(sha1 string)
+
+// OnBlobAdded is called when a file's blob changes in place (ReplaceFile).
+var OnBlobAdded func(file models.File)
+
 // CleanUp removes expired files from the config and from the filesystem if they are not referenced by other files anymore
 // Will be called periodically or after a file has been manually deleted in the admin view.
 // If the parameter periodic is true, this function is recursive and calls itself every hour.
@@ -826,6 +836,9 @@ func CleanUp(periodic bool) {
 			}
 			if deleteFile && fileExists {
 				deleteSource(element, configuration.Get().DataDir)
+			}
+			if deleteFile && OnBlobDeleted != nil {
+				OnBlobDeleted(element.SHA1)
 			}
 			if element.HotlinkId != "" {
 				database.DeleteHotlink(element.HotlinkId)

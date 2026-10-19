@@ -25,6 +25,7 @@ import (
 	"github.com/forceu/gokapi/internal/environment"
 	"github.com/forceu/gokapi/internal/environment/flagparser"
 	"github.com/forceu/gokapi/internal/logging"
+	"github.com/forceu/gokapi/internal/preview"
 	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/storage/filesystem"
 	"github.com/forceu/gokapi/internal/storage/filesystem/s3filesystem/aws"
@@ -67,6 +68,7 @@ func main() {
 	createSsl(passedFlags)
 	initCloudConfig(passedFlags)
 	storage.CleanUp(true)
+	preview.Start()
 	logging.LogStartup()
 	showDeprecationWarnings()
 	serverstats.Init()
@@ -82,6 +84,7 @@ func main() {
 func shutdown() {
 	fmt.Println("Shutting down...")
 	webserver.Shutdown()
+	preview.Stop()
 	serverstats.Shutdown()
 	logging.LogShutdown()
 	database.Close()

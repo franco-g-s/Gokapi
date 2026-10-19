@@ -3,6 +3,7 @@
 package preview
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -150,4 +151,70 @@ func TestEnqueueKeepsAttempts(t *testing.T) {
 	p := waitAttempts(t, f.SHA1, 3)
 	test.IsEqualString(t, p.Status, models.PreviewFailed)
 	test.IsEqualInt(t, p.Attempts, 3)
+}
+
+func TestStartSweepsStaleDecryptedFiles(t *testing.T) {
+	test.IsNil(t, os.MkdirAll(Dir(), 0700))
+	stale := filepath.Join(Dir(), "dec-stale.jpg")
+	test.IsNil(t, os.WriteFile(stale, []byte("plaintext"), 0600))
+	Start()
+	defer Stop()
+	_, err := os.Stat(stale)
+	test.IsEqualBool(t, os.IsNotExist(err), true)
+}
+
+func TestBackfillRemovesOrphanedPreviews(t *testing.T) {
+	Start()
+	defer Stop()
+	waitIdle(t)
+	thumb, _, _ := Paths(Dir(), "orphansha1")
+	test.IsNil(t, os.WriteFile(thumb, []byte("x"), 0600))
+	database.SavePreview(models.Preview{Sha1: "orphansha1", Status: models.PreviewReady})
+	backfill()
+	_, ok := database.GetPreview("orphansha1")
+	test.IsEqualBool(t, ok, false)
+	_, err := os.Stat(thumb)
+	test.IsEqualBool(t, os.IsNotExist(err), true)
+}
+
+func TestBackfillGivesUpOnPendingAtLimit(t *testing.T) {
+	data := configuration.Get().DataDir
+	test.IsNil(t, os.WriteFile(filepath.Join(data, "crashsha1"), []byte("junk"), 0600))
+	database.SaveMetaData(models.File{Id: "crashfile0000000001", Name: "crash.jpg", SHA1: "crashsha1", ContentType: "image/jpeg"})
+	defer database.DeleteMetaData("crashfile0000000001")
+	// A job that was started three times and never finished (crash on every boot)
+	database.SavePreview(models.Preview{Sha1: "crashsha1", Status: models.PreviewPending, Kind: models.PreviewKindImage, Attempts: maxAttempts})
+	Start()
+	defer Stop()
+	backfill()
+	waitIdle(t)
+	p, _ := database.GetPreview("crashsha1")
+	test.IsEqualString(t, p.Status, models.PreviewFailed)
+	test.IsEqualInt(t, p.Attempts, maxAttempts) // not run again
+}
+
+func TestProcessCountsAttemptBeforeWorkAndSurvivesPanic(t *testing.T) {
+	Start()
+	defer Stop()
+	waitIdle(t)
+	orig := generateFn
+	defer func() { generateFn = orig }()
+	var seenDuring models.Preview
+	generateFn = func(ctx context.Context, src, outDir, sha1, kind string) (models.Preview, error) {
+		seenDuring, _ = database.GetPreview(sha1)
+		panic("boom")
+	}
+	f := models.File{Id: "panicfile0000000001", Name: "p.jpg", SHA1: "panicsha1", ContentType: "image/jpeg"}
+	process(f) // must not panic out
+	// the attempt was on the row while Generate ran
+	test.IsEqualString(t, seenDuring.Status, models.PreviewPending)
+	test.IsEqualInt(t, seenDuring.Attempts, 1)
+	p, _ := database.GetPreview("panicsha1")
+	test.IsEqualString(t, p.Status, models.PreviewFailed)
+	test.IsEqualInt(t, p.Attempts, 1) // counted once, not twice
+
+	// worker keeps running after a panic
+	generateFn = orig
+	Enqueue(models.File{Id: "panicfile0000000002", Name: "q.pdf", SHA1: "afterpanicsha1", ContentType: "application/pdf"})
+	test.IsEqualString(t, waitStatus(t, "afterpanicsha1").Status, models.PreviewUnsupported)
 }

@@ -21,6 +21,9 @@ import (
 // startups while Attempts is below this.
 const maxAttempts = 3
 
+// generateFn is Generate; tests replace it to simulate a crashing job
+var generateFn = Generate
+
 var (
 	queue    chan models.File
 	stopCh   chan struct{}
@@ -42,6 +45,12 @@ func Start() {
 	}
 	if err := os.MkdirAll(Dir(), 0700); err != nil {
 		fmt.Printf("preview: cannot create %s: %v\n", Dir(), err)
+	}
+	// Plaintext of server-side-encrypted files that a killed job left behind
+	if stale, err := filepath.Glob(filepath.Join(Dir(), "dec-*")); err == nil {
+		for _, path := range stale {
+			_ = os.Remove(path)
+		}
 	}
 	inFlight.Range(func(k, _ any) bool { inFlight.Delete(k); return true })
 	queue = make(chan models.File, 10000)
@@ -99,12 +108,27 @@ func enqueue(file models.File, retry bool) bool {
 
 // backfill queues every blob that has no finished preview: pending rows (an
 // interrupted run), missing rows, and failed rows still under maxAttempts.
-// It returns how many files were queued.
+// Pending rows that were already started maxAttempts times are marked failed
+// instead, so a file that kills the worker cannot crash it on every boot.
+// It also removes previews whose blob no file uses any more (CleanUp runs at
+// startup before the delete hook exists). It returns how many files were queued.
 func backfill() int {
+	// known must be read before the metadata: an upload that lands in between
+	// then shows up in the metadata and is not mistaken for an orphan.
 	known := database.GetAllPreviewSha1s()
+	files := database.GetAllMetadata()
+	used := make(map[string]bool, len(files))
+	for _, f := range files {
+		used[f.SHA1] = true
+	}
+	for sha1 := range known {
+		if _, busy := inFlight.Load(sha1); !used[sha1] && !busy {
+			removeBlob(sha1)
+		}
+	}
 	seen := make(map[string]bool)
 	queued := 0
-	for _, f := range database.GetAllMetadata() {
+	for _, f := range files {
 		if seen[f.SHA1] {
 			continue
 		}
@@ -114,6 +138,13 @@ func backfill() int {
 				continue
 			}
 			if p, found := database.GetPreview(f.SHA1); !found || p.Attempts >= maxAttempts {
+				continue
+			}
+		} else if ok {
+			if p, found := database.GetPreview(f.SHA1); found && p.Attempts >= maxAttempts {
+				p.Status = models.PreviewFailed
+				p.Updated = time.Now().Unix()
+				database.SavePreview(p)
 				continue
 			}
 		}
@@ -141,18 +172,33 @@ func loop(q chan models.File, stop chan struct{}) {
 	}
 }
 
+// process generates the preview for one file. The attempt is counted and
+// persisted before any work starts, so a job that kills the process still
+// counts; a panic is contained and treated as a failed attempt.
 func process(f models.File) {
 	kind := Kind(f.ContentType, f.Name)
-	prev, _ := database.GetPreview(f.SHA1)
 	if kind == "" {
 		database.SavePreview(models.Preview{Sha1: f.SHA1, Status: models.PreviewUnsupported, Updated: time.Now().Unix()})
 		return
 	}
+	prev, _ := database.GetPreview(f.SHA1)
+	attempts := prev.Attempts + 1
+	database.SavePreview(models.Preview{Sha1: f.SHA1, Status: models.PreviewPending, Kind: kind, Attempts: attempts, Updated: time.Now().Unix()})
+	fail := func() {
+		database.SavePreview(models.Preview{Sha1: f.SHA1, Status: models.PreviewFailed, Kind: kind, Attempts: attempts, Updated: time.Now().Unix()})
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			// stdout only, like every worker error
+			fmt.Printf("preview: %s (%s): panic: %v\n", f.Id, f.Name, r)
+			fail()
+		}
+	}()
 	src, cleanup, err := readablePath(f)
 	if err == nil {
+		defer cleanup() // also runs when Generate panics
 		var p models.Preview
-		p, err = Generate(context.Background(), src, Dir(), f.SHA1, kind)
-		cleanup()
+		p, err = generateFn(context.Background(), src, Dir(), f.SHA1, kind)
 		if err == nil {
 			database.SavePreview(p)
 			return
@@ -160,7 +206,7 @@ func process(f models.File) {
 	}
 	// stdout only: see Global Constraints (the notifier emails warning lines)
 	fmt.Printf("preview: %s (%s): %v\n", f.Id, f.Name, err)
-	database.SavePreview(models.Preview{Sha1: f.SHA1, Status: models.PreviewFailed, Kind: kind, Attempts: prev.Attempts + 1, Updated: time.Now().Unix()})
+	fail()
 }
 
 // readablePath returns a plain-bytes path for the blob. Unencrypted local files

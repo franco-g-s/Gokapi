@@ -722,7 +722,7 @@ func ServeFilesAsZip(files []models.File, filename string, w http.ResponseWriter
 		header := &zip.FileHeader{
 			Name:     file.Name,
 			Method:   zip.Store,
-			Modified: time.Unix(file.UploadDate, 0),
+			Modified: ZipEntryTime(file),
 		}
 		entryWriter, err := zipWriter.CreateHeader(header)
 		helper.Check(err)

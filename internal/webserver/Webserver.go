@@ -133,6 +133,7 @@ func Start() {
 	mux.HandleFunc("/collections/delete", requireLogin(deleteCollection, false, false))
 	mux.HandleFunc("/c", showCollection)
 	mux.HandleFunc("/cd", downloadCollectionFile)
+	mux.HandleFunc("/cz", downloadCollectionZip)
 	mux.HandleFunc("/d/{id}/{filename}", redirectFromFilename)
 	mux.HandleFunc("/dh/{id}/{filename}", downloadFileWithNameInUrl)
 

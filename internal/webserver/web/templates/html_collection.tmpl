@@ -54,12 +54,8 @@
                 </table>
             </div>
 
-            <div class="text-center mt-4">
-                <button id="downloadAllButton" class="btn btn-light" type="button">
-                    Download all {{ .FileCount }} files
-                </button>
-                <p id="downloadAllStatus" class="text-muted small mt-2 mb-0"></p>
-            </div>
+            {{ template "media_download_buttons" .Buttons }}
+            {{ template "media_help_sheet" }}
 
         </div>
 {{ end }}
@@ -102,6 +98,8 @@
     });
 })();
 </script>
+
+<script>FGS.initDownloadButtons(document.querySelector("[data-fgs-downloads]"));</script>
 
 {{ template "pagename" "PublicCollection"}}
 {{ template "customjs" .}}

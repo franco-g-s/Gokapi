@@ -45,6 +45,13 @@ func getPaths() []converter {
 		Name:              "Admin JS",
 	})
 	result = append(result, converter{
+		InputPath:         pathPrefix + "js/media.js",
+		OutputPath:        pathPrefix + "js/min/media.min." + jsMediaVersion + ".js",
+		GlobPreviousFiles: pathPrefix + "js/min/media.min.*.js",
+		Type:              "text/javascript",
+		Name:              "Media JS",
+	})
+	result = append(result, converter{
 		InputPath:         pathPrefix + "js/end2end_admin.js",
 		OutputPath:        pathPrefix + "js/min/end2end_admin.min." + jsE2EVersion + ".js",
 		GlobPreviousFiles: pathPrefix + "js/min/end2end_admin.min.*.js",
@@ -172,6 +179,7 @@ func fileExists(filename string) bool {
 // Auto-generated content below, do not modify
 // Version codes can be changed in updateVersionNumbers.go
 
-const jsAdminVersion = "fc47587368"
-const jsE2EVersion = "fc47587368"
-const cssMainVersion = "fc47587368"
+const jsAdminVersion = "78f6938576"
+const jsMediaVersion = "78f6938576"
+const jsE2EVersion = "78f6938576"
+const cssMainVersion = "78f6938576"

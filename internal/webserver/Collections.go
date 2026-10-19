@@ -18,6 +18,12 @@ import (
 	"github.com/forceu/gokapi/internal/webserver/ratelimiter"
 )
 
+// mediaButtons feeds the shared download-button partial
+type mediaButtons struct {
+	Count  int
+	ZipUrl string
+}
+
 // CollectionView is passed to the public collection template. The header
 // template only evaluates the admin fields when IsAdminView is true, so the
 // public-facing subset below is sufficient.
@@ -38,6 +44,7 @@ type CollectionView struct {
 	FileCount      int
 	ExpiryString   string
 	NeverExpires   bool
+	Buttons        mediaButtons
 }
 
 // showCollection serves the public page for a collection. No login required -
@@ -96,6 +103,7 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 		Collection:     collection,
 		FileCount:      len(collection.Files),
 		TotalSize:      helper.ByteCountSI(collection.TotalSizeBytes),
+		Buttons:        mediaButtons{Count: len(collection.Files), ZipUrl: "./cz?id=" + collection.Id},
 	}
 	// Expiry is derived from the longest-lived member, not stored.
 	latest, never := collection.LatestExpiry()

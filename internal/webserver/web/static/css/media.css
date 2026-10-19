@@ -1,0 +1,4 @@
+.fgs-sheet{position:fixed;inset:0;display:none;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.55);z-index:2000}
+.fgs-sheet.open{display:flex}
+.fgs-sheet-card{background:#1c1c1a;color:#f2f1ee;border:1px solid #2e2e2b;border-radius:14px 14px 0 0;max-width:32rem;width:100%;padding:1.5rem}
+.fgs-sheet-card ol{padding-left:1.2rem}

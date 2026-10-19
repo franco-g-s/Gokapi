@@ -1,4 +1,4 @@
-.fgs-sheet{position:fixed;inset:0;display:none;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.55);z-index:2000}
+.fgs-sheet{position:fixed;inset:0;display:none;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.55);z-index:10060}
 .fgs-sheet.open{display:flex}
 .fgs-sheet-card{background:#1c1c1a;color:#f2f1ee;border:1px solid #2e2e2b;border-radius:14px 14px 0 0;max-width:32rem;width:100%;padding:1.5rem}
 .fgs-sheet-card ol{padding-left:1.2rem}
@@ -19,7 +19,7 @@
 .fgs-selectbar{position:sticky;top:2.5rem;z-index:5;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;padding:.5rem;background:#1c1c1a;border:1px solid #2e2e2b;border-radius:10px;margin-bottom:.75rem}
 #fgs-selcount{white-space:nowrap}
 #fgs-linkresult{flex-basis:100%;margin:0!important}#fgs-linkresult:empty{display:none}#fgs-linkresult .form-control{min-width:0}
-.fgs-viewer{overscroll-behavior:contain;position:fixed;inset:0;z-index:3000;background:rgba(10,10,9,.96);display:flex;align-items:center;justify-content:center}
+.fgs-viewer{overscroll-behavior:contain;position:fixed;inset:0;z-index:10050;background:rgba(10,10,9,.96);display:flex;align-items:center;justify-content:center}
 .fgs-viewer[hidden]{display:none}
 .fgs-v-stage{max-width:100vw;max-height:calc(100vh - 7rem);max-height:calc(100dvh - 7rem);display:flex;flex-direction:column;align-items:center}
 .fgs-v-stage img,.fgs-v-stage video{max-width:100vw;max-height:calc(100vh - 7rem);max-height:calc(100dvh - 7rem);object-fit:contain}

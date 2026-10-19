@@ -311,10 +311,37 @@
     stage.addEventListener("touchcancel", function () { touchX = null; }, { passive: true });
   }
 
+  // Desktop trackpad: a horizontal two-finger swipe moves one item. Inertial
+  // scrolling keeps emitting events for a second or so, so accumulate to a
+  // threshold, then ignore input for a short lockout: one gesture, one item.
+  var wheelSum = 0, wheelLast = 0, wheelLockUntil = 0;
+  function bindWheel() {
+    v.addEventListener("wheel", function (e) {
+      if (v.hidden) return;
+      // Vertical-dominant: leave to the browser (nothing scrolls under a fixed viewer anyway).
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      // Horizontal: never let the browser turn it into back/forward navigation.
+      e.preventDefault();
+      // Over a video the swipe may be a scrub; swallow it without navigating.
+      if (e.target.closest && e.target.closest("video")) return;
+      var now = Date.now();
+      if (now < wheelLockUntil) return;
+      // A pause, or a change of direction, starts a new gesture.
+      if (now - wheelLast > 200 || (wheelSum && (wheelSum > 0) !== (e.deltaX > 0))) wheelSum = 0;
+      wheelLast = now;
+      wheelSum += e.deltaX;
+      if (Math.abs(wheelSum) >= 80) {
+        var dir = wheelSum > 0 ? 1 : -1;
+        wheelSum = 0; wheelLockUntil = now + 350;
+        go(dir);
+      }
+    }, { passive: false });
+  }
+
   FGS.openViewer = function (list, index) {
     if (!v) {
       v = document.getElementById("fgs-viewer");
-      if (v) bindTouch();
+      if (v) { bindTouch(); bindWheel(); }
     }
     if (!v || !list || !list.length) return;
     if (v.hidden) returnFocus = document.activeElement;

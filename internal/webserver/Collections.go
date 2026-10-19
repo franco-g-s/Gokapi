@@ -415,18 +415,41 @@ func modifyCollection(w http.ResponseWriter, r *http.Request) {
 		request.FileIds = append(append([]string{}, collection.FileIds...), request.AddFileIds...)
 	}
 	if len(request.RemoveFileIds) > 0 {
-		kept := make([]string, 0, len(collection.FileIds))
-		for _, id := range collection.FileIds {
+		// Removal applies to the final list: after an add or a replacement
+		// in the same request, otherwise to the stored members
+		base := collection.FileIds
+		if request.FileIds != nil {
+			base = request.FileIds
+		}
+		kept := make([]string, 0, len(base))
+		for _, id := range base {
 			if !slices.Contains(request.RemoveFileIds, id) {
 				kept = append(kept, id)
 			}
 		}
-		if len(kept) == 0 {
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = io.WriteString(w, `{"Result":"error","ErrorMessage":"A collection needs at least one file"}`)
-			return
+		if request.FileIds != nil {
+			// The check below refuses a list with no live member
+			request.FileIds = kept
+		} else {
+			// Stored members only: dropped files may still be listed, so
+			// "at least one file" means at least one that is still alive,
+			// or the collection would answer 404 while the request said OK.
+			// Nothing else is re-validated, so a member this user may not
+			// list stays untouched.
+			live := false
+			for _, id := range kept {
+				if _, ok := storage.GetFile(id); ok {
+					live = true
+					break
+				}
+			}
+			if !live {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = io.WriteString(w, `{"Result":"error","ErrorMessage":"A collection needs at least one file"}`)
+				return
+			}
+			collection.FileIds = kept
 		}
-		collection.FileIds = kept
 	}
 	if request.FileIds != nil {
 		permitted := make([]string, 0, len(request.FileIds))
@@ -495,6 +518,11 @@ func listCollections(w http.ResponseWriter, r *http.Request) {
 		Id    string `json:"id"`
 		Name  string `json:"name"`
 		Files int    `json:"files"`
+		// What the management list shows for the row, so a page can refresh
+		// it after files were deleted or added from elsewhere
+		TotalSize    string `json:"totalSize"`
+		Expiry       string `json:"expiry"`
+		NeverExpires bool   `json:"neverExpires"`
 	}
 	// ?mine=1 (the Files tab's picker): only the caller's own collections,
 	// even for a PERM_LIST admin, so a file is never added to someone else's
@@ -504,7 +532,9 @@ func listCollections(w http.ResponseWriter, r *http.Request) {
 		if collection.UserId != user.Id && (mineOnly || !user.HasPermission(models.UserPermListOtherUploads)) {
 			continue
 		}
-		result = append(result, entry{collection.Id, collection.Name, len(collection.Files)})
+		expiry, never := collectionExpiry(&collection)
+		result = append(result, entry{collection.Id, collection.Name, len(collection.Files),
+			helper.ByteCountSI(collection.TotalSizeBytes), expiry, never})
 	}
 	_ = json.NewEncoder(w).Encode(result)
 }

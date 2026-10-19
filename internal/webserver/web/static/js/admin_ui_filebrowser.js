@@ -15,6 +15,45 @@
     function plural(n, word) { return n + " " + word + (n === 1 ? "" : "s"); }
     function errorText(error) { return error && error.message ? error.message : String(error); }
 
+    // A JSON answer, or a clear error: an expired session answers with the
+    // login page (a redirect), which would otherwise surface as a parse error
+    function readJson(response) {
+        return response.text().then(function (text) {
+            try {
+                return JSON.parse(text);
+            } catch (ignored) {
+                throw new Error(response.redirected || text.trim().charAt(0) === "<" ?
+                    "Your session expired — reload the page" : "Unexpected answer from the server");
+            }
+        });
+    }
+
+    // The figures of a collection changed by something other than its own
+    // list (a file deleted, files added from another list): asked of the
+    // server once the burst of changes is over, and handed to the page's
+    // summary row through "fgs:collection-changed"
+    var summaryWanted = {}, summaryTimer = null;
+    function refreshCollectionSummary(collectionId) {
+        if (!collectionId) return;
+        summaryWanted[collectionId] = true;
+        window.clearTimeout(summaryTimer);
+        summaryTimer = window.setTimeout(function () {
+            var wanted = summaryWanted;
+            summaryWanted = {};
+            fetch("./collections/list", { credentials: "same-origin" })
+                .then(readJson)
+                .then(function (list) {
+                    (Array.isArray(list) ? list : []).forEach(function (c) {
+                        if (!wanted[c.id]) return;
+                        document.dispatchEvent(new CustomEvent("fgs:collection-changed", { detail: {
+                            collectionId: c.id, fileCount: c.files, totalSize: c.totalSize,
+                            expiry: c.expiry, neverExpires: c.neverExpires } }));
+                    });
+                })
+                .catch(function (error) { console.warn("Could not refresh collection figures:", errorText(error)); });
+        }, 400);
+    }
+
     // Per-file data for the actions, from the file's "⋯" menu in the grid,
     // which is always in the DOM
     function fileData(tile) {
@@ -94,7 +133,12 @@
     // Every list on the page that shows the file (a file can be in several
     // collections), so no list keeps a file that is gone or out of date
     function removeEverywhere(id) {
-        FGS.eachFileBrowser(function (b) { if (b.tile(id)) b.removeItem(id); });
+        FGS.eachFileBrowser(function (b) {
+            if (!b.tile(id)) return;
+            b.removeItem(id);
+            // A collection's row on the Collections page shows its figures
+            if (b.context === "collection-admin") refreshCollectionSummary(b.root.getAttribute("data-collection-id"));
+        });
     }
     function updateEverywhere(file) {
         FGS.eachFileBrowser(function (b) { if (b.tile(file.Id)) b.updateItem(file); });
@@ -216,6 +260,11 @@
                     return false;
                 }
                 showAutoLinkResult(urlFromData(data), null, { holderId: "fgs-collect-result", label: label });
+                // Files added to a collection the page lists: its list and row follow
+                if (endpoint === "./collections/modify" && body.addFileIds) {
+                    document.dispatchEvent(new CustomEvent("fgs:collection-members-added", {
+                        detail: { collectionId: body.id, ids: body.addFileIds, data: data } }));
+                }
                 return true;
             })
             .catch(function (error) { collectError("Could not add: " + errorText(error)); return false; });
@@ -466,7 +515,7 @@
             credentials: "same-origin",
             body: JSON.stringify({ id: collectionId, removeFileIds: ids })
         })
-            .then(function (response) { return response.json(); })
+            .then(readJson)
             .then(function (data) {
                 if (data.Result !== "OK") throw new Error(data.ErrorMessage || "unknown error");
                 ids.forEach(function (id) { a.browser.removeItem(id); });

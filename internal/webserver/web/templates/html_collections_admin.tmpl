@@ -162,13 +162,24 @@ document.querySelectorAll(".collection-copy").forEach(function (button) {
         });
     });
 });
+// An expired session answers with the login page rather than JSON; say so
+// instead of failing on the parse. Never rejects: callers show ErrorMessage.
 function postCollection(url, payload) {
     return fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
         body: JSON.stringify(payload)
-    }).then(function (r) { return r.json(); });
+    }).then(function (r) {
+        return r.text().then(function (text) {
+            try {
+                return JSON.parse(text);
+            } catch (ignored) {
+                return { Result: "error", ErrorMessage: r.redirected || text.trim().charAt(0) === "<" ?
+                    "Your session expired — reload the page" : "Unexpected answer from the server" };
+            }
+        });
+    }, function (e) { return { Result: "error", ErrorMessage: String(e) }; });
 }
 
 // The member list was built while its row was hidden: measure it now. The
@@ -361,6 +372,10 @@ document.addEventListener("fgs:collection-changed", function (e) {
     // Puts files just added to a collection into its list, and the summary row
     function showAdded(collectionId, fileIds, data) {
         var root = document.getElementById("col-" + collectionId);
+        // The row follows whether or not the list can be updated in place
+        document.dispatchEvent(new CustomEvent("fgs:collection-changed", { detail: {
+            collectionId: collectionId, fileCount: data.FileCount, totalSize: data.TotalSize,
+            expiry: data.Expiry, neverExpires: data.NeverExpires } }));
         var browser = root && window.FGS && FGS.initFileBrowser(root);
         if (!browser || typeof apiFilesListById !== "function") return Promise.reject(new Error("no list"));
         var one = function (id) {
@@ -375,12 +390,19 @@ document.addEventListener("fgs:collection-changed", function (e) {
                 if (String(error && error.message).indexOf("404") === -1) throw error;
             });
         };
-        return Promise.all(fileIds.map(one)).then(function () {
-            document.dispatchEvent(new CustomEvent("fgs:collection-changed", { detail: {
-                collectionId: collectionId, fileCount: data.FileCount, totalSize: data.TotalSize,
-                expiry: data.Expiry, neverExpires: data.NeverExpires } }));
-        });
+        return Promise.all(fileIds.map(one));
     }
+
+    // "Add to collection…" from a list's menu or selection bar, into a
+    // collection listed here: its list gets the files too. No reload (the
+    // dialog is showing the new link); if the list cannot be updated, the
+    // files show on the next load.
+    document.addEventListener("fgs:collection-members-added", function (e) {
+        var d = e.detail || {};
+        showAdded(d.collectionId, d.ids || [], d.data || {}).catch(function (error) {
+            console.warn("Could not add the files to the collection's list:", error);
+        });
+    });
 
     var newButton = document.getElementById("newCollectionButton");
     if (newButton) {

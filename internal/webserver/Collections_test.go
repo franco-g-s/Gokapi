@@ -163,3 +163,105 @@ func TestCollectionModifyRemoveFileIds(t *testing.T) {
 	test.IsEqualInt(t, code, http.StatusOK)
 	test.IsEqualInt(t, int(result["Files"].(float64)), 1)
 }
+
+// A stale page may ask to remove the only live member: members that were
+// deleted elsewhere still sit in the stored list, but do not count, or the
+// collection would be left answering 404 after a request that reported OK.
+func TestCollectionRemoveRefusesToLeaveNothingLive(t *testing.T) {
+	owner := models.User{Id: 7}
+	a := accessFile("colrmlive0000001", func(f *models.File) { f.SHA1 = "colrmlivesha1" })
+	c := accessFile("colrmlive0000003", func(f *models.File) { f.SHA1 = "colrmlivesha3" })
+	collection, err := storage.CreateCollection(storage.CollectionParameters{Name: "live", FileIds: []string{a.Id, c.Id}}, owner)
+	test.IsNil(t, err)
+	database.DeleteMetaData(c.Id) // deleted elsewhere; still in the stored list
+
+	code, _ := collectionModify(t, owner, map[string]any{"id": collection.Id, "removeFileIds": []string{a.Id}})
+	test.IsEqualInt(t, code, http.StatusBadRequest)
+	saved, _ := database.GetCollection(collection.Id)
+	test.IsEqualString(t, strings.Join(saved.FileIds, ","), a.Id+","+c.Id)
+	_, alive := storage.GetCollection(collection.Id)
+	test.IsEqualBool(t, alive, true)
+}
+
+// Removal combined with an add or a replacement applies to the final list
+func TestCollectionRemoveCombinedWithAddOrReplace(t *testing.T) {
+	owner := models.User{Id: 7}
+	var ids []string
+	for _, n := range []string{"1", "2", "3", "4"} {
+		ids = append(ids, accessFile("colrmcomb0000"+n, func(f *models.File) { f.SHA1 = "colrmcombsha" + n }).Id)
+	}
+	collection, err := storage.CreateCollection(storage.CollectionParameters{Name: "comb", FileIds: ids[:2]}, owner)
+	test.IsNil(t, err)
+
+	// add ids[2] and remove ids[0] in one request
+	code, _ := collectionModify(t, owner, map[string]any{"id": collection.Id,
+		"addFileIds": []string{ids[2]}, "removeFileIds": []string{ids[0]}})
+	test.IsEqualInt(t, code, http.StatusOK)
+	saved, _ := database.GetCollection(collection.Id)
+	test.IsEqualString(t, strings.Join(saved.FileIds, ","), ids[1]+","+ids[2])
+
+	// replace with [1,3,4] and remove 3
+	code, _ = collectionModify(t, owner, map[string]any{"id": collection.Id,
+		"fileIds": []string{ids[1], ids[2], ids[3]}, "removeFileIds": []string{ids[2]}})
+	test.IsEqualInt(t, code, http.StatusOK)
+	saved, _ = database.GetCollection(collection.Id)
+	test.IsEqualString(t, strings.Join(saved.FileIds, ","), ids[1]+","+ids[3])
+
+	// removing the whole final list is refused and changes nothing
+	code, _ = collectionModify(t, owner, map[string]any{"id": collection.Id,
+		"addFileIds": []string{ids[0]}, "removeFileIds": []string{ids[0], ids[1], ids[3]}})
+	test.IsEqualInt(t, code, http.StatusBadRequest)
+	saved, _ = database.GetCollection(collection.Id)
+	test.IsEqualString(t, strings.Join(saved.FileIds, ","), ids[1]+","+ids[3])
+}
+
+// Only the owner, or someone allowed to edit other users' uploads, may remove
+func TestCollectionRemoveNeedsEditPermission(t *testing.T) {
+	owner := models.User{Id: 7}
+	a := accessFile("colrmperm0000001", func(f *models.File) { f.SHA1 = "colrmpermsha1" })
+	b := accessFile("colrmperm0000002", func(f *models.File) { f.SHA1 = "colrmpermsha2" })
+	collection, err := storage.CreateCollection(storage.CollectionParameters{Name: "perm", FileIds: []string{a.Id, b.Id}}, owner)
+	test.IsNil(t, err)
+	stranger := models.User{Id: 8, Permissions: models.UserPermissionNone}
+	code, _ := collectionModify(t, stranger, map[string]any{"id": collection.Id, "removeFileIds": []string{a.Id}})
+	test.IsEqualInt(t, code, http.StatusUnauthorized)
+	editor := models.User{Id: 9, Permissions: models.UserPermEditOtherUploads}
+	code, _ = collectionModify(t, editor, map[string]any{"id": collection.Id, "removeFileIds": []string{a.Id}})
+	test.IsEqualInt(t, code, http.StatusOK)
+	saved, _ := database.GetCollection(collection.Id)
+	test.IsEqualString(t, strings.Join(saved.FileIds, ","), b.Id)
+}
+
+// The collections list carries the figures a page needs to refresh a row
+func TestCollectionsListHasSummary(t *testing.T) {
+	owner := models.User{Id: 7}
+	a := accessFile("colsummary000001", func(f *models.File) { f.SHA1 = "colsummarysha1"; f.SizeBytes = 2048 })
+	collection, err := storage.CreateCollection(storage.CollectionParameters{Name: "sum", FileIds: []string{a.Id}}, owner)
+	test.IsNil(t, err)
+	w := httptest.NewRecorder()
+	listCollections(w, authentication.SetUserInRequest(httptest.NewRequest("GET", "/collections/list?mine=1", nil), owner))
+	var entries []map[string]any
+	test.IsNil(t, json.Unmarshal(w.Body.Bytes(), &entries))
+	found := false
+	for _, e := range entries {
+		if e["id"] == collection.Id {
+			found = true
+			test.IsEqualString(t, e["totalSize"].(string), "2.0 kB")
+			test.IsEqualBool(t, e["neverExpires"].(bool), false)
+			test.IsEqualBool(t, e["expiry"].(string) != "", true)
+		}
+	}
+	test.IsEqualBool(t, found, true)
+}
+
+// collectionModify posts a modify request as this user
+func collectionModify(t *testing.T, user models.User, body map[string]any) (int, map[string]any) {
+	t.Helper()
+	raw, _ := json.Marshal(body)
+	r := authentication.SetUserInRequest(httptest.NewRequest("POST", "/collections/modify", bytes.NewReader(raw)), user)
+	w := httptest.NewRecorder()
+	modifyCollection(w, r)
+	result := map[string]any{}
+	_ = json.Unmarshal(w.Body.Bytes(), &result)
+	return w.Code, result
+}

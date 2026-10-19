@@ -3,6 +3,7 @@
 package sqlite
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/forceu/gokapi/internal/models"
@@ -43,14 +44,38 @@ func TestPreviewsRoundTrip(t *testing.T) {
 	test.IsEqualInt(t, len(instance.GetAllPreviewSha1s()), 0)
 }
 
-func TestPreviewsUpgradeCreatesTable(t *testing.T) {
-	instance, err := New(configUpgrade)
+// Ruling 20: no schema bump. A database at upstream's version 17 without the
+// Previews table gets it on the next start, and stays at version 17.
+func TestPreviewsTableCreatedOnStartWithoutSchemaBump(t *testing.T) {
+	test.IsEqualInt(t, DatabaseSchemeVersion, 17)
+	cfg := models.DbConnection{HostUrl: filepath.Join(t.TempDir(), "gokapi.sqlite"), Type: 0}
+
+	// A brand-new database has the table and upstream's version
+	instance, err := New(cfg)
+	test.IsNil(t, err)
+	test.IsEqualInt(t, instance.GetDbVersion(), 17)
+	instance.SavePreview(models.Preview{Sha1: "new", Status: models.PreviewPending})
+	_, ok := instance.GetPreview("new")
+	test.IsEqualBool(t, ok, true)
+
+	// Simulate the live database: version 17, no Previews table
+	_, err = instance.sqliteDb.Exec("DROP TABLE Previews")
+	test.IsNil(t, err)
+	instance.Close()
+
+	instance, err = New(cfg)
 	test.IsNil(t, err)
 	defer instance.Close()
-	_, err = instance.sqliteDb.Exec("DROP TABLE IF EXISTS Previews")
-	test.IsNil(t, err)
-	instance.Upgrade(17)
+	test.IsEqualInt(t, instance.GetDbVersion(), 17)
 	instance.SavePreview(models.Preview{Sha1: "x", Status: models.PreviewPending})
-	_, ok := instance.GetPreview("x")
+	_, ok = instance.GetPreview("x")
 	test.IsEqualBool(t, ok, true)
+
+	// Idempotent: a further start leaves the rows alone
+	again, err := New(cfg)
+	test.IsNil(t, err)
+	defer again.Close()
+	_, ok = again.GetPreview("x")
+	test.IsEqualBool(t, ok, true)
+	test.IsEqualInt(t, again.GetDbVersion(), 17)
 }

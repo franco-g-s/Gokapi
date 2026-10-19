@@ -74,20 +74,28 @@
       size: d("size"), w: parseInt(d("w"), 10) || 0, h: parseInt(d("h"), 10) || 0 };
   };
 
-  var v = null, items = [], at = 0, touchX = null;
+  var v = null, items = [], at = 0, touchX = null, returnFocus = null;
   function fmt(ts) { return ts ? new Date(ts * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : ""; }
+
+  // Stop a playing video and release its network connection before the element is dropped.
+  function clearStage(stage) {
+    var old = stage.querySelector("video");
+    if (old) { old.pause(); old.removeAttribute("src"); old.load(); }
+    stage.innerHTML = "";
+  }
 
   function render() {
     var it = items[at], stage = v.querySelector(".fgs-v-stage");
-    stage.innerHTML = "";
+    clearStage(stage);
     if (it.video) {
       var vid = document.createElement("video");
       vid.controls = true; vid.playsInline = true; vid.preload = "metadata";
       if (it.view) vid.poster = it.view;
       vid.src = it.video;
       vid.addEventListener("error", function () {
+        if (items[at] !== it) return; // stale: the viewer has moved on
         // Browser cannot play this codec (e.g. HEVC in Firefox): poster + download.
-        stage.innerHTML = "";
+        clearStage(stage);
         if (it.view) {
           var pimg = document.createElement("img"); pimg.src = it.view; pimg.alt = "";
           stage.appendChild(pimg);
@@ -122,12 +130,34 @@
     [at - 1, at + 1].forEach(function (i) { if (items[i] && items[i].view) { (new Image()).src = items[i].view; } });
   }
   function go(delta) { var n = at + delta; if (n >= 0 && n < items.length) { at = n; render(); } }
-  function close() { v.hidden = true; v.querySelector(".fgs-v-stage").innerHTML = ""; document.body.style.overflow = ""; }
+  function close() {
+    v.hidden = true; clearStage(v.querySelector(".fgs-v-stage")); document.body.style.overflow = "";
+    var back = returnFocus; returnFocus = null;
+    if (back && back.focus && document.contains(back)) back.focus();
+  }
+
+  function bindTouch() {
+    var stage = v.querySelector(".fgs-v-stage");
+    stage.addEventListener("touchstart", function (e) {
+      // Leave video gestures (scrubbing, pinch) alone
+      touchX = (e.touches.length > 1 || (e.target.closest && e.target.closest("video"))) ? null : e.touches[0].clientX;
+    }, { passive: true });
+    stage.addEventListener("touchend", function (e) {
+      if (touchX === null) return;
+      var dx = e.changedTouches[0].clientX - touchX; touchX = null;
+      if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1);
+    }, { passive: true });
+    stage.addEventListener("touchcancel", function () { touchX = null; }, { passive: true });
+  }
 
   FGS.openViewer = function (list, index) {
-    v = v || document.getElementById("fgs-viewer");
+    if (!v) {
+      v = document.getElementById("fgs-viewer");
+      if (v) bindTouch();
+    }
     if (!v || !list || !list.length) return;
-    items = list; at = Math.min(Math.max(0, index), list.length - 1);
+    if (v.hidden) returnFocus = document.activeElement;
+    items = list; at = Math.min(Math.max(0, index | 0), list.length - 1);
     v.hidden = false; document.body.style.overflow = "hidden";
     render();
     v.querySelector(".fgs-v-close").focus();
@@ -140,16 +170,21 @@
   });
   document.addEventListener("keydown", function (e) {
     if (!v || v.hidden) return;
-    if (e.key === "Escape") close();
+    if (e.key === "Escape") { close(); return; }
+    if (e.key === "Tab") {
+      // Keep focus inside the dialog
+      var f = Array.prototype.filter.call(v.querySelectorAll("button, a[href], video[controls]"),
+        function (x) { return !x.disabled && !x.hidden; });
+      if (!f.length) { e.preventDefault(); return; }
+      var i = f.indexOf(document.activeElement);
+      if (i === -1) { e.preventDefault(); f[0].focus(); }
+      else if (e.shiftKey && i === 0) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); }
+      return;
+    }
     // Arrow keys on a focused video seek; leave them to the player.
     if (e.target && e.target.tagName === "VIDEO") return;
     if (e.key === "ArrowLeft") go(-1);
     if (e.key === "ArrowRight") go(1);
   });
-  document.addEventListener("touchstart", function (e) { if (v && !v.hidden) touchX = e.touches[0].clientX; }, { passive: true });
-  document.addEventListener("touchend", function (e) {
-    if (!v || v.hidden || touchX === null) return;
-    var dx = e.changedTouches[0].clientX - touchX; touchX = null;
-    if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1);
-  }, { passive: true });
 })();

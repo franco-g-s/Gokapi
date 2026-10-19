@@ -103,8 +103,8 @@
             button.dataset.fileid = id;
             hideToast();
             toast.classList.add("show");
-            clearTimeout(toastId);
-            toastId = setTimeout(hideFileToast, UNDO_TOAST_MS);
+            clearTimeout(undoToastId);
+            undoToastId = setTimeout(hideFileToast, UNDO_TOAST_MS);
         }
         label.textContent = name;
     }
@@ -118,7 +118,7 @@
         var name = a.tiles[0].getAttribute("data-name") || "";
         var item = a.button;
         if (item) item.disabled = true;
-        apiFilesDelete(id, 10)
+        apiFilesDelete(id, UNDO_DELAY_S)
             .then(function () {
                 try { showDeletedToast(id, name); } catch (ignored) { /* page without the toast */ }
                 rememberDeleted(id, removeEverywhere(id));
@@ -193,9 +193,15 @@
                 });
                 // Nothing recorded: the page cannot say where the file belongs
                 if (!wanted.length) shown = false;
-                if (typeof notifyWorker === "function") notifyWorker({ type: "fileAdded", item: item });
-                if (typeof isE2EEnabled !== "undefined" && isE2EEnabled && typeof GokapiE2EDecryptMenu === "function") {
-                    GokapiE2EDecryptMenu();
+                // The file is restored: an error past this point must not be
+                // reported as a failed restore
+                try {
+                    if (typeof notifyWorker === "function") notifyWorker({ type: "fileAdded", item: item });
+                    if (typeof isE2EEnabled !== "undefined" && isE2EEnabled && typeof GokapiE2EDecryptMenu === "function") {
+                        GokapiE2EDecryptMenu();
+                    }
+                } catch (error) {
+                    console.error("Restored, but follow-up failed:", error);
                 }
                 return { name: item.Name || restored.Name || "", roots: added, shown: shown };
             });

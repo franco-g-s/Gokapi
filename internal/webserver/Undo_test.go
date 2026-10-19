@@ -52,10 +52,36 @@ func TestSingleFileDeleteKeepsUndo(t *testing.T) {
 func TestUndoToastLastsAlmostTheServerWindow(t *testing.T) {
 	all, err := staticFolderEmbedded.ReadFile("web/static/js/admin_ui_allPages.js")
 	test.IsNil(t, err)
-	test.IsEqualBool(t, strings.Contains(string(all), "var UNDO_TOAST_MS = 9000;"), true)
+	test.IsEqualBool(t, strings.Contains(string(all), "var UNDO_TOAST_MS = UNDO_DELAY_S * 1000 - 1000;"), true)
 	for _, name := range []string{"admin_ui_upload.js", "admin_ui_filerequest.js", "admin_ui_filebrowser.js"} {
 		source, err := staticFolderEmbedded.ReadFile("web/static/js/" + name)
 		test.IsNil(t, err)
 		test.IsEqualBool(t, strings.Contains(string(source), "UNDO_TOAST_MS"), true)
 	}
+}
+
+// The delay sent to the server and the toast's duration come from one
+// constant, the undo toast has its own timer, and a restored file request
+// upload is not added to another tab's Files list.
+func TestUndoSharedConstantsAndGuards(t *testing.T) {
+	read := func(name string) string {
+		source, err := staticFolderEmbedded.ReadFile("web/static/js/" + name)
+		test.IsNil(t, err)
+		return string(source)
+	}
+	all := read("admin_ui_allPages.js")
+	test.IsEqualBool(t, strings.Contains(all, "var UNDO_TOAST_MS = UNDO_DELAY_S * 1000 - 1000;"), true)
+	for _, name := range []string{"admin_ui_filebrowser.js", "admin_ui_filerequest.js"} {
+		source := read(name)
+		test.IsEqualBool(t, strings.Contains(source, "apiFilesDelete(id, UNDO_DELAY_S)"), true)
+		test.IsEqualBool(t, strings.Contains(source, "apiFilesDelete(id, 10)"), false)
+	}
+	for _, name := range []string{"admin_ui_upload.js", "admin_ui_filerequest.js", "admin_ui_filebrowser.js"} {
+		source := read(name)
+		test.IsEqualBool(t, regexp.MustCompile(`(^|[^o])[tT]oastId = setTimeout`).MatchString(source), false)
+		test.IsEqualBool(t, strings.Contains(source, "undoToastId = setTimeout"), true)
+	}
+	upload := read("admin_ui_upload.js")
+	test.IsEqualBool(t, strings.Contains(upload, "isRequestFile(item)"), true)
+	test.IsEqualBool(t, strings.Contains(upload, "!isRequestFile(event.data.item)"), true)
 }

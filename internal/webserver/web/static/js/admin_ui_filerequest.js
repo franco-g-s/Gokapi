@@ -121,8 +121,8 @@ function showToastFileDeletionFr(id, filename) {
     hideToast();
     notification.classList.add("show");
 
-    clearTimeout(toastId);
-    toastId = setTimeout(() => {
+    clearTimeout(undoToastId);
+    undoToastId = setTimeout(() => {
         hideFileToast();
     }, UNDO_TOAST_MS);
 }
@@ -590,7 +590,7 @@ function createFileRequestRow(jsonResult, user) {
         const id = a.ids[0];
         const name = a.tiles[0].getAttribute("data-name");
         a.button.disabled = true;
-        apiFilesDelete(id, 10)
+        apiFilesDelete(id, UNDO_DELAY_S)
             .then(() => removeFile(a, id, name))
             .catch(error => {
                 alert("Unable to delete file: " + error);

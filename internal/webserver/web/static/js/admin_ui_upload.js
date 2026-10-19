@@ -696,7 +696,7 @@ function registerChangeHandler() {
                     // Another tab finished an upload or restored a file — add it
                     // if it isn't already listed (guard against duplicate IDs).
                     let browser = uploadBrowser();
-                    if (browser !== null && browser.tile(sanitizeId(event.data.item.Id)) === null) {
+                    if (browser !== null && !isRequestFile(event.data.item) && browser.tile(sanitizeId(event.data.item.Id)) === null) {
                         addUploadedFile(event.data.item);
                     } else if (browser === null) {
                         addToFilesTab(sanitizeId(event.data.item.Id));
@@ -842,6 +842,11 @@ function addUploadedFile(item, preview) {
 // A file another tab added back (an undone delete) onto the Files tab's list:
 // its current info is fetched first, so an expired or changed file shows as
 // it is. Other pages have no list for it and ignore the message.
+// A file request's upload belongs to that request's page, on no other list
+function isRequestFile(item) {
+    return !!item && (item.IsFileRequest === true || !!item.FileRequestId);
+}
+
 function addToFilesTab(id) {
     let root = document.querySelector('[data-fgs-browser][data-context="files"]');
     if (root === null || !window.FGS || !FGS.initFileBrowser) {
@@ -853,7 +858,7 @@ function addToFilesTab(id) {
     }
     apiFilesListById(id)
         .then(item => {
-            if (browser.tile(id) !== null) {
+            if (browser.tile(id) !== null || isRequestFile(item)) {
                 return;
             }
             return fetch("./files/previewinfo?id=" + encodeURIComponent(id), { credentials: "same-origin", cache: "no-store" })
@@ -904,8 +909,8 @@ function showToastFileDeletion(id) {
     hideToast();
     notification.classList.add("show");
 
-    clearTimeout(toastId);
-    toastId = setTimeout(() => {
+    clearTimeout(undoToastId);
+    undoToastId = setTimeout(() => {
         hideFileToast();
     }, UNDO_TOAST_MS);
 }

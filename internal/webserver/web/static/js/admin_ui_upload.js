@@ -26,11 +26,17 @@ function initDropzone() {
                 file.upload.uuid = getUuid();
                 saveUploadDefaults();
                 addFileProgress(file);
+                addFileToUploadBatch(file);
             });
             this.on("queuecomplete", function() {
                 isUploading = false;
-                maybeCreateBatchCollection();
+                closeUploadBatch();
             });
+            // Every failure path (chunk upload, chunk-complete, server-side
+            // processing, file info lookup) ends in Dropzone's "error" event.
+            this.on("error", file => markBatchFileFailed(file));
+            this.on("canceled", file => markBatchFileFailed(file));
+            this.on("removedfile", file => markBatchFileFailed(file));
             this.on("sending", function(file, xhr, formData) {
                 isUploading = true;
             });
@@ -261,11 +267,11 @@ function requestFileInfo(fileId, uid) {
         .then(data => {
             addRow(data);
             notifyWorker({ type: "fileAdded", item: data });
-            batchFileIds.push(data.Id);
             let file = dropzoneGetFile(uid);
             if (file == null) {
                 return;
             }
+            recordBatchFileId(file, data.Id);
             if (file.isEndToEndEncrypted === true) {
                 apiE2eMutexLockUnlock(false)
                     .then(() => apiE2eGet())
@@ -1151,8 +1157,52 @@ function showDeprecationNotice() {
 // Dropzone already knows which files went up together, so a batch of several
 // files can become a single collection automatically. On by default; a saved
 // "false" keeps it off.
+//
+// A batch is every file Dropzone queued up to its "queuecomplete". That event
+// is not the moment the files have ids: chunk-complete is non-blocking, so the
+// id only arrives later through the SSE status and requestFileInfo. And it can
+// fire more than once (every late error re-emits it; in E2E mode it fires
+// before chunk-complete has even run). So the collection is created only when
+// the batch is closed AND every one of its files has either an id or failed.
 
-let batchFileIds = [];
+let currentUploadBatch = null;
+
+function addFileToUploadBatch(file) {
+    if (currentUploadBatch === null) {
+        currentUploadBatch = { files: [], closed: false, finished: false };
+        // A link still on screen belongs to the previous upload.
+        clearAutoLinkResult();
+    }
+    currentUploadBatch.files.push(file);
+    file.fgsBatch = currentUploadBatch;
+}
+
+function closeUploadBatch() {
+    let batch = currentUploadBatch;
+    if (batch === null) {
+        return;
+    }
+    currentUploadBatch = null;
+    batch.closed = true;
+    maybeCreateBatchCollection(batch);
+}
+
+function recordBatchFileId(file, id) {
+    if (!file.fgsBatch || file.fgsBatchFailed || file.fgsBatchId !== undefined) {
+        return;
+    }
+    file.fgsBatchId = id;
+    maybeCreateBatchCollection(file.fgsBatch);
+}
+
+function markBatchFileFailed(file) {
+    if (!file || !file.fgsBatch || file.fgsBatchFailed) {
+        return;
+    }
+    // A failure after the id arrived (e.g. the E2E info store) still wins.
+    file.fgsBatchFailed = true;
+    maybeCreateBatchCollection(file.fgsBatch);
+}
 
 function isAutoLinkEnabled() {
     let toggle = document.getElementById("enableAutoCollection");
@@ -1171,9 +1221,16 @@ function setAutoLinkDefault() {
     toggle.checked = getLocalStorageWithDefault("defaultAutoCollection", "true") === "true";
 }
 
-function maybeCreateBatchCollection() {
-    let ids = batchFileIds.slice();
-    batchFileIds = [];
+function maybeCreateBatchCollection(batch) {
+    if (batch.finished || !batch.closed) {
+        return;
+    }
+    let settled = batch.files.every(f => f.fgsBatchFailed || f.fgsBatchId !== undefined);
+    if (!settled) {
+        return;
+    }
+    batch.finished = true;
+    let ids = batch.files.filter(f => !f.fgsBatchFailed).map(f => f.fgsBatchId);
     // A single file already has its own link, so there is nothing to combine.
     if (!isAutoLinkEnabled() || ids.length < 2) {
         return;
@@ -1193,6 +1250,15 @@ function maybeCreateBatchCollection() {
             showAutoLinkResult(data.Url, null);
         })
         .catch(error => showAutoLinkResult(null, String(error)));
+}
+
+function clearAutoLinkResult() {
+    let holder = document.getElementById("autoCollectionResult");
+    if (holder === null) {
+        return;
+    }
+    holder.textContent = "";
+    holder.className = "";
 }
 
 function showAutoLinkResult(url, errorMessage) {

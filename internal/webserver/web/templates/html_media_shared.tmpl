@@ -27,4 +27,16 @@
 </div>
 {{ end }}
 
-{{ define "media_viewer" }}{{ end }}
+{{ define "media_viewer" }}
+<div id="fgs-viewer" class="fgs-viewer" role="dialog" aria-modal="true" aria-label="Viewer" hidden>
+  <button class="fgs-v-close" type="button" aria-label="Close"><i class="bi bi-x-lg"></i></button>
+  <button class="fgs-v-prev" type="button" aria-label="Previous"><i class="bi bi-chevron-left"></i></button>
+  <div class="fgs-v-stage"></div>
+  <button class="fgs-v-next" type="button" aria-label="Next"><i class="bi bi-chevron-right"></i></button>
+  <div class="fgs-v-info">
+    <div class="fgs-v-name"></div>
+    <div class="fgs-v-meta"></div>
+    <a class="btn btn-sm btn-light fgs-v-download" download>Download original</a>
+  </div>
+</div>
+{{ end }}

@@ -66,4 +66,90 @@
       if (el) el.classList.remove("open");
     }
   });
+
+  FGS.itemFromEl = function (el) {
+    var d = function (k) { return el.getAttribute("data-" + k) || ""; };
+    return { id: d("id"), name: d("name"), view: d("view"), video: d("video"), download: d("download"),
+      uploader: d("uploader"), taken: parseInt(d("taken"), 10) || 0, uploaded: parseInt(d("uploaded"), 10) || 0,
+      size: d("size"), w: parseInt(d("w"), 10) || 0, h: parseInt(d("h"), 10) || 0 };
+  };
+
+  var v = null, items = [], at = 0, touchX = null;
+  function fmt(ts) { return ts ? new Date(ts * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : ""; }
+
+  function render() {
+    var it = items[at], stage = v.querySelector(".fgs-v-stage");
+    stage.innerHTML = "";
+    if (it.video) {
+      var vid = document.createElement("video");
+      vid.controls = true; vid.playsInline = true; vid.preload = "metadata";
+      if (it.view) vid.poster = it.view;
+      vid.src = it.video;
+      vid.addEventListener("error", function () {
+        // Browser cannot play this codec (e.g. HEVC in Firefox): poster + download.
+        stage.innerHTML = "";
+        if (it.view) {
+          var pimg = document.createElement("img"); pimg.src = it.view; pimg.alt = "";
+          stage.appendChild(pimg);
+        }
+        var note = document.createElement("p"); note.className = "fgs-v-note";
+        note.textContent = it.download
+          ? "This browser can't play this video. Download the original to watch it."
+          : "This browser can't play this video.";
+        stage.appendChild(note);
+      });
+      stage.appendChild(vid);
+    } else if (it.view) {
+      var img = document.createElement("img"); img.src = it.view; img.alt = it.name;
+      stage.appendChild(img);
+    } else {
+      var p = document.createElement("p"); p.className = "fgs-v-note"; p.textContent = "No preview for this file.";
+      stage.appendChild(p);
+    }
+    v.querySelector(".fgs-v-name").textContent = it.name;
+    var meta = [it.uploader, it.taken ? "Taken " + fmt(it.taken) : (it.uploaded ? "Uploaded " + fmt(it.uploaded) : ""), it.size].filter(Boolean);
+    v.querySelector(".fgs-v-meta").textContent = meta.join(" \u00b7 ");
+    // Password-protected and client-side-encrypted files have no direct download URL: hide the button rather than render a dead link.
+    var dl = v.querySelector(".fgs-v-download");
+    if (it.download) {
+      dl.href = it.download; dl.setAttribute("download", it.name); dl.hidden = false;
+    } else {
+      dl.removeAttribute("href"); dl.hidden = true;
+    }
+    v.querySelector(".fgs-v-prev").disabled = at === 0;
+    v.querySelector(".fgs-v-next").disabled = at === items.length - 1;
+    // Warm the neighbour so arrowing feels instant
+    [at - 1, at + 1].forEach(function (i) { if (items[i] && items[i].view) { (new Image()).src = items[i].view; } });
+  }
+  function go(delta) { var n = at + delta; if (n >= 0 && n < items.length) { at = n; render(); } }
+  function close() { v.hidden = true; v.querySelector(".fgs-v-stage").innerHTML = ""; document.body.style.overflow = ""; }
+
+  FGS.openViewer = function (list, index) {
+    v = v || document.getElementById("fgs-viewer");
+    if (!v || !list || !list.length) return;
+    items = list; at = Math.min(Math.max(0, index), list.length - 1);
+    v.hidden = false; document.body.style.overflow = "hidden";
+    render();
+    v.querySelector(".fgs-v-close").focus();
+  };
+  document.addEventListener("click", function (e) {
+    if (!v || v.hidden) return;
+    if (e.target.closest(".fgs-v-close")) close();
+    else if (e.target.closest(".fgs-v-prev")) go(-1);
+    else if (e.target.closest(".fgs-v-next")) go(1);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (!v || v.hidden) return;
+    if (e.key === "Escape") close();
+    // Arrow keys on a focused video seek; leave them to the player.
+    if (e.target && e.target.tagName === "VIDEO") return;
+    if (e.key === "ArrowLeft") go(-1);
+    if (e.key === "ArrowRight") go(1);
+  });
+  document.addEventListener("touchstart", function (e) { if (v && !v.hidden) touchX = e.touches[0].clientX; }, { passive: true });
+  document.addEventListener("touchend", function (e) {
+    if (!v || v.hidden || touchX === null) return;
+    var dx = e.changedTouches[0].clientX - touchX; touchX = null;
+    if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1);
+  }, { passive: true });
 })();

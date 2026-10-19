@@ -358,7 +358,13 @@
   FGS.openViewer = function (list, index) {
     if (!v) {
       v = document.getElementById("fgs-viewer");
-      if (v) { bindTouch(); bindWheel(); }
+      if (v) {
+        bindTouch(); bindWheel();
+        // iOS Safari dispatches click on a non-interactive element (the backdrop,
+        // the bare stage) only if it or an ancestor below the document has a
+        // click listener. The close itself is decided in the document handler.
+        v.addEventListener("click", function () {});
+      }
     }
     if (!v || !list || !list.length) return;
     if (v.hidden) returnFocus = document.activeElement;

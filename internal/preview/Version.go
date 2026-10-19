@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/forceu/gokapi/internal/configuration/database"
-	"github.com/forceu/gokapi/internal/logging"
 )
 
 // GeneratorVersion identifies what the generator produces (sizes, formats,
@@ -54,7 +53,8 @@ func regenerateOnVersionChange() int {
 		fmt.Printf("preview: cannot write %s: %v\n", marker, err)
 	}
 	if len(known) > 0 {
-		logging.LogInfo(fmt.Sprintf("Preview generator v%d: regenerating %d preview(s)", GeneratorVersion, len(known)))
+		// stdout only: the backfill that follows writes the run's one Status-log line
+		fmt.Printf("preview: generator v%d, regenerating %d preview(s)\n", GeneratorVersion, len(known))
 	}
 	return len(known)
 }

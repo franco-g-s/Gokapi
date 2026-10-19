@@ -470,7 +470,12 @@ function initFilesPage() {
     var expiryFailures = document.getElementById("fgs-expiry-failures");
     var expiryDate = document.getElementById("fgs-expiry-date");
     var limitNumber = document.getElementById("fgs-limit-number");
-    var expiryTiles = [], expiryChanged = false;
+    var expiryTiles = [], expiryChanged = false, expiryRunning = false;
+    var expiryCloseButtons = expiryModal.querySelectorAll("[data-bs-dismiss=modal]");
+    function setExpiryRunning(running) {
+        expiryRunning = running;
+        expiryCloseButtons.forEach(function (b) { b.disabled = running; });
+    }
 
     function localInputValue(date) {
         var pad = function (n) { return (n < 10 ? "0" : "") + n; };
@@ -484,6 +489,7 @@ function initFilesPage() {
     function openExpiry(tiles) {
         expiryTiles = tiles;
         expiryChanged = false;
+        setExpiryRunning(false);
         document.getElementById("fgs-expiry-keep").checked = true;
         document.getElementById("fgs-limit-keep").checked = true;
         expiryDate.value = localInputValue(new Date(Date.now() + 14 * 24 * 3600 * 1000));
@@ -525,6 +531,7 @@ function initFilesPage() {
             }
         }
         expiryApply.disabled = true;
+        setExpiryRunning(true);
         expiryFailures.textContent = "";
         var failed = 0, total = expiryTiles.length;
         for (var i = 0; i < total; i++) {
@@ -551,7 +558,13 @@ function initFilesPage() {
             location.reload();
             return;
         }
+        setExpiryRunning(false);
         expiryStatus.textContent = (total - failed) + " of " + plural(total, "file") + " updated; " + failed + " failed:";
+    });
+    // While files are being changed the dialog cannot be dismissed (backdrop,
+    // Escape, Close): closing would reload the page mid-run and lose the failures
+    expiryModal.addEventListener("hide.bs.modal", function (e) {
+        if (expiryRunning) e.preventDefault();
     });
     // After a partial run the failures stay readable until the dialog closes
     expiryModal.addEventListener("hidden.bs.modal", function () {

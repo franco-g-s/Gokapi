@@ -135,6 +135,7 @@ func Start() {
 	mux.HandleFunc("/files", requireLogin(showFiles, true, false))
 	mux.HandleFunc("/files/download", requireLogin(downloadOwnFile, false, false))
 	mux.HandleFunc("/files/zip", requireLogin(downloadFilesZip, false, false))
+	mux.HandleFunc("/files/previewinfo", requireLogin(filePreviewInfo, false, false))
 	mux.HandleFunc("/c", showCollection)
 	mux.HandleFunc("/cd", downloadCollectionFile)
 	mux.HandleFunc("/cz", downloadCollectionZip)
@@ -142,6 +143,7 @@ func Start() {
 	mux.HandleFunc("/p/view", servePreviewFile("view"))
 	mux.HandleFunc("/p/poster", servePreviewFile("poster"))
 	mux.HandleFunc("/p/video", streamVideo)
+	mux.HandleFunc("/p/info", publicPreviewInfo)
 	mux.HandleFunc("/d/{id}/{filename}", redirectFromFilename)
 	mux.HandleFunc("/dh/{id}/{filename}", downloadFileWithNameInUrl)
 

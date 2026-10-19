@@ -15,6 +15,45 @@
     function plural(n, word) { return n + " " + word + (n === 1 ? "" : "s"); }
     function errorText(error) { return error && error.message ? error.message : String(error); }
 
+    // A JSON answer, or a clear error: an expired session answers with the
+    // login page (a redirect), which would otherwise surface as a parse error
+    function readJson(response) {
+        return response.text().then(function (text) {
+            try {
+                return JSON.parse(text);
+            } catch (ignored) {
+                throw new Error(response.redirected || text.trim().charAt(0) === "<" ?
+                    "Your session expired — reload the page" : "Unexpected answer from the server");
+            }
+        });
+    }
+
+    // The figures of a collection changed by something other than its own
+    // list (a file deleted, files added from another list): asked of the
+    // server once the burst of changes is over, and handed to the page's
+    // summary row through "fgs:collection-changed"
+    var summaryWanted = {}, summaryTimer = null;
+    function refreshCollectionSummary(collectionId) {
+        if (!collectionId) return;
+        summaryWanted[collectionId] = true;
+        window.clearTimeout(summaryTimer);
+        summaryTimer = window.setTimeout(function () {
+            var wanted = summaryWanted;
+            summaryWanted = {};
+            fetch("./collections/list", { credentials: "same-origin" })
+                .then(readJson)
+                .then(function (list) {
+                    (Array.isArray(list) ? list : []).forEach(function (c) {
+                        if (!wanted[c.id]) return;
+                        document.dispatchEvent(new CustomEvent("fgs:collection-changed", { detail: {
+                            collectionId: c.id, fileCount: c.files, totalSize: c.totalSize,
+                            expiry: c.expiry, neverExpires: c.neverExpires } }));
+                    });
+                })
+                .catch(function (error) { console.warn("Could not refresh collection figures:", errorText(error)); });
+        }, 400);
+    }
+
     // Per-file data for the actions, from the file's "⋯" menu in the grid,
     // which is always in the DOM
     function fileData(tile) {
@@ -94,7 +133,12 @@
     // Every list on the page that shows the file (a file can be in several
     // collections), so no list keeps a file that is gone or out of date
     function removeEverywhere(id) {
-        FGS.eachFileBrowser(function (b) { if (b.tile(id)) b.removeItem(id); });
+        FGS.eachFileBrowser(function (b) {
+            if (!b.tile(id)) return;
+            b.removeItem(id);
+            // A collection's row on the Collections page shows its figures
+            if (b.context === "collection-admin") refreshCollectionSummary(b.root.getAttribute("data-collection-id"));
+        });
     }
     function updateEverywhere(file) {
         FGS.eachFileBrowser(function (b) { if (b.tile(file.Id)) b.updateItem(file); });
@@ -216,6 +260,11 @@
                     return false;
                 }
                 showAutoLinkResult(urlFromData(data), null, { holderId: "fgs-collect-result", label: label });
+                // Files added to a collection the page lists: its list and row follow
+                if (endpoint === "./collections/modify" && body.addFileIds) {
+                    document.dispatchEvent(new CustomEvent("fgs:collection-members-added", {
+                        detail: { collectionId: body.id, ids: body.addFileIds, data: data } }));
+                }
                 return true;
             })
             .catch(function (error) { collectError("Could not add: " + errorText(error)); return false; });
@@ -441,12 +490,48 @@
         }
     });
 
-    // --- Remove from collection (collection-admin) — Task C3 ---------------
-    // Single and bulk; a.root.getAttribute("data-collection-id") names the
-    // collection. A stub until C3 implements it with ./collections/modify.
-    FGS.registerFileActions({
-        "remove-from-collection": function (a) {
-            a.status.textContent = "Remove from collection is not available yet.";
+    // --- Remove from collection (collection-admin) -------------------------
+    // Single and bulk, through ./collections/modify's removeFileIds: the server
+    // drops those members and keeps the rest, so a list that is out of date
+    // (a file added from another list on this page) cannot lose files. Acts on
+    // this list only: the same file may be in other collections, and deleting
+    // is what removes a file from all of them. Reports the collection's new
+    // figures in "fgs:collection-changed" for the page's summary row.
+    function removeFromCollection(a) {
+        var root = a.root, collectionId = root.getAttribute("data-collection-id");
+        if (!collectionId || root.getAttribute("data-fgs-removing") === "true") return;
+        var ids = a.ids;
+        var all = root.querySelectorAll("[data-fgs-grid] .fgs-tile").length;
+        if (ids.length >= all) {
+            alert("A collection needs at least one file.\n\nDelete the collection instead.");
+            return;
         }
-    }, "collection-admin");
+        root.setAttribute("data-fgs-removing", "true");
+        if (a.button) a.button.disabled = true;
+        a.status.textContent = "Removing " + plural(ids.length, "file") + "…";
+        fetch("./collections/modify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ id: collectionId, removeFileIds: ids })
+        })
+            .then(readJson)
+            .then(function (data) {
+                if (data.Result !== "OK") throw new Error(data.ErrorMessage || "unknown error");
+                ids.forEach(function (id) { a.browser.removeItem(id); });
+                a.status.textContent = "Removed " + plural(ids.length, "file") + " from the collection.";
+                document.dispatchEvent(new CustomEvent("fgs:collection-changed", { detail: {
+                    collectionId: collectionId, fileCount: data.FileCount, totalSize: data.TotalSize,
+                    expiry: data.Expiry, neverExpires: data.NeverExpires } }));
+            })
+            .catch(function (error) {
+                a.status.textContent = "";
+                alert("Could not remove: " + errorText(error));
+            })
+            .then(function () {
+                root.removeAttribute("data-fgs-removing");
+                if (a.button) a.button.disabled = false;
+            });
+    }
+    FGS.registerFileActions({ "remove-from-collection": removeFromCollection }, "collection-admin");
 })();

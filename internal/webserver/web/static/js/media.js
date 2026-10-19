@@ -10,8 +10,8 @@
   };
 
   // Desktop: "Download all" fires each file in turn (unchanged behaviour).
-  // iOS: Safari allows one download per tap, so the zip is the primary path
-  // until Save to Photos exists (Task 10).
+  // iOS: Safari allows one download per tap, so Save to Photos is primary and
+  // the zip is the fallback (the zip alone where navigator.canShare is missing).
   FGS.initDownloadButtons = function (root) {
     if (!root) return;
     var all = root.querySelector("[data-fgs-download-all]");
@@ -21,6 +21,16 @@
       if (all) all.classList.add("d-none");
       if (zip) zip.classList.replace("btn-outline-light", "btn-light");
       if (help) help.classList.remove("d-none");
+      var photos = root.querySelector("[data-fgs-photos]");
+      if (photos && navigator.canShare) {
+        photos.classList.remove("d-none");
+        if (zip) zip.classList.replace("btn-light", "btn-outline-light");
+        photos.addEventListener("click", function () {
+          var links = Array.prototype.slice.call(document.querySelectorAll("#collectiontable a[data-fileid]"));
+          // These are the counted download URLs: saving to Photos is a download.
+          FGS.saveToPhotos(links.map(function (a) { return { url: a.href, name: a.dataset.filename || "" }; }), photos);
+        });
+      }
     }
     if (help) help.addEventListener("click", FGS.openHelpSheet);
   };
@@ -54,6 +64,96 @@
       // Spacing the clicks keeps the browser from dropping queued downloads.
       window.setTimeout(next, 600);
     })();
+  };
+
+  // Save to Photos, in two taps: navigator.share needs a fresh tap, and a
+  // share() after fetching large originals is likely to be rejected by Safari.
+  // Tap 1 fetches the originals ("Preparing n/N"); tap 2 opens the share sheet,
+  // where "Save N Images" puts them straight into Photos. Always pass counted
+  // download URLs (/cd), never view or video URLs. Batching and the video limit
+  // are refined on-device in Part 3.
+  var PHOTO_BATCH = 20;
+  var VIDEO_MAX_BYTES = 500e6; // larger videos go to the zip instead
+  var MIME_BY_EXT = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif",
+    webp: "image/webp", heic: "image/heic", heif: "image/heif", mov: "video/quicktime",
+    mp4: "video/mp4", m4v: "video/x-m4v" };
+
+  function photoMime(name, blobType) {
+    // /cd serves downloads as octet-stream; Photos needs a real media type
+    if (blobType && blobType !== "application/octet-stream") return blobType;
+    var m = /\.([a-z0-9]+)$/i.exec(name || "");
+    return (m && MIME_BY_EXT[m[1].toLowerCase()]) || blobType || "application/octet-stream";
+  }
+
+  FGS.saveToPhotos = function (list, button) {
+    if (!navigator.canShare) { FGS.openHelpSheet(); return; }
+    if (button._fgsLabel === undefined) button._fgsLabel = button.innerHTML;
+    var state = button._fgs || (button._fgs = { files: null, next: 0 });
+    if (state.busy) return;
+
+    if (!state.files) {
+      // Items without a url (password or client-side encrypted files) cannot be fetched
+      var items = (list || []).filter(function (it) { return it && it.url; });
+      var noUrl = (list || []).length - items.length;
+      if (!items.length) {
+        if (noUrl) alert(noUrl + " file(s) can't be fetched here. Use Download as .zip for those.");
+        return;
+      }
+      state.busy = true;
+      button.disabled = true;
+      var done = 0, files = [], bigVideos = 0, failed = 0;
+      button.textContent = "Preparing 0/" + items.length + "…";
+      var tick = function () { done++; button.textContent = "Preparing " + done + "/" + items.length + "…"; };
+      items.reduce(function (p, it) {
+        return p.then(function () {
+          return fetch(it.url, { credentials: "same-origin" }).then(function (r) {
+            // An error page must never be wrapped up as a photo
+            if (!r.ok) { failed++; return null; }
+            var len = parseInt(r.headers.get("Content-Length") || "0", 10);
+            if (/\.(mov|mp4|m4v)$/i.test(it.name) && len > VIDEO_MAX_BYTES) {
+              bigVideos++;
+              if (r.body && r.body.cancel) r.body.cancel();
+              return null;
+            }
+            return r.blob();
+          }).then(function (b) {
+            if (b) files.push(new File([b], it.name, { type: photoMime(it.name, b.type) }));
+            tick();
+          }, function () { failed++; tick(); });
+        });
+      }, Promise.resolve()).then(function () {
+        state.busy = false;
+        button.disabled = false;
+        var notes = [];
+        if (bigVideos) notes.push(bigVideos + " large video(s) were left out");
+        if (failed) notes.push(failed + " file(s) could not be fetched");
+        if (noUrl) notes.push(noUrl + " file(s) can't be fetched here");
+        if (!files.length) {
+          // Nothing usable: back to the first tap so they can retry
+          button._fgs = null;
+          button.innerHTML = button._fgsLabel;
+        } else {
+          state.files = files; state.next = 0;
+          button.textContent = "Save to Photos" + (files.length > PHOTO_BATCH ? " (1/" + Math.ceil(files.length / PHOTO_BATCH) + ")" : "");
+        }
+        if (notes.length) alert(notes.join("; ") + ". Use Download as .zip for those" + (failed ? ", or try again." : "."));
+      });
+      return;
+    }
+
+    var batch = state.files.slice(state.next, state.next + PHOTO_BATCH);
+    if (!navigator.canShare({ files: batch })) { FGS.openHelpSheet(); return; }
+    state.busy = true;
+    navigator.share({ files: batch }).then(function () {
+      state.busy = false;
+      state.next += PHOTO_BATCH;
+      if (state.next >= state.files.length) { button.textContent = "Saved ✓"; button._fgs = null; return; }
+      button.textContent = "Save to Photos (" + (state.next / PHOTO_BATCH + 1) + "/" + Math.ceil(state.files.length / PHOTO_BATCH) + ")";
+    }, function (err) {
+      // Cancelling the sheet is normal: keep the prepared files, they can tap again
+      state.busy = false;
+      if (!err || err.name !== "AbortError") FGS.openHelpSheet();
+    });
   };
 
   FGS.openHelpSheet = function () {

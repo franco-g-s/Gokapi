@@ -53,6 +53,8 @@ func Start() {
 		}
 	}
 	inFlight.Range(func(k, _ any) bool { inFlight.Delete(k); return true })
+	// Before the backfill starts, so it rebuilds everything the old generator made
+	regenerateOnVersionChange()
 	queue = make(chan models.File, 10000)
 	stopCh = make(chan struct{})
 	running = true

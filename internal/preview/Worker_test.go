@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -233,4 +234,92 @@ func TestStartSetsZipEntryTime(t *testing.T) {
 	// no preview row at all
 	got = storage.ZipEntryTime(models.File{SHA1: "ziptimemissing", UploadDate: 1600000000})
 	test.IsEqualInt64(t, got.Unix(), 1600000000)
+}
+
+func writeMarker(t *testing.T, content string) string {
+	t.Helper()
+	test.IsNil(t, os.MkdirAll(Dir(), 0700))
+	path := filepath.Join(Dir(), generatorVersionFile)
+	test.IsNil(t, os.WriteFile(path, []byte(content), 0600))
+	return path
+}
+
+// versionFixture saves a ready row (a recognisable stale one: Width 1) with
+// stand-in output files, for a real image that regeneration can process.
+func versionFixture(t *testing.T, sha string) (thumb string) {
+	t.Helper()
+	dir := fixtures(t)
+	raw, _ := os.ReadFile(filepath.Join(dir, "rot.jpg"))
+	test.IsNil(t, os.WriteFile(filepath.Join(configuration.Get().DataDir, sha), raw, 0600))
+	database.SaveMetaData(models.File{Id: sha + "file", Name: "v.jpg", SHA1: sha, ContentType: "image/jpeg"})
+	thumb, _, _ = Paths(Dir(), sha)
+	test.IsNil(t, os.WriteFile(thumb, []byte("old"), 0600))
+	database.SavePreview(models.Preview{Sha1: sha, Status: models.PreviewReady, Kind: models.PreviewKindImage, Width: 1, Height: 1})
+	return thumb
+}
+
+func waitRegenerated(t *testing.T, sha string) models.Preview {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if p, ok := database.GetPreview(sha); ok && p.Status == models.PreviewReady && p.Width != 1 {
+			return p
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("preview for %s was never regenerated", sha)
+	return models.Preview{}
+}
+
+func TestStartRegeneratesOnStaleOrMissingMarker(t *testing.T) {
+	for name, marker := range map[string]*string{"stale": ptr("1"), "garbage": ptr("banana"), "missing": nil} {
+		t.Run(name, func(t *testing.T) {
+			sha := "versionsha" + name
+			defer database.DeleteMetaData(sha + "file")
+			thumb := versionFixture(t, sha)
+			path := filepath.Join(Dir(), generatorVersionFile)
+			if marker != nil {
+				writeMarker(t, *marker)
+			} else {
+				_ = os.Remove(path)
+			}
+			Start()
+			defer Stop()
+			waitRegenerated(t, sha) // old row removed, then rebuilt by the backfill
+			raw, err := os.ReadFile(thumb)
+			test.IsNil(t, err)
+			test.IsEqualBool(t, string(raw) != "old", true)
+			got, err := os.ReadFile(path)
+			test.IsNil(t, err)
+			test.IsEqualString(t, string(got), strconv.Itoa(GeneratorVersion))
+		})
+	}
+}
+
+func ptr(s string) *string { return &s }
+
+func TestStartKeepsPreviewsWhenMarkerMatches(t *testing.T) {
+	sha := "versionkeepsha"
+	thumb := versionFixture(t, sha)
+	defer database.DeleteMetaData(sha + "file")
+	writeMarker(t, strconv.Itoa(GeneratorVersion))
+	Start()
+	defer Stop()
+	waitIdle(t)
+	p, ok := database.GetPreview(sha)
+	test.IsEqualBool(t, ok, true)
+	test.IsEqualInt(t, p.Width, 1) // untouched
+	raw, _ := os.ReadFile(thumb)
+	test.IsEqualString(t, string(raw), "old")
+}
+
+func TestRegenerateKeepsMarkerWhenNothingToDo(t *testing.T) {
+	// no rows at all: the marker is still brought up to date, silently
+	for sha := range database.GetAllPreviewSha1s() {
+		removeBlob(sha)
+	}
+	path := writeMarker(t, "1")
+	test.IsEqualInt(t, regenerateOnVersionChange(), 0)
+	got, _ := os.ReadFile(path)
+	test.IsEqualString(t, string(got), strconv.Itoa(GeneratorVersion))
 }

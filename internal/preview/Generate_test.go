@@ -87,7 +87,19 @@ func TestGenerate(t *testing.T) {
 	// Portrait video: the long edge is capped, not just the width.
 	por, err := Generate(ctx, filepath.Join(dir, "portrait.mp4"), out, "shapor", models.PreviewKindVideo)
 	test.IsNil(t, err)
-	test.IsEqualBool(t, por.Height <= 2000 && por.Height > por.Width, true)
+	test.IsEqualBool(t, por.Height <= 1600 && por.Height > por.Width, true)
+
+	// A large photo: view long edge capped at 1600, thumbnail at 480 wide.
+	run(t, "vips", "black", filepath.Join(dir, "big.v"), "3000", "2000", "--bands", "3")
+	run(t, "vips", "copy", filepath.Join(dir, "big.v"), filepath.Join(dir, "big.jpg"))
+	big, err := Generate(ctx, filepath.Join(dir, "big.jpg"), out, "shabig", models.PreviewKindImage)
+	test.IsNil(t, err)
+	test.IsEqualInt(t, big.Width, 1600)
+	test.IsEqualInt(t, big.Height, 1067)
+	bigThumb, _, _ := Paths(out, "shabig")
+	tw, _, err := dimensions(ctx, bigThumb)
+	test.IsNil(t, err)
+	test.IsEqualInt(t, tw, 480)
 }
 
 func noOutputs(t *testing.T, out, sha string) {

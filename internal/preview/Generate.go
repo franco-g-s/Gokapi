@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	thumbWidth  = 640
-	viewMaxEdge = 2000
+	thumbWidth  = 480
+	viewMaxEdge = 1600
 )
 
 var imageExt = map[string]bool{".jpg": true, ".jpeg": true, ".heic": true, ".heif": true, ".png": true, ".webp": true, ".gif": true}
@@ -94,7 +94,7 @@ func generateImage(parent context.Context, src, outDir, sha1 string) (models.Pre
 	defer cancel()
 	thumb, view, _ := Paths(outDir, sha1)
 	// [0] = first page/frame only (GIF, multi-image HEIC). Thumbnail autorotates.
-	_, err := command(ctx, "vips", "thumbnail", src+"[0]", view+"[Q=82,strip]",
+	_, err := command(ctx, "vips", "thumbnail", src+"[0]", view+"[Q=75,strip]",
 		strconv.Itoa(viewMaxEdge), "--height", strconv.Itoa(viewMaxEdge), "--size", "down")
 	if err != nil {
 		return models.Preview{}, err

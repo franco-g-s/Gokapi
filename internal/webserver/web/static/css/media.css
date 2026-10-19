@@ -28,6 +28,7 @@
 .fgs-v-prev:disabled,.fgs-v-next:disabled{opacity:.2}
 .fgs-v-info{position:absolute;bottom:0;left:0;right:0;padding:.75rem 1rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap;background:linear-gradient(transparent,rgba(0,0,0,.7))}
 .fgs-v-name{font-weight:600}.fgs-v-meta{color:#9a9992;margin-right:auto}
+.fgs-v-lowres{color:#9a9992;font-size:.85rem}.fgs-v-lowres[hidden]{display:none}
 .fgs-v-download[hidden]{display:none}
 .fgs-v-note{color:#9a9992;margin-top:1rem}
 .fgs-board{position:relative}

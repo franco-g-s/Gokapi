@@ -282,6 +282,8 @@
     } else {
       dl.removeAttribute("href"); dl.hidden = true;
     }
+    // Photos are shown as a smaller preview; say so wherever the original can be fetched
+    v.querySelector(".fgs-v-lowres").hidden = !(it.view && !it.video && it.download);
     v.querySelector(".fgs-v-prev").disabled = at === 0;
     v.querySelector(".fgs-v-next").disabled = at === items.length - 1;
     // Warm the neighbour so arrowing feels instant

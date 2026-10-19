@@ -39,7 +39,7 @@ type browserActions struct {
 }
 
 var (
-	manageMenu = []string{"open", "download", "copy", "share", "qr", "edit", "replace", "add-to-collection", "delete"}
+	manageMenu = []string{"open", "download", "copy", "hotlink", "share", "qr", "email", "edit", "replace", "add-to-collection", "delete"}
 	manageBulk = []string{"download", "zip", "photos", "link", "add-to-collection", "change-expiry", "delete"}
 )
 

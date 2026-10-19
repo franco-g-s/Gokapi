@@ -37,7 +37,7 @@
 
 | Context | ⋯ menu | Selection bar |
 |---|---|---|
-| `files` | Open, Download original, Copy link, Share…, QR code, Edit, Replace content, Add to collection…, Delete | Download, Download as .zip, Save to Photos (iOS), Create one link, Add to collection…, Change expiry & limits, Delete |
+| `files` | Open, Download original, Copy link, Copy hotlink (only for a file that has one), Share…, QR code, Email, Edit, Replace content, Add to collection…, Delete | Download, Download as .zip, Save to Photos (iOS), Create one link, Add to collection…, Change expiry & limits, Delete |
 | `upload` | as `files` | as `files` |
 | `collection-admin` | as `files` + Remove from collection | as `files` + Remove from collection |
 | `filerequest` | Open, Download, Delete | Download, Download as .zip, Save to Photos (iOS), Delete |
@@ -115,7 +115,7 @@
   - a `root.fgsBrowser.addItem(fileApiOutputLikeObject, previewInfo)` method that builds a tile, figure and row from the `<template>`s;
   - an `FGS.registerFileActions(map)` hook through which the admin bundle supplies management actions.
 - **JS, admin (`admin_ui_filebrowser.js`, which replaces the action parts of `admin_ui_files.js`):**
-  - Registers edit, delete, replace, copy/share/QR, add to collection, change expiry & limits, create one link and remove from collection (the last is used by C3, a stub here).
+  - Registers edit, delete, replace, copy / hotlink / share / QR / email, add to collection, change expiry & limits, create one link and remove from collection (the last is used by C3, a stub here).
   - Reuses the existing upload-page helpers, as R4 did.
   - Keeps every R4 fix: own collections only (`?mine=1`), keep omits headers, the expiry dialog can't close mid-run, focus returns after copy.
 - **Files tab:** `html_files.tmpl` now just renders `{{ template "file_browser" .Browser }}`. Behaviour is unchanged apart from the added Board view and live thumbnails.

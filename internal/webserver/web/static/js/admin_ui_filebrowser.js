@@ -413,11 +413,19 @@
         bootstrap.Modal.getOrCreateInstance(expiry.modal).show();
     }
 
+    // ClipboardJS copies every .copyurl; this only confirms it
+    function copied(a) {
+        showToast(1000);
+        refocusLater(a.trigger);
+    }
+
     FGS.registerFileActions({
-        // ClipboardJS copies every .copyurl; this only confirms it
-        "copy": function (a) {
-            showToast(1000);
-            refocusLater(a.trigger);
+        "copy": copied,
+        "hotlink": copied,
+        // A plain mailto: link; the body is made from the current URL, which
+        // for an end-to-end encrypted file carries its #key (data-url)
+        "email": function (a) {
+            a.button.setAttribute("href", "mailto:?body=" + encodeURIComponent(fileData(a.tiles[0]).url));
         },
         "share": function (a) {
             var url = fileData(a.tiles[0]).url;

@@ -163,10 +163,16 @@
     <li><button type="button" class="dropdown-item" data-menu="download"{{ if $f.IsEndToEndEncrypted }} disabled{{ end }}><i class="bi bi-download"></i> {{ if $b.Manages }}Download original{{ else }}Download{{ end }}</button></li>{{ end }}
     {{- if $b.HasMenu "copy" }}
     <li><button type="button" class="dropdown-item copyurl" data-menu="copy" data-clipboard-text="{{ $f.UrlDownload }}"><i class="bi bi-copy"></i> Copy link</button></li>{{ end }}
+    {{- if $b.HasMenu "hotlink" }}
+    {{/* Always rendered where it can apply: a file added live may have one. media.js (fillMenu) shows it. */}}
+    <li{{ if not $f.UrlHotlink }} class="d-none"{{ end }}><button type="button" class="dropdown-item copyurl" data-menu="hotlink" data-clipboard-text="{{ $f.UrlHotlink }}"><i class="bi bi-image"></i> Copy hotlink</button></li>{{ end }}
     {{- if $b.HasMenu "share" }}
     <li><button type="button" class="dropdown-item" data-menu="share"><i class="bi bi-box-arrow-up"></i> Share…</button></li>{{ end }}
     {{- if $b.HasMenu "qr" }}
     <li><button type="button" class="dropdown-item" data-menu="qr"><i class="bi bi-qr-code"></i> QR code</button></li>{{ end }}
+    {{- if $b.HasMenu "email" }}
+    {{/* The link is made from data-url when clicked (admin_ui_filebrowser.js), so end-to-end encrypted files carry their #key */}}
+    <li><a class="dropdown-item" data-menu="email" href="mailto:?body={{ $f.UrlDownload | urlquery }}" target="_blank" rel="noopener" title="Share via email"><i class="bi bi-envelope"></i> Email</a></li>{{ end }}
     {{- if or ($b.HasMenu "edit") ($b.HasMenu "replace") ($b.HasMenu "add-to-collection") }}
     <li><hr class="dropdown-divider"></li>{{ end }}
     {{- if $b.HasMenu "edit" }}

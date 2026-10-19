@@ -949,6 +949,11 @@
       menu.querySelectorAll("[data-menu]").forEach(function (b) {
         var k = b.getAttribute("data-menu");
         if (k === "copy") b.setAttribute("data-clipboard-text", file.UrlDownload || "");
+        if (k === "hotlink") {
+          // Only files that have a hotlink offer it
+          b.setAttribute("data-clipboard-text", file.UrlHotlink || "");
+          if (b.parentNode) b.parentNode.classList.toggle("d-none", !file.UrlHotlink);
+        }
         if (k === "download" || k === "add-to-collection") b.disabled = e2e;
         if (k === "edit") b.disabled = !perms.edit;
         if (k === "replace") b.disabled = !perms.replace;

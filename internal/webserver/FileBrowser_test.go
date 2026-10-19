@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -23,7 +24,7 @@ import (
 // every context gets exactly these "⋯" entries and selection-bar actions, in
 // this order, and its default view.
 func TestFileBrowserActionTable(t *testing.T) {
-	manageMenu := []string{"open", "download", "copy", "share", "qr", "edit", "replace", "add-to-collection", "delete"}
+	manageMenu := []string{"open", "download", "copy", "hotlink", "share", "qr", "email", "edit", "replace", "add-to-collection", "delete"}
 	manageBulk := []string{"download", "zip", "photos", "link", "add-to-collection", "change-expiry", "delete"}
 	want := map[string]struct {
 		menu, bulk []string
@@ -204,7 +205,7 @@ func renderBrowser(t *testing.T, b fileBrowser) string {
 func TestFileBrowserRendersOnlyItsActions(t *testing.T) {
 	f := accessFile("browserrender0001", func(f *models.File) { f.SHA1 = "browserrendersha"; f.Name = "render.pdf" })
 	user := models.User{Id: 7}
-	allMenu := []string{"open", "download", "copy", "share", "qr", "edit", "replace", "add-to-collection", "delete", "remove-from-collection"}
+	allMenu := []string{"open", "download", "copy", "hotlink", "share", "qr", "email", "edit", "replace", "add-to-collection", "delete", "remove-from-collection"}
 	allBulk := []string{"download", "zip", "photos", "link", "add-to-collection", "change-expiry", "delete", "remove-from-collection"}
 	collection := models.Collection{Id: "colrender"}
 	for _, context := range []string{ctxFiles, ctxUpload, ctxCollectionAdmin, ctxFileRequest, ctxCollectionPublic} {
@@ -252,6 +253,49 @@ func TestFileBrowserRendersOnlyItsActions(t *testing.T) {
 	for _, m := range ids {
 		test.IsEqualBool(t, seen[m[1]], false)
 		seen[m[1]] = true
+	}
+}
+
+// "Copy hotlink" and "Email" (Ruling S-2) are in the managing contexts' menus
+// only. A file without a hotlink keeps the entry hidden (a file added live
+// may have one, and media.js shows it then); the Email link carries the
+// share URL.
+func TestFileBrowserHotlinkAndEmail(t *testing.T) {
+	plain := accessFile("browserhotlink001", func(f *models.File) { f.SHA1 = "browserhotlinksha"; f.Name = "hot.jpg" })
+	locked := accessFile("browserhotlink002", func(f *models.File) {
+		f.SHA1 = "browserhotlinksha2"
+		f.Name = "locked.jpg"
+		f.PasswordHash = "hash"
+	})
+	user := models.User{Id: 7}
+	shown := regexp.MustCompile(`<li><button type="button" class="dropdown-item copyurl" data-menu="hotlink" data-clipboard-text="[^"]+"`)
+	hidden := regexp.MustCompile(`<li class="d-none"><button type="button" class="dropdown-item copyurl" data-menu="hotlink" data-clipboard-text=""`)
+	for _, context := range []string{ctxFiles, ctxUpload, ctxCollectionAdmin, ctxFileRequest, ctxCollectionPublic} {
+		t.Run(context, func(t *testing.T) {
+			r := sessionRequest("validsession")
+			itemPlain := browserItemFromFile(r, plain, user, context, "colhot", nil)
+			itemLocked := browserItemFromFile(r, locked, user, context, "colhot", nil)
+			test.IsEqualBool(t, itemPlain.File.UrlHotlink != "", true)
+			test.IsEqualString(t, itemLocked.File.UrlHotlink, "")
+			b := newFileBrowser("h-"+context, context, []browserItem{itemPlain, itemLocked}, user)
+			html := renderBrowser(t, b)
+			manages := b.Manages()
+			test.IsEqualBool(t, strings.Contains(html, `data-menu="hotlink"`), manages)
+			test.IsEqualBool(t, strings.Contains(html, `data-menu="email"`), manages)
+			test.IsEqualBool(t, strings.Contains(html, "mailto:"), manages)
+			if !manages {
+				return
+			}
+			// Per file a menu in each view; the two <template>s hold a blank one
+			// that starts hidden
+			test.IsEqualInt(t, len(shown.FindAllString(html, -1)), 2)
+			test.IsEqualInt(t, len(hidden.FindAllString(html, -1)), 2+2)
+			test.IsEqualBool(t, strings.Contains(html, `data-clipboard-text="`+itemPlain.File.UrlHotlink+`"`), true)
+			test.IsEqualBool(t, strings.Contains(html, `href="mailto:?body=`+url.QueryEscape(itemPlain.File.UrlDownload)+`"`), true)
+			test.IsEqualBool(t, strings.Contains(html, `href="mailto:?body=`+url.QueryEscape(itemLocked.File.UrlDownload)+`"`), true)
+			test.IsEqualBool(t, strings.Contains(html, "Copy hotlink"), true)
+			test.IsEqualBool(t, strings.Contains(html, "bi-envelope"), true)
+		})
 	}
 }
 

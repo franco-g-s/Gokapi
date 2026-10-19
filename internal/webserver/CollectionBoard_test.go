@@ -13,15 +13,76 @@ import (
 	"github.com/forceu/gokapi/internal/test"
 )
 
+// everything a management page has and a visitor must never be offered
+var collectionPublicExcluded = []string{
+	// the bundle that would supply the actions, and what it needs
+	"admin.min.", "datatables", "dropzone", "qrcode.min.js",
+	// management actions: selection bar, "⋯" menu, scope switch
+	`data-act="link"`, `data-act="add-to-collection"`, `data-act="change-expiry"`, `data-act="delete"`,
+	`data-act="remove-from-collection"`, `data-menu="edit"`, `data-menu="replace"`, `data-menu="copy"`,
+	`data-menu="share"`, `data-menu="qr"`, `data-menu="delete"`, `data-menu="add-to-collection"`,
+	"data-scope", "copyurl", "data-clipboard-text",
+	// management data and singletons
+	"data-can-edit", "data-url=", "fgs-collect-modal", "fgs-expiry-modal", "toastnotification", "qroverlay",
+	// the old board and table
+	"fgs-board-item", "collectiontable", "data-fgs-layout-toggle",
+}
+
+// C5: the public collection page is the shared file list, context
+// collection-public: List by default, thumbnails in the list, Select with
+// Download / zip / Save to Photos, and nothing a visitor must not do.
 func TestCollectionBoardMarkup(t *testing.T) {
 	f := accessFile("boardfile0000000001", func(f *models.File) { f.SHA1 = "boardsha1"; f.Name = "IMG.JPG" })
+	g := accessFile("boardfile0000000002", func(f *models.File) { f.SHA1 = "boardsha2"; f.Name = "notes.txt" })
 	database.SavePreview(models.Preview{Sha1: "boardsha1", Status: models.PreviewReady, Kind: models.PreviewKindImage, Width: 3, Height: 4, Color: "#808080", Updated: 1})
-	col, err := storage.CreateCollection(storage.CollectionParameters{Name: "b", FileIds: []string{f.Id}}, models.User{Id: 7})
+	col, err := storage.CreateCollection(storage.CollectionParameters{Name: "b", FileIds: []string{f.Id, g.Id}}, models.User{Id: 7})
 	test.IsNil(t, err)
 	test.HttpPageResult(t, test.HttpTestConfig{
 		Url: "http://localhost:53843/c?id=" + col.Id, IsHtml: true,
-		RequiredContent: []string{`data-layout-default="list"`, "fgs-board", "./p/thumb?id=" + f.Id, "&amp;c=" + col.Id, "fgs-viewer",
-			`id="fgs-collection-list"`, "fgs-open-viewer", "fgs-collection-wide", "data-fgs-photos", `data-bytes="1"`, `data-bytes="1">`},
+		RequiredContent: []string{
+			// the component, in its context, List first, scoped to this collection
+			"data-fgs-browser", `data-context="collection-public"`, `data-default-view="list"`, `data-current-view="list"`,
+			`data-collection-id="` + col.Id + `"`,
+			`data-zip-url="./cz?id=` + col.Id + `&amp;files="`, `data-info-url="./p/info?c=` + col.Id + `&amp;id="`,
+			// thumbnails in the list, and in the grid, scoped with &c=
+			`class="fgs-list-thumb"`, "./p/thumb?id=" + f.Id, "&amp;c=" + col.Id, "fgs-list-icon",
+			// counted downloads through the collection
+			`data-download="./cd?id=` + col.Id + `&amp;file=` + f.Id + `"`, `data-download="./cd?id=` + col.Id + `&amp;file=` + g.Id + `"`,
+			// Select mode and its three visitor actions, in table order
+			"data-fgs-select-toggle", `data-layout="grid"`, `data-layout="board"`, `data-layout="list"`,
+			`data-act="download"`, `data-act="zip"`, `data-act="photos"`, "fgs-selectbar",
+			`data-menu="open"`, `data-menu="download"`,
+			// the page's own parts: wide layout, top buttons, viewer, help sheet
+			"fgs-viewer", "fgs-help-sheet", "fgs-collection-wide", "data-fgs-downloads", "data-fgs-download-all",
+			"data-fgs-photos", "data-fgs-download-zip", `href="./cz?id=` + col.Id + `"`, "Download all 2 files",
+			`data-bytes="1"`,
+		},
+		ExcludedContent: collectionPublicExcluded,
+	})
+}
+
+// Even the collection's owner, logged in, sees the visitor's page on /c
+func TestCollectionPublicHasNoManagementForOwner(t *testing.T) {
+	f := accessFile("boardfile0000000003", func(f *models.File) { f.SHA1 = "boardsha3" })
+	col, err := storage.CreateCollection(storage.CollectionParameters{Name: "own", FileIds: []string{f.Id}}, models.User{Id: 7})
+	test.IsNil(t, err)
+	test.HttpPageResult(t, test.HttpTestConfig{
+		Url: "http://localhost:53843/c?id=" + col.Id, IsHtml: true,
+		Cookies:         []test.Cookie{filesAdminSession()},
+		RequiredContent: []string{`data-context="collection-public"`, `data-mine="false"`},
+		ExcludedContent: collectionPublicExcluded,
+	})
+}
+
+// The password page is the card alone: no list, viewer or help sheet
+func TestCollectionPasswordPageHasNoBrowser(t *testing.T) {
+	f := accessFile("boardfile0000000004", func(f *models.File) { f.SHA1 = "boardsha4" })
+	col, err := storage.CreateCollection(storage.CollectionParameters{Name: "pw", FileIds: []string{f.Id}, Password: "pw"}, models.User{Id: 7})
+	test.IsNil(t, err)
+	test.HttpPageResult(t, test.HttpTestConfig{
+		Url: "http://localhost:53843/c?id=" + col.Id, IsHtml: true,
+		RequiredContent: []string{"This collection is password protected.", `name="password"`},
+		ExcludedContent: []string{"data-fgs-browser", "file_browser", "fgs-viewer", "fgs-help-sheet", "data-fgs-downloads", "boardfile0000000004"},
 	})
 }
 

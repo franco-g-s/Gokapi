@@ -318,6 +318,8 @@
   function bindWheel() {
     v.addEventListener("wheel", function (e) {
       if (v.hidden) return;
+      // Pinch-zoom arrives as ctrl+wheel: not a swipe.
+      if (e.ctrlKey) return;
       // Vertical-dominant: leave to the browser (nothing scrolls under a fixed viewer anyway).
       if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
       // Horizontal: never let the browser turn it into back/forward navigation.
@@ -325,11 +327,15 @@
       // Over a video the swipe may be a scrub; swallow it without navigating.
       if (e.target.closest && e.target.closest("video")) return;
       var now = Date.now();
-      if (now < wheelLockUntil) return;
+      // While locked, every event extends the lock: the gesture (and its inertial
+      // tail) ends only after ~150 ms of silence, so one swipe is one item.
+      if (now < wheelLockUntil) { wheelLockUntil = Math.max(wheelLockUntil, now + 150); return; }
+      // Normalise to pixels (line and page modes come from mice and some browsers).
+      var dx = e.deltaX * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerWidth : 1);
       // A pause, or a change of direction, starts a new gesture.
-      if (now - wheelLast > 200 || (wheelSum && (wheelSum > 0) !== (e.deltaX > 0))) wheelSum = 0;
+      if (now - wheelLast > 200 || (wheelSum && (wheelSum > 0) !== (dx > 0))) wheelSum = 0;
       wheelLast = now;
-      wheelSum += e.deltaX;
+      wheelSum += dx;
       if (Math.abs(wheelSum) >= 80) {
         var dir = wheelSum > 0 ? 1 : -1;
         wheelSum = 0; wheelLockUntil = now + 350;
@@ -346,6 +352,7 @@
     if (!v || !list || !list.length) return;
     if (v.hidden) returnFocus = document.activeElement;
     items = list; at = Math.min(Math.max(0, index | 0), list.length - 1);
+    wheelSum = 0; wheelLockUntil = 0;
     v.hidden = false; document.body.style.overflow = "hidden";
     render();
     v.querySelector(".fgs-v-close").focus();

@@ -558,7 +558,11 @@ function getAllAvailableFiles() {
 
 
 function deleteFile(id) {
-    document.getElementById("button-delete-" + id).disabled = true;
+    // The Files tab's "⋯" menu has no per-file delete button
+    let deleteButton = document.getElementById("button-delete-" + id);
+    if (deleteButton != null) {
+        deleteButton.disabled = true;
+    }
     apiFilesDelete(id, 10)
         .then(data => {
             changeRowCount(false, document.getElementById("row-" + id));

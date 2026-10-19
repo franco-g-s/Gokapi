@@ -277,3 +277,43 @@ func TestFilesPageSelectMode(t *testing.T) {
 			`<button type="button" class="btn btn-link fgs-name-open"`, `<span id="cell-name-filesselect">select.jpg</span>`},
 	})
 }
+
+// R4: one "⋯" menu per file in both views, list thumbnails, Square / True shape.
+func TestFilesPageFileMenuAndThumbs(t *testing.T) {
+	f := accessFile("filesthumb", func(f *models.File) { f.SHA1 = "filesthumbsha"; f.Name = "thumb.jpg" })
+	database.SavePreview(models.Preview{Sha1: "filesthumbsha", Status: models.PreviewReady, Kind: models.PreviewKindImage, Width: 3, Height: 4, Color: "#808080", Updated: 1})
+	accessFile("filesnothumb", func(f *models.File) { f.SHA1 = "filesnothumbsha"; f.Name = "notes.pdf" })
+	page := test.HttpTestConfig{
+		Url:     "http://localhost:53843/files",
+		IsHtml:  true,
+		Cookies: []test.Cookie{{Name: "session_token", Value: "validsession"}},
+		RequiredContent: []string{`fgs-shape-toggle`, `data-shape="square"`, `data-shape="true"`, ">Square<", ">True shape<",
+			`<img class="fgs-list-thumb" loading="lazy" decoding="async" src="./p/thumb?id=` + f.Id,
+			// a file without a preview gets a type icon instead
+			`<span class="fgs-list-thumb fgs-list-icon" aria-hidden="true"><i class="bi bi-file-earmark-pdf"></i></span>`,
+			`data-fgs-file-menu`, `data-menu="open"`, `data-menu="download"`, `data-menu="copy"`, `data-menu="share"`,
+			`data-menu="qr"`, `data-menu="edit"`, `data-menu="replace"`, `data-menu="add-to-collection"`, `data-menu="delete"`,
+			"Download original", "Copy link", "Share…", "QR code", "Replace content", "Add to collection…",
+			// the visible copy icon next to the list's menu, which shareNativeUrl reads
+			`id="url-button-filesthumb"`,
+			// user 7 owns the file but holds no permissions: edit yes, replace no
+			`data-can-edit="true"`, `data-can-delete="true"`, `data-can-replace="false"`},
+	}
+	test.HttpPageResult(t, page)
+	// Two menus per file, one per view, both from the same sub-template
+	resp, body := filesGet(t, "validsession", "/files")
+	test.IsEqualInt(t, resp, http.StatusOK)
+	test.IsEqualInt(t, bytes.Count(body, []byte(`data-fgs-file-menu data-id="filesthumb"`)), 2)
+}
+
+// R4: files without a preview get an icon for their type, by extension
+func TestFileTypeIcon(t *testing.T) {
+	for name, icon := range map[string]string{
+		"notes.pdf": "bi-file-earmark-pdf", "IMG_1.HEIC": "bi-file-earmark-image", "clip.mov": "bi-file-earmark-play",
+		"song.mp3": "bi-file-earmark-music", "backup.tar.gz": "bi-file-earmark-zip", "readme.txt": "bi-file-earmark-text",
+		"cv.docx": "bi-file-earmark-word", "sums.xlsx": "bi-file-earmark-spreadsheet", "talk.pptx": "bi-file-earmark-slides",
+		"main.go": "bi-file-earmark-code", "noextension": "bi-file-earmark", "weird.xyz": "bi-file-earmark",
+	} {
+		test.IsEqualString(t, fileTypeIcon(name), icon)
+	}
+}

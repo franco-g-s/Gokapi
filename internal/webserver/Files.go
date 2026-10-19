@@ -2,7 +2,9 @@ package webserver
 
 import (
 	"net/http"
+	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/forceu/gokapi/internal/configuration"
@@ -19,6 +21,36 @@ type fileRow struct {
 	Mine     bool
 	TakenAt  int64
 	Preview  previewInfo
+	Icon     string // Bootstrap icon for files without a thumbnail
+}
+
+var fileTypeIcons = map[string]string{}
+
+func init() {
+	for icon, extensions := range map[string]string{
+		"bi-file-earmark-pdf":         "pdf",
+		"bi-file-earmark-image":       "jpg jpeg png gif webp heic heif avif bmp tif tiff svg dng raw cr2 nef arw",
+		"bi-file-earmark-play":        "mp4 mov m4v mkv webm avi wmv mpg mpeg 3gp",
+		"bi-file-earmark-music":       "mp3 m4a wav flac aac ogg opus aiff",
+		"bi-file-earmark-zip":         "zip rar 7z tar gz tgz bz2 xz zst dmg iso",
+		"bi-file-earmark-text":        "txt md rtf log",
+		"bi-file-earmark-word":        "doc docx odt pages",
+		"bi-file-earmark-spreadsheet": "xls xlsx ods csv numbers",
+		"bi-file-earmark-slides":      "ppt pptx odp key",
+		"bi-file-earmark-code":        "go js ts py c h cpp java rs sh html css json xml yaml yml sql",
+	} {
+		for _, extension := range strings.Fields(extensions) {
+			fileTypeIcons[extension] = icon
+		}
+	}
+}
+
+// fileTypeIcon is the icon a file without a thumbnail gets, by extension
+func fileTypeIcon(name string) string {
+	if icon, ok := fileTypeIcons[strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))]; ok {
+		return icon
+	}
+	return "bi-file-earmark"
 }
 
 // FilesView is the Files tab: the upload table's actions over a Finder-like grid
@@ -101,7 +133,7 @@ func showFiles(w http.ResponseWriter, r *http.Request) {
 		if !isListedFile(out, now) {
 			continue
 		}
-		row := fileRow{File: out, Uploader: names[f.UserId], Mine: f.UserId == user.Id}
+		row := fileRow{File: out, Uploader: names[f.UserId], Mine: f.UserId == user.Id, Icon: fileTypeIcon(out.Name)}
 		row.Preview = previewUrls(r, f, "", directDownloadUrl(out))
 		row.TakenAt = row.Preview.TakenAt
 		view.Rows = append(view.Rows, row)

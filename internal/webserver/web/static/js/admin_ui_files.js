@@ -176,6 +176,19 @@ function initFilesPage() {
     });
     selectToggle.addEventListener("click", function () { setSelecting(!selecting); });
 
+    // Square crops every thumbnail to fill its tile; True shape shows the
+    // whole picture, letterboxed, so orientation and aspect ratio show
+    function applyShape(shape) {
+        if (shape !== "true") shape = "square";
+        grid.classList.toggle("fgs-shape-true", shape === "true");
+        setActive("data-shape", shape);
+        localStorage.setItem("filesTileShape", shape);
+    }
+    root.querySelectorAll("button[data-shape]").forEach(function (b) {
+        b.addEventListener("click", function () { applyShape(b.getAttribute("data-shape")); });
+    });
+    applyShape(localStorage.getItem("filesTileShape") || "square");
+
     var size = document.getElementById("fgs-icon-size");
     size.value = localStorage.getItem("filesIconSize") || "160";
     function applySize() {
@@ -261,6 +274,58 @@ function initFilesPage() {
         if (selecting) toggleSelected(tile);
         else openAt(tile);
     });
+
+    // The "⋯" menu, the same in both views. Each entry reuses the upload
+    // page's helper behind the button it replaces.
+    function copyText(text) {
+        if (window.ClipboardJS && ClipboardJS.copy) {
+            ClipboardJS.copy(text);
+            showToast(1000);
+        } else if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(function () { showToast(1000); });
+        }
+    }
+
+    function editFromMenu(menu, tile, replace) {
+        var flag = function (k) { return menu.getAttribute("data-" + k) === "true"; };
+        showEditModal(tile.getAttribute("data-name"), menu.getAttribute("data-id"),
+            parseInt(menu.getAttribute("data-downloads"), 10), parseInt(menu.getAttribute("data-expire"), 10),
+            flag("password"), flag("unlimited-downloads"), flag("unlimited-time"), flag("e2e"), flag("can-replace"));
+        if (!replace) return;
+        // "Replace content" is the edit dialog's replace field, switched on
+        var box = document.getElementById("mc_replace");
+        if (box && !box.disabled) {
+            box.checked = true;
+            handleEditCheckboxChange(box);
+        }
+    }
+
+    root.addEventListener("click", function (e) {
+        var item = e.target.closest("[data-menu]");
+        if (!item || item.disabled) return;
+        var menu = item.closest("[data-fgs-file-menu]");
+        var id = menu.getAttribute("data-id");
+        var tile = tilesById[id];
+        var url = menu.getAttribute("data-url");
+        // Dialogs and the viewer hand focus back to the "⋯", not to an
+        // entry of the menu that just closed
+        menu.querySelector(".fgs-menu-btn").focus();
+        switch (item.getAttribute("data-menu")) {
+            case "open": openAt(tile); break;
+            case "download": FGS.downloadSequentially(asItems([tile])); break;
+            case "copy": showToast(1000); break; // ClipboardJS copies every .copyurl
+            case "share":
+                if (navigator.share) shareNativeUrl(id);
+                else copyText(url);
+                break;
+            case "qr": showQrCode(url); break;
+            case "edit": editFromMenu(menu, tile, false); break;
+            case "replace": editFromMenu(menu, tile, true); break;
+            case "delete": deleteFile(id); break;
+        }
+    });
+    // A file deleted from its menu leaves the selection
+    if ("MutationObserver" in window) new MutationObserver(updateSelection).observe(grid, { childList: true });
 
     if (window.jQuery && jQuery.fn.DataTable) {
         // No paging: the scope switch hides rows in the DOM, and the edit

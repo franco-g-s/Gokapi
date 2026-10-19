@@ -13,6 +13,10 @@
       <button type="button" class="btn btn-sm btn-light" data-layout="grid" aria-label="Grid"><i class="bi bi-grid-3x3-gap"></i></button>
       <button type="button" class="btn btn-sm btn-outline-light" data-layout="list" aria-label="List"><i class="bi bi-list-ul"></i></button>
     </div>
+    <div class="fgs-grid-only btn-group fgs-shape-toggle" role="group" aria-label="Tile shape">
+      <button type="button" class="btn btn-sm btn-light" data-shape="square">Square</button>
+      <button type="button" class="btn btn-sm btn-outline-light" data-shape="true">True shape</button>
+    </div>
     <input type="range" min="96" max="320" value="160" id="fgs-icon-size" aria-label="Icon size" class="fgs-grid-only form-range" style="width:8rem">
     <button type="button" class="btn btn-sm btn-outline-light" data-fgs-select-toggle aria-pressed="false">Select</button>
   </div>
@@ -40,10 +44,11 @@
           <img loading="lazy" decoding="async" src="{{ .Preview.Thumb }}" alt="" style="background:{{ .Preview.Color }}">
           {{ if .Preview.Video }}<span class="fgs-play"><i class="bi bi-play-fill"></i></span>{{ end }}
         {{ else }}
-          <span class="fgs-typeicon"><i class="bi bi-file-earmark"></i><small>{{ .File.Name | printf "%.40s" }}</small></span>
+          <span class="fgs-typeicon"><i class="bi {{ .Icon }}"></i><small>{{ .File.Name | printf "%.40s" }}</small></span>
         {{ end }}
       </button>
       <input type="checkbox" class="form-check-input fgs-tile-check" aria-label="Select {{ .File.Name }}">
+      {{ template "files_file_menu" (newAdminButtonContext .File $.ActiveUser) }}
       <figcaption><span class="fgs-name">{{ .File.Name }}</span>
         <span class="fgs-meta">{{ .Uploader }} · <span data-ts="{{ .File.UploadDate }}"></span></span></figcaption>
     </figure>
@@ -52,12 +57,13 @@
 
   <div class="table-responsive d-none" id="fgs-list">
     <table class="table table-dark align-middle" id="fgs-filetable" data-count-label="Files: ">
-      <thead><tr><th class="fgs-col-check"></th><th>Name</th><th>Uploaded by</th><th>Uploaded</th><th>Taken</th><th>Size</th><th>Expires</th><th>Downloads</th><th style="min-width:13em;">Actions</th></tr></thead>
+      <thead><tr><th class="fgs-col-check"></th><th>Name</th><th>Uploaded by</th><th>Uploaded</th><th>Taken</th><th>Size</th><th>Expires</th><th>Downloads</th><th class="text-end">Actions</th></tr></thead>
       <tbody>
       {{ range .Rows }}
         <tr data-mine="{{ .Mine }}" data-row-id="{{ .File.Id }}" id="row-{{ .File.Id }}">
           <td class="fgs-col-check"><input type="checkbox" class="form-check-input fgs-row-check" aria-label="Select {{ .File.Name }}"></td>
           <td data-order="{{ .File.Name }}"><div class="fgs-list-name">
+            {{ if .Preview.Thumb }}<img class="fgs-list-thumb" loading="lazy" decoding="async" src="{{ .Preview.Thumb }}" alt="" style="background:{{ .Preview.Color }}">{{ else }}<span class="fgs-list-thumb fgs-list-icon" aria-hidden="true"><i class="bi {{ .Icon }}"></i></span>{{ end }}
             <button type="button" class="btn btn-link fgs-name-open" title="Open"><span id="cell-name-{{ .File.Id }}">{{ .File.Name }}</span></button>
           </div></td>
           <td>{{ .Uploader }}</td>
@@ -66,16 +72,10 @@
           <td data-order="{{ .File.SizeBytes }}">{{ .File.Size }}</td>
           {{ if .File.UnlimitedTime }}<td data-order="9223372036854775807">Never</td>{{ else }}<td data-order="{{ .File.ExpireAt }}"><span data-ts="{{ .File.ExpireAt }}"></span></td>{{ end }}
           <td id="cell-downloads-{{ .File.Id }}">{{ .File.DownloadCount }}</td>
-          <td>
-          <div class="btn-toolbar justify-content-end" role="toolbar" >
-            <div class="btn-group me-2" role="group">
-               {{ template "admin_button_copyurl" (newAdminButtonContext .File $.ActiveUser)}}
-            </div>
-            <div class="btn-group" role="group">
-               {{ template "admin_button_download" (newAdminButtonContext .File $.ActiveUser) }}
-               {{ template "admin_button_edit" (newAdminButtonContext .File $.ActiveUser) }}
-               {{ template "admin_button_delete" (newAdminButtonContext .File $.ActiveUser) }}
-           </div>
+          <td class="text-end"><div class="fgs-list-actions">
+            <button id="url-button-{{ .File.Id }}" type="button" class="copyurl btn btn-outline-light btn-sm" onclick="showToast(1000)"
+              data-clipboard-text="{{ .File.UrlDownload }}" title="Copy link" aria-label="Copy link"><i class="bi bi-copy"></i></button>
+            {{ template "files_file_menu" (newAdminButtonContext .File $.ActiveUser) }}
           </div></td>
         </tr>
       {{ end }}
@@ -105,3 +105,34 @@ revealNativeShareItems();
 {{ template "pagename" "Files"}}
 {{ template "customjs" .}}
 {{ template "footer" true}}{{ end }}
+
+{{/* One "⋯" menu per file, the same in the grid and the list. The data
+     attributes feed the upload page's helpers (edit modal, delete, share)
+     and the bulk "Change expiry & limits". */}}
+{{ define "files_file_menu" }}
+{{- $own := eq .ActiveUser.Id .CurrentFile.UploaderId -}}
+{{- $canEdit := or $own .ActiveUser.HasPermissionEditOtherUploads -}}
+{{- $canDelete := or $own .ActiveUser.HasPermissionDeleteOtherUploads -}}
+{{- $canReplace := or (and $own .ActiveUser.HasPermissionReplace) .ActiveUser.HasPermissionReplaceOtherUploads -}}
+<div class="dropdown fgs-menu" data-fgs-file-menu data-id="{{ .CurrentFile.Id }}" data-url="{{ .CurrentFile.UrlDownload }}"
+     data-downloads="{{ .CurrentFile.DownloadsRemaining }}" data-unlimited-downloads="{{ .CurrentFile.UnlimitedDownloads }}"
+     data-expire="{{ .CurrentFile.ExpireAt }}" data-unlimited-time="{{ .CurrentFile.UnlimitedTime }}"
+     data-password="{{ .CurrentFile.IsPasswordProtected }}" data-e2e="{{ .CurrentFile.IsEndToEndEncrypted }}"
+     data-can-edit="{{ $canEdit }}" data-can-delete="{{ $canDelete }}" data-can-replace="{{ $canReplace }}">
+  <button type="button" class="btn btn-sm fgs-menu-btn" data-bs-toggle="dropdown" data-bs-popper-config='{"strategy":"fixed"}'
+    aria-expanded="false" aria-label="Actions for {{ .CurrentFile.Name }}" title="Actions"><i class="bi bi-three-dots"></i></button>
+  <ul class="dropdown-menu dropdown-menu-end" data-bs-theme="dark">
+    <li><button type="button" class="dropdown-item" data-menu="open"><i class="bi bi-arrows-fullscreen"></i> Open</button></li>
+    <li><button type="button" class="dropdown-item" data-menu="download"{{ if .CurrentFile.IsEndToEndEncrypted }} disabled{{ end }}><i class="bi bi-download"></i> Download original</button></li>
+    <li><button type="button" class="dropdown-item copyurl" data-menu="copy" data-clipboard-text="{{ .CurrentFile.UrlDownload }}"><i class="bi bi-copy"></i> Copy link</button></li>
+    <li><button type="button" class="dropdown-item" data-menu="share"><i class="bi bi-box-arrow-up"></i> Share…</button></li>
+    <li><button type="button" class="dropdown-item" data-menu="qr"><i class="bi bi-qr-code"></i> QR code</button></li>
+    <li><hr class="dropdown-divider"></li>
+    <li><button type="button" class="dropdown-item" data-menu="edit"{{ if not $canEdit }} disabled{{ end }}><i class="bi bi-pencil"></i> Edit</button></li>
+    <li><button type="button" class="dropdown-item" data-menu="replace"{{ if or (not $canReplace) (not $canEdit) .CurrentFile.IsEndToEndEncrypted }} disabled{{ end }}><i class="bi bi-arrow-repeat"></i> Replace content</button></li>
+    <li><button type="button" class="dropdown-item" data-menu="add-to-collection"{{ if .CurrentFile.IsEndToEndEncrypted }} disabled{{ end }}><i class="bi bi-collection"></i> Add to collection…</button></li>
+    <li><hr class="dropdown-divider"></li>
+    <li><button type="button" class="dropdown-item text-danger" data-menu="delete"{{ if not $canDelete }} disabled{{ end }}><i class="bi bi-trash3"></i> Delete</button></li>
+  </ul>
+</div>
+{{ end }}

@@ -180,6 +180,20 @@ func TestPreviewInfoRoutes(t *testing.T) {
 	req := accessFile("previewinforeq001", func(f *models.File) { f.SHA1 = "previewinforeqsha"; f.UploadRequestId = "r" })
 	code, _, _ = previewInfoGet(t, "/p/info?id="+req.Id)
 	test.IsEqualInt(t, code, http.StatusNotFound)
+	// ...unless it is the owner (or a PERM_LIST user) asking, which is how the
+	// File requests page polls for the previews of what was uploaded to it
+	database.SavePreview(models.Preview{Sha1: "previewinforeqsha", Status: models.PreviewReady, Kind: models.PreviewKindImage, Width: 2, Height: 1, Updated: 1})
+	code, info, _ = previewInfoGet(t, "/files/previewinfo?id="+req.Id, owner)
+	test.IsEqualInt(t, code, http.StatusOK)
+	test.IsEqualBool(t, strings.HasPrefix(info.Thumb, "./p/thumb?id="+req.Id), true)
+	code, _, _ = previewInfoGet(t, "/files/previewinfo?id="+req.Id, admin)
+	test.IsEqualInt(t, code, http.StatusOK)
+	code, _, _ = previewInfoGet(t, "/files/previewinfo?id="+req.Id, stranger)
+	test.IsEqualInt(t, code, http.StatusNotFound)
+	code, _, _ = previewInfoGet(t, "/p/info?id="+req.Id, owner)
+	test.IsEqualInt(t, code, http.StatusOK)
+	code, _, _ = previewInfoGet(t, "/p/info?id="+req.Id, stranger)
+	test.IsEqualInt(t, code, http.StatusNotFound)
 
 	// Viewing never counts
 	remaining, count := downloadState(t, f.Id)

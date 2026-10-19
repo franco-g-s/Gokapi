@@ -449,7 +449,8 @@ func showUploadRequest(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "admin")
 		return
 	}
-	err = templateFolder.ExecuteTemplate(w, "uploadreq", view)
+	pageView := newFileRequestsView(r, *view, view.ActiveUser)
+	err = templateFolder.ExecuteTemplate(w, "uploadreq", &pageView)
 	helper.CheckIgnoreTimeout(err)
 }
 

@@ -36,27 +36,11 @@ function deleteOrShowModal(requestId, requestName, count) {
 }
 
 
-function deleteFileFr(id, frId) {
-    document.getElementById("button-delete-" + id).disabled = true;
-    let rowFileEntry = document.getElementById("cell-listupload-"+id);
-    apiFilesDelete(id, 10)
-        .then(data => {
-            changeFileCountFr(frId, -1);
-            removeDownloadFileReference(id, frId);
-		rowFileEntry.classList.add("rowDeleting");
-		setTimeout(() => {
-		    rowFileEntry.remove();
-		}, 290);
-	 showToastFileDeletionFr(id);
-        })
-        .catch(error => {
-            alert("Unable to delete file: " + error);
-            console.error('Error:', error);
-        });
-}
-
 function changeFileCountFr(frId, change) {
 	let countCell = document.getElementById("totalFiles-fr-" + frId);
+	if (countCell === null) {
+		return;
+	}
 	let currentCount = Number(countCell.innerText) || 0;
 	let newCount = currentCount + change;
 	countCell.innerText = newCount;	
@@ -101,13 +85,12 @@ function removeDownloadFileReference(fileId, frId) {
 }
 
 
-function showToastFileDeletionFr(id) {
+function showToastFileDeletionFr(id, filename) {
     let notification = document.getElementById("toastnotificationUndo");
-    let filename = document.getElementById("cell-name-" + id).innerText;
     let filenameToast = document.getElementById("toastFilename");
     let button = document.getElementById("toastUndoButton");
 
-    filenameToast.innerText = filename;
+    filenameToast.textContent = filename;
 
     button.dataset.fileid = id;
     hideToast();
@@ -459,3 +442,159 @@ function createFileRequestRow(jsonResult, user) {
     tr.appendChild(td);
     return tr;
 }
+
+
+// --- The per-request file lists (shared file browser, context "filerequest") ---
+// Request files are downloaded through the presigned flow (a short-lived,
+// single-use link from the API), so the list's built-in download, zip and Save
+// to Photos are replaced here. Open (the viewer) is the built-in one.
+(function () {
+    if (!window.FGS || !FGS.registerFileActions) return;
+
+    function requestIdOf(root) {
+        return root.id.indexOf("fr-") === 0 ? root.id.slice(3) : "";
+    }
+
+    function requestNameOf(root) {
+        const row = document.getElementById("row-" + requestIdOf(root));
+        const text = row && row.cells[0] ? row.cells[0].textContent.trim() : "";
+        return text || "Uploaded files";
+    }
+
+    function errorText(error) {
+        return error && error.message ? error.message : String(error);
+    }
+
+    function presignUrl(id) {
+        return apiFilesListDownloadSingle(id).then(data => {
+            if (!data || !data.downloadUrl) {
+                throw new Error("Unable to get presigned key");
+            }
+            return data.downloadUrl;
+        });
+    }
+
+    function pause(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // A presigned link lives for 30 seconds and works once, so each is
+    // requested right before it is used
+    async function downloadEach(a) {
+        a.button.disabled = true;
+        const failures = [];
+        for (let i = 0; i < a.tiles.length; i++) {
+            const name = a.tiles[i].getAttribute("data-name");
+            a.status.textContent = "Starting download " + (i + 1) + " of " + a.tiles.length + "...";
+            try {
+                const link = document.createElement("a");
+                link.href = await presignUrl(a.ids[i]);
+                link.style.display = "none";
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+            } catch (error) {
+                failures.push(name + ": " + errorText(error));
+            }
+            // Spacing the clicks keeps the browser from dropping queued downloads
+            await pause(600);
+        }
+        a.button.disabled = false;
+        a.status.textContent = failures.length
+            ? "Could not download " + failures.length + " file(s): " + failures.join("; ")
+            : "Started " + a.tiles.length + " download" + (a.tiles.length === 1 ? "" : "s") + ".";
+    }
+
+    function download(a) {
+        if (!a.bulk) {
+            downloadFileWithPresign(a.ids[0]);
+            return;
+        }
+        downloadEach(a);
+    }
+
+    function zip(a) {
+        downloadFilesZipWithPresign(a.ids.join(","), requestNameOf(a.root));
+    }
+
+    // Save to Photos: the list's own two-tap flow, fed with links that are
+    // only requested when each file is about to be fetched
+    function photos(a) {
+        const button = a.button;
+        const prepared = button._fgs && button._fgs.files;
+        const items = prepared ? [] : a.tiles.map(tile => ({
+            url: () => presignUrl(tile.getAttribute("data-id")),
+            name: tile.getAttribute("data-name"),
+            bytes: parseInt(tile.getAttribute("data-bytes"), 10)
+        }));
+        FGS.saveToPhotos(items, button);
+    }
+
+    function removeFile(a, id, name) {
+        const requestId = requestIdOf(a.root);
+        a.browser.removeItem(id);
+        changeFileCountFr(requestId, -1);
+        removeDownloadFileReference(id, requestId);
+        showToastFileDeletionFr(id, name);
+    }
+
+    function mayDelete(a, tile) {
+        return tile.getAttribute("data-mine") === "true" ||
+            a.root.getAttribute("data-perm-delete-others") === "true";
+    }
+
+    function deleteOne(a) {
+        const id = a.ids[0];
+        const name = a.tiles[0].getAttribute("data-name");
+        a.button.disabled = true;
+        apiFilesDelete(id, 10)
+            .then(() => removeFile(a, id, name))
+            .catch(error => {
+                a.button.disabled = false;
+                alert("Unable to delete file: " + error);
+                console.error("Error:", error);
+            });
+    }
+
+    async function deleteMany(a) {
+        if (!confirm("Delete " + a.tiles.length + " file(s)? This cannot be undone.")) return;
+        a.button.disabled = true;
+        const failures = [];
+        for (let i = 0; i < a.tiles.length; i++) {
+            const name = a.tiles[i].getAttribute("data-name");
+            a.status.textContent = "Deleting " + (i + 1) + " of " + a.tiles.length + "...";
+            if (!mayDelete(a, a.tiles[i])) {
+                failures.push(name + ": you may not delete this file");
+                continue;
+            }
+            try {
+                await apiFilesDelete(a.ids[i], 0);
+            } catch (error) {
+                failures.push(name + ": " + errorText(error));
+            }
+        }
+        if (failures.length) {
+            alert("Could not delete " + failures.length + " file(s):\n" + failures.join("\n"));
+        }
+        location.reload();
+    }
+
+    FGS.registerFileActions({
+        "download": download,
+        "zip": zip,
+        "photos": photos,
+        "delete": a => (a.bulk ? deleteMany(a) : deleteOne(a))
+    }, "filerequest");
+
+    // The lists sit in collapsed rows: lay out and size them once shown
+    document.addEventListener("shown.bs.collapse", event => {
+        const root = event.target.querySelector("[data-fgs-browser]");
+        if (!root || !root.fgsBrowser) return;
+        root.fgsBrowser.relayout();
+        if (window.jQuery && jQuery.fn.dataTable) {
+            jQuery(root).find("table.fgs-table").each(function () {
+                if (jQuery.fn.dataTable.isDataTable(this)) jQuery(this).DataTable().columns.adjust();
+            });
+        }
+    });
+})();

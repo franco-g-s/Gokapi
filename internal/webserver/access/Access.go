@@ -14,16 +14,23 @@ import (
 
 // CanView reports whether the request may see the file, optionally in the
 // context of a collection page. The file is re-resolved by id, so a stale or
-// edited model cannot widen access.
+// edited model cannot widen access. File request uploads are viewable only by
+// the file's owner and PERM_LIST users, identified by their session.
 func CanView(r *http.Request, file models.File, collectionId string) bool {
 	current, ok := storage.GetFile(file.Id)
-	if !ok || current.UploadRequestId != "" || current.Encryption.IsEndToEndEncrypted {
+	if !ok || current.Encryption.IsEndToEndEncrypted {
 		return false
 	}
 	if user, loggedIn := authentication.SessionIdentity(r); loggedIn {
 		if user.Id == current.UserId || user.HasPermission(models.UserPermListOtherUploads) {
 			return true
 		}
+	}
+	// A file request upload belongs to the request's owner. Nobody else may
+	// see it, however it was shared: it has no password or collection of its
+	// own to gate a preview on.
+	if current.UploadRequestId != "" {
+		return false
 	}
 	if collectionId != "" {
 		collection, ok := storage.GetCollection(collectionId)

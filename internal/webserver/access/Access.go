@@ -20,7 +20,7 @@ func CanView(r *http.Request, file models.File, collectionId string) bool {
 	if !ok || current.UploadRequestId != "" || current.Encryption.IsEndToEndEncrypted {
 		return false
 	}
-	if user, loggedIn := authentication.IsAuthenticatedReadOnly(r); loggedIn {
+	if user, loggedIn := authentication.SessionIdentity(r); loggedIn {
 		if user.Id == current.UserId || user.HasPermission(models.UserPermListOtherUploads) {
 			return true
 		}

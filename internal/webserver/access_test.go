@@ -17,6 +17,7 @@ import (
 	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/test"
 	"github.com/forceu/gokapi/internal/webserver/access"
+	"github.com/forceu/gokapi/internal/webserver/authentication"
 	"github.com/forceu/gokapi/internal/webserver/authentication/downloadPasswordToken"
 )
 
@@ -165,6 +166,82 @@ func TestCanViewDoesNotConsumeSession(t *testing.T) {
 	test.IsEqualBool(t, ok, true)
 	// and a lapsed session is neither accepted nor deleted by a read
 	test.IsEqualBool(t, access.CanView(sessionRequest("expiredsession"), f, ""), false)
+}
+
+// withAuthMode runs fn with the given authentication configuration and restores the real one.
+func withAuthMode(t *testing.T, cfg models.AuthenticationConfig, fn func()) {
+	t.Helper()
+	original := configuration.Get().Authentication
+	authentication.Init(cfg)
+	defer authentication.Init(original)
+	fn()
+}
+
+// Only a real session cookie (Internal / OAuth2) may widen access. Disabled
+// mode names the super admin for every anonymous request, and Header mode
+// trusts a request header; neither may let a public image route past a password.
+func TestCanViewOnlyTrustsSessions(t *testing.T) {
+	database.SaveSession("accessadmin", models.Session{RenewAt: 2147483645, ValidUntil: 2147483646, UserId: 5})
+	pw := accessFile("accessmode000000001", func(f *models.File) { f.PasswordHash = "x" })
+	base := configuration.Get().Authentication
+
+	t.Run("internal session widens", func(t *testing.T) {
+		test.IsEqualBool(t, access.CanView(sessionRequest("accessadmin"), pw, ""), true)
+		test.IsEqualBool(t, access.CanView(sessionRequest(""), pw, ""), false)
+	})
+	t.Run("oauth2 session widens", func(t *testing.T) {
+		cfg := base
+		cfg.Method = models.AuthenticationOAuth2
+		cfg.OAuthProvider, cfg.OAuthClientId, cfg.OAuthClientSecret, cfg.OAuthRecheckInterval = "p", "id", "secret", 12
+		withAuthMode(t, cfg, func() {
+			test.IsEqualBool(t, access.CanView(sessionRequest("accessadmin"), pw, ""), true)
+			test.IsEqualBool(t, access.CanView(sessionRequest(""), pw, ""), false)
+		})
+	})
+	t.Run("disabled auth: anonymous gets nothing extra", func(t *testing.T) {
+		cfg := base
+		cfg.Method = models.AuthenticationDisabled
+		withAuthMode(t, cfg, func() {
+			test.IsEqualBool(t, access.CanView(sessionRequest(""), pw, ""), false)
+			// not even a valid session cookie matters: there is no login in this mode
+			test.IsEqualBool(t, access.CanView(sessionRequest("accessadmin"), pw, ""), false)
+			// a link-holder file is of course still viewable
+			plain := accessFile("accessmode000000002", nil)
+			test.IsEqualBool(t, access.CanView(sessionRequest(""), plain, ""), true)
+		})
+	})
+	t.Run("header auth: a header naming an admin does not widen and creates no user", func(t *testing.T) {
+		cfg := base
+		cfg.Method = models.AuthenticationHeader
+		cfg.HeaderKey = "X-Remote-User"
+		withAuthMode(t, cfg, func() {
+			r := sessionRequest("")
+			r.Header.Set("X-Remote-User", "Test") // user 5, the super admin
+			test.IsEqualBool(t, access.CanView(r, pw, ""), false)
+			r = sessionRequest("accessadmin")
+			r.Header.Set("X-Remote-User", "headerspoofuser")
+			test.IsEqualBool(t, access.CanView(r, pw, ""), false)
+			_, created := database.GetUserByName("headerspoofuser")
+			test.IsEqualBool(t, created, false)
+		})
+	})
+}
+
+// An access check must be a pure read: no session renewal or deletion, no
+// last-online update.
+func TestCanViewWritesNothing(t *testing.T) {
+	f := accessFile("accesswrites00000001", func(f *models.File) { f.PasswordHash = "x" })
+	database.SaveUser(models.User{Id: 9, Name: "Writes", Permissions: models.UserPermissionAll, UserLevel: models.UserLevelUser, LastOnline: 1234}, false)
+	database.SaveSession("accesswritessession", models.Session{RenewAt: 0, ValidUntil: 2147483646, UserId: 9}) // due for renewal
+	sessionsBefore := len(database.GetAllMetadata())
+	test.IsEqualBool(t, access.CanView(sessionRequest("accesswritessession"), f, ""), true)
+	time.Sleep(100 * time.Millisecond) // useSession would update last-online in a goroutine
+	user, _ := database.GetUser(9)
+	test.IsEqualInt64(t, user.LastOnline, 1234)
+	session, ok := database.GetSession("accesswritessession")
+	test.IsEqualBool(t, ok, true)
+	test.IsEqualInt64(t, session.RenewAt, 0)
+	test.IsEqualInt(t, len(database.GetAllMetadata()), sessionsBefore)
 }
 
 func TestCollectionCookieLasts12Hours(t *testing.T) {

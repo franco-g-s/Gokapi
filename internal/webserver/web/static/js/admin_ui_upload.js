@@ -696,7 +696,7 @@ function registerChangeHandler() {
                     // Another tab finished an upload or restored a file — add it
                     // if it isn't already listed (guard against duplicate IDs).
                     let browser = uploadBrowser();
-                    if (browser !== null && browser.tile(sanitizeId(event.data.item.Id)) === null) {
+                    if (browser !== null && !isRequestFile(event.data.item) && browser.tile(sanitizeId(event.data.item.Id)) === null) {
                         addUploadedFile(event.data.item);
                     } else if (browser === null) {
                         addToFilesTab(sanitizeId(event.data.item.Id));
@@ -842,6 +842,11 @@ function addUploadedFile(item, preview) {
 // A file another tab added back (an undone delete) onto the Files tab's list:
 // its current info is fetched first, so an expired or changed file shows as
 // it is. Other pages have no list for it and ignore the message.
+// A file request's upload belongs to that request's page, on no other list
+function isRequestFile(item) {
+    return !!item && (item.IsFileRequest === true || !!item.FileRequestId);
+}
+
 function addToFilesTab(id) {
     let root = document.querySelector('[data-fgs-browser][data-context="files"]');
     if (root === null || !window.FGS || !FGS.initFileBrowser) {
@@ -853,7 +858,7 @@ function addToFilesTab(id) {
     }
     apiFilesListById(id)
         .then(item => {
-            if (browser.tile(id) !== null) {
+            if (browser.tile(id) !== null || isRequestFile(item)) {
                 return;
             }
             return fetch("./files/previewinfo?id=" + encodeURIComponent(id), { credentials: "same-origin", cache: "no-store" })
@@ -904,33 +909,27 @@ function showToastFileDeletion(id) {
     hideToast();
     notification.classList.add("show");
 
-    clearTimeout(toastId);
-    toastId = setTimeout(() => {
+    clearTimeout(undoToastId);
+    undoToastId = setTimeout(() => {
         hideFileToast();
-    }, 5000);
+    }, UNDO_TOAST_MS);
 }
 
 function hideFileToast() {
     document.getElementById("toastnotificationUndo").classList.remove("show");
 }
 
+// Restores the file and puts it back into the lists it was deleted from
+// (FGS.restoreFile). Never reloads the page: that would collapse open rows.
+// Whether it worked or not, the toast says so.
 function handleUndo(button) {
     hideFileToast();
-    apiFilesRestore(button.dataset.fileid)
-        .then(data => {
-            // The Files tab has no list of uploads to add the file back to
-            if (uploadBrowser() === null) {
-                location.reload();
-                return;
-            }
-            addUploadedFile(data.FileInfo);
-            notifyWorker({ type: "fileAdded", item: data.FileInfo });
-            if (isE2EEnabled) {
-                GokapiE2EDecryptMenu();
-            }
-        })
+    let label = document.getElementById("toastFilename");
+    let name = label ? label.textContent : "the file";
+    FGS.restoreFile(button.dataset.fileid)
+        .then(result => FGS.undoToast(name, result))
         .catch(error => {
-            alert("Unable to restore file: " + error);
+            FGS.undoToast(name, null, error);
             console.error('Error:', error);
         });
 }

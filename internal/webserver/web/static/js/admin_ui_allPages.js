@@ -9,6 +9,14 @@ try {
 
 var toastId;
 
+// A single delete is carried out by the server UNDO_DELAY_S seconds later. The
+// "File deleted: Restore" toast stays until just before, so Restore never
+// offers a file that is already gone.
+var UNDO_DELAY_S = 10;
+var UNDO_TOAST_MS = UNDO_DELAY_S * 1000 - 1000;
+// The undo toast's own hide timer: showToast's must not cancel it, nor it that
+var undoToastId;
+
 function showToast(timeout, text) {
     let notification = document.getElementById("toastnotification");
     if (typeof text !== 'undefined')

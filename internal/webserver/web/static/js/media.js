@@ -233,6 +233,8 @@
   };
 
   var v = null, items = [], at = 0, touchX = null, returnFocus = null;
+  // Backdrop-click bookkeeping: where the press began, and when a swipe last ended
+  var downOnBackdrop = true, touchStart = null, swipeUntil = 0;
   function fmt(ts) { return ts ? new Date(ts * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : ""; }
 
   // Stop a playing video and release its network connection before the element is dropped.
@@ -300,15 +302,24 @@
   function bindTouch() {
     var stage = v.querySelector(".fgs-v-stage");
     stage.addEventListener("touchstart", function (e) {
+      // Remember where every touch began, so a swipe is never mistaken for a click
+      touchStart = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY, moved: false } : null;
       // Leave video gestures (scrubbing, pinch) alone
       touchX = (e.touches.length > 1 || (e.target.closest && e.target.closest("video"))) ? null : e.touches[0].clientX;
     }, { passive: true });
+    stage.addEventListener("touchmove", function (e) {
+      if (touchStart && !touchStart.moved && e.touches.length === 1 &&
+          Math.hypot(e.touches[0].clientX - touchStart.x, e.touches[0].clientY - touchStart.y) > 10) touchStart.moved = true;
+    }, { passive: true });
     stage.addEventListener("touchend", function (e) {
+      // A touch that moved more than ~10 px was a swipe: drop the click that follows it
+      if (touchStart && touchStart.moved) swipeUntil = Date.now() + 500;
+      touchStart = null;
       if (touchX === null) return;
       var dx = e.changedTouches[0].clientX - touchX; touchX = null;
       if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1);
     }, { passive: true });
-    stage.addEventListener("touchcancel", function () { touchX = null; }, { passive: true });
+    stage.addEventListener("touchcancel", function () { touchX = null; touchStart = null; }, { passive: true });
   }
 
   // Desktop trackpad: a horizontal two-finger swipe moves one item. Inertial
@@ -357,11 +368,25 @@
     render();
     v.querySelector(".fgs-v-close").focus();
   };
+  // Empty space: the backdrop, the bare stage, or any other wrapper that is not
+  // the picture, a control, a link, the caption bar or a note.
+  function isEmptySpace(el) {
+    if (!v || !el || !v.contains(el)) return false;
+    if (el === v) return true;
+    return !(el.closest && el.closest("img, video, button, a, .fgs-v-info, .fgs-v-note"));
+  }
+  // A press that starts on the picture and is released on the backdrop (a drag)
+  // makes the browser click their common ancestor: only close if the press began in empty space too.
+  document.addEventListener("pointerdown", function (e) {
+    downOnBackdrop = isEmptySpace(e.target);
+  }, true);
   document.addEventListener("click", function (e) {
     if (!v || v.hidden) return;
+    var pressedOnBackdrop = downOnBackdrop; downOnBackdrop = true;
     if (e.target.closest(".fgs-v-close")) close();
     else if (e.target.closest(".fgs-v-prev")) go(-1);
     else if (e.target.closest(".fgs-v-next")) go(1);
+    else if (pressedOnBackdrop && Date.now() >= swipeUntil && isEmptySpace(e.target)) close();
   });
   document.addEventListener("keydown", function (e) {
     if (!v || v.hidden) return;

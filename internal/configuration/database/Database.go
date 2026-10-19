@@ -92,6 +92,8 @@ func Migrate(configOld, configNew models.DbConnection) {
 	for _, request := range requests {
 		dbNew.SaveFileRequest(request)
 	}
+	// Collections and previews are intentionally not copied: previews are
+	// regenerable by the worker.
 	dbOld.Close()
 	dbNew.Close()
 }
@@ -382,6 +384,18 @@ func DeleteCollection(id string) {
 func RemoveFileFromCollections(fileId string) {
 	db.RemoveFileFromCollections(fileId)
 }
+
+// GetPreview returns the preview metadata for a blob hash
+func GetPreview(sha1 string) (models.Preview, bool) { return db.GetPreview(sha1) }
+
+// SavePreview stores preview metadata
+func SavePreview(p models.Preview) { db.SavePreview(p) }
+
+// DeletePreview removes preview metadata
+func DeletePreview(sha1 string) { db.DeletePreview(sha1) }
+
+// GetAllPreviewSha1s maps blob hashes to preview status
+func GetAllPreviewSha1s() map[string]string { return db.GetAllPreviewSha1s() }
 
 // Statistics
 

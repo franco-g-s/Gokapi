@@ -22,7 +22,7 @@ type DatabaseProvider struct {
 }
 
 // DatabaseSchemeVersion contains the version number to be expected from the current database. If lower, an upgrade will be performed
-const DatabaseSchemeVersion = 17
+const DatabaseSchemeVersion = 18
 
 // New returns an instance
 func New(dbConfig models.DbConnection) (DatabaseProvider, error) {
@@ -151,6 +151,24 @@ func (p DatabaseProvider) Upgrade(currentDbVersion int) {
 				PRIMARY KEY("Id")
 			);
 			DELETE FROM CollectionFiles;`)
+		helper.Check(err)
+	}
+	// < v2.3.0-fgs: preview metadata, keyed by blob hash
+	if currentDbVersion < 18 {
+		err := p.rawSqlite(`CREATE TABLE IF NOT EXISTS "Previews" (
+			"Sha1"	TEXT NOT NULL UNIQUE,
+			"Status"	TEXT NOT NULL,
+			"Kind"	TEXT NOT NULL DEFAULT '',
+			"Width"	INTEGER NOT NULL DEFAULT 0,
+			"Height"	INTEGER NOT NULL DEFAULT 0,
+			"TakenAt"	INTEGER NOT NULL DEFAULT 0,
+			"DurationMs"	INTEGER NOT NULL DEFAULT 0,
+			"Color"	TEXT NOT NULL DEFAULT '',
+			"PHash"	INTEGER NOT NULL DEFAULT 0,
+			"Attempts"	INTEGER NOT NULL DEFAULT 0,
+			"Updated"	INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY("Sha1")
+		) WITHOUT ROWID;`)
 		helper.Check(err)
 	}
 }
@@ -319,7 +337,21 @@ func (p DatabaseProvider) createNewDatabase() error {
 				"type"	INTEGER NOT NULL UNIQUE,
 				"value"	INTEGER,
 				PRIMARY KEY("id" AUTOINCREMENT)
-			);`
+			);
+		CREATE TABLE IF NOT EXISTS "Previews" (
+			"Sha1"	TEXT NOT NULL UNIQUE,
+			"Status"	TEXT NOT NULL,
+			"Kind"	TEXT NOT NULL DEFAULT '',
+			"Width"	INTEGER NOT NULL DEFAULT 0,
+			"Height"	INTEGER NOT NULL DEFAULT 0,
+			"TakenAt"	INTEGER NOT NULL DEFAULT 0,
+			"DurationMs"	INTEGER NOT NULL DEFAULT 0,
+			"Color"	TEXT NOT NULL DEFAULT '',
+			"PHash"	INTEGER NOT NULL DEFAULT 0,
+			"Attempts"	INTEGER NOT NULL DEFAULT 0,
+			"Updated"	INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY("Sha1")
+		) WITHOUT ROWID;`
 	err := p.rawSqlite(sqlStmt)
 	if err != nil {
 		return err

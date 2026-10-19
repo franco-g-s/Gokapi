@@ -84,10 +84,28 @@ func TestCanView(t *testing.T) {
 		test.IsEqualBool(t, access.CanView(uploader, pw, ""), true)
 		test.IsEqualBool(t, access.CanView(admin, pw, ""), true)
 	})
-	t.Run("file request upload is never viewable", func(t *testing.T) {
+	t.Run("file request upload is viewable by its owner and PERM_LIST only", func(t *testing.T) {
 		test.IsEqualBool(t, access.CanView(anon, req, ""), false)
-		test.IsEqualBool(t, access.CanView(uploader, req, ""), false)
-		test.IsEqualBool(t, access.CanView(admin, req, ""), false)
+		test.IsEqualBool(t, access.CanView(stranger, req, ""), false)
+		test.IsEqualBool(t, access.CanView(expiredSession, req, ""), false)
+		test.IsEqualBool(t, access.CanView(bogusSession, req, ""), false)
+		test.IsEqualBool(t, access.CanView(uploader, req, ""), true)
+		test.IsEqualBool(t, access.CanView(admin, req, ""), true)
+	})
+	t.Run("a file password cookie never opens a file request upload", func(t *testing.T) {
+		reqPw := accessFile("accessreqpw00000001", func(f *models.File) { f.UploadRequestId = "r"; f.PasswordHash = "x" })
+		r := sessionRequest("")
+		r.AddCookie(&http.Cookie{Name: "p" + reqPw.Id, Value: downloadPasswordToken.Generate(reqPw.Id)})
+		test.IsEqualBool(t, access.CanView(r, reqPw, ""), false)
+		test.IsEqualBool(t, access.CanView(uploader, reqPw, ""), true)
+		test.IsEqualBool(t, access.CanView(stranger, reqPw, ""), false)
+	})
+	t.Run("a file request upload that is end-to-end encrypted stays hidden from its owner", func(t *testing.T) {
+		reqE2e := accessFile("accessreqe2e00000001", func(f *models.File) {
+			f.UploadRequestId = "r"
+			f.Encryption.IsEndToEndEncrypted = true
+		})
+		test.IsEqualBool(t, access.CanView(uploader, reqE2e, ""), false)
 	})
 	t.Run("end-to-end encrypted is never viewable", func(t *testing.T) {
 		test.IsEqualBool(t, access.CanView(anon, e2e, ""), false)

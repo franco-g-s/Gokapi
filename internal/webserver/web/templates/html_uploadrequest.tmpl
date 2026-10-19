@@ -71,41 +71,7 @@
 			<div id="collapse-filelist-{{ .Id }}" class="collapse bg-dark">
 			   <div class="p-2">
 
-				    <ul class="list-group list-group-flush">
-      {{ range .Files }}
-				      <li id="cell-listupload-{{ .Id }}" class="list-group-itemtext-light d-flex align-items-center border-bottom-0  filelist-item ">
-
-					<div class="flex-grow-1 text-truncate">
-					  <a href="#" id="cell-name-{{ .Id }}" class="text-decoration-none text-light" onClick="downloadFileWithPresign('{{ .Id }}');">
-					    {{ .Name }}
-					  </a>
-					</div>
-
-					<div class="small me-3 text-nowrap text-light">
-					  {{ .Size }} · <span id="cell-date-file-{{.Id}}"></span>
-					</div>
-					<script>insertFormattedDate({{ .UploadDate }}, "cell-date-file-{{.Id}}");</script>
-
-					<button class="btn btn-outline-light btn-sm"
-						 onClick="downloadFileWithPresign('{{ .Id }}');"
-						title="Download">
-					  <i class="bi bi-download"></i>
-					</button>
-					
-					<button id="button-delete-{{ .Id}}"
-					   type="button"
-					   title="Delete"
-					    {{ if and (ne $.ActiveUser.Id .UserId) (not $.ActiveUser.HasPermissionDeleteOtherUploads) }}
-					    	disabled
-					    {{ end }}
-					   class="btn btn-outline-danger btn-sm"
-					   onclick="deleteFileFr('{{ .Id }}', '{{$fileRequest.Id}}')">
-					   <i class="bi bi-trash3"></i>
-					</button>
-
-				      </li>
-				      {{ end }}
-				    </ul>
+				    {{ template "file_browser" (index $.Browsers .Id) }}
 
 				  </div>
 			</div> </td>
@@ -123,6 +89,8 @@
 	</div>
     </div>
 </div>
+{{ template "media_viewer" }}
+{{ template "media_help_sheet" }}
 <script src="./js/min/admin.min.{{ template "js_admin_version"}}.js"></script>
 <script>
 	var userName = "{{.ActiveUser.Name}}";

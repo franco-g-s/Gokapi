@@ -167,7 +167,11 @@
           // Size unknown: stop before a fetch that would pass the cap, so the
           // rest is left for another batch
           if (!known && fetched >= PREPARE_MAX_BYTES) { overCap++; return null; }
-          return fetch(it.url, { credentials: "same-origin" }).then(function (r) {
+          // it.url may be a function returning a promise of the url, for links
+          // that are only valid for a moment (the File requests page)
+          return Promise.resolve(typeof it.url === "function" ? it.url() : it.url).then(function (url) {
+            return fetch(url, { credentials: "same-origin" });
+          }).then(function (r) {
             // An error page must never be wrapped up as a photo
             if (!r.ok) { failed++; return null; }
             // Fallback only (size unknown): by now the request has been counted

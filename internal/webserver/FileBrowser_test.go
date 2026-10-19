@@ -189,6 +189,8 @@ func TestPreviewInfoRoutes(t *testing.T) {
 	code, info, _ = previewInfoGet(t, "/files/previewinfo?id="+req.Id, owner)
 	test.IsEqualInt(t, code, http.StatusOK)
 	test.IsEqualBool(t, strings.HasPrefix(info.Thumb, "./p/thumb?id="+req.Id), true)
+	// no direct download: downloadOwnFile refuses request uploads
+	test.IsEqualString(t, info.Download, "")
 	code, _, _ = previewInfoGet(t, "/files/previewinfo?id="+req.Id, admin)
 	test.IsEqualInt(t, code, http.StatusOK)
 	code, _, _ = previewInfoGet(t, "/files/previewinfo?id="+req.Id, stranger)
@@ -236,7 +238,7 @@ func TestFileBrowserRendersOnlyItsActions(t *testing.T) {
 				test.IsEqualBool(t, strings.Contains(html, `data-menu="`+key+`"`), b.HasMenu(key))
 			}
 			for _, key := range allBulk {
-				want := b.HasBulk(key) && (key != "zip" || b.ZipUrl != "")
+				want := b.HasBulk(key) && (key != "zip" || b.ZipUrl != "" || b.ZipByHandler)
 				test.IsEqualBool(t, strings.Contains(html, `data-act="`+key+`"`), want)
 			}
 			// Copy link only where a share link exists

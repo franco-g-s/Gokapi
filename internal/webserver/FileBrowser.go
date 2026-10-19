@@ -97,8 +97,13 @@ type fileBrowser struct {
 	// ZipUrl is the zip endpoint up to and including the parameter that takes
 	// the comma-separated ids, e.g. "./files/zip?ids=" or
 	// "./cz?id=<c>&files=". Empty: no "Download as .zip" button.
-	ZipUrl     string
-	ActiveUser models.User
+	ZipUrl string
+	// ZipByHandler shows the "Download as .zip" button although ZipUrl is
+	// empty: a handler registered for the context (FGS.registerFileActions)
+	// supplies the zip. File requests do this, because /files/zip refuses
+	// request uploads.
+	ZipByHandler bool
+	ActiveUser   models.User
 }
 
 // newFileBrowser fills Menu, Bulk and DefaultView from the action table.
@@ -265,7 +270,13 @@ func filePreviewInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := file.ToFileApiOutput(configuration.Get().ServerUrl, configuration.Get().IncludeFilename)
 	helper.Check(err)
-	writePreviewInfo(w, previewUrls(r, file, "", directDownloadUrl(out)))
+	// A request upload has no direct download (downloadOwnFile refuses it):
+	// the page supplies its own presigned flow
+	download := directDownloadUrl(out)
+	if file.UploadRequestId != "" {
+		download = ""
+	}
+	writePreviewInfo(w, previewUrls(r, file, "", download))
 }
 
 // Handling of /p/info

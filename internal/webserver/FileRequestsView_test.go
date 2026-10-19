@@ -45,11 +45,18 @@ func TestFileRequestsPageRendersABrowserPerRequest(t *testing.T) {
 	test.IsEqualBool(t, strings.Contains(two, `data-id="frviewfile1"`), false)
 
 	// The spec's actions: Open, Download, Delete; Download, zip, Save to Photos, Delete
-	for _, want := range []string{`data-menu="open"`, `data-menu="download"`, `data-menu="delete"`,
-		`data-act="download"`, `data-act="zip"`, `data-act="photos"`, `data-act="delete"`,
-		`id="fgs-viewer"`, `data-info-url="./files/previewinfo?id="`} {
-		test.IsEqualBool(t, strings.Contains(one, want) || strings.Contains(page, want), true)
+	// in each request's own browser, not merely somewhere on the page
+	for name, browser := range map[string]string{"one": one, "two": two} {
+		for _, want := range []string{`data-menu="open"`, `data-menu="download"`, `data-menu="delete"`,
+			`data-act="download"`, `data-act="zip"`, `data-act="photos"`, `data-act="delete"`,
+			`data-info-url="./files/previewinfo?id="`, `data-zip-url=""`} {
+			if !strings.Contains(browser, want) {
+				t.Errorf("browser %s lacks %s", name, want)
+			}
+		}
 	}
+	// the viewer is on the page once, shared by the browsers
+	test.IsEqualInt(t, strings.Count(page, `id="fgs-viewer"`), 1)
 	for _, unwanted := range []string{`data-menu="edit"`, `data-menu="copy"`, `data-menu="share"`, `data-menu="add-to-collection"`,
 		`data-act="link"`, `data-act="change-expiry"`, `cell-listupload-`, "deleteFileFr"} {
 		test.IsEqualBool(t, strings.Contains(page, unwanted), false)
@@ -74,7 +81,9 @@ func TestNewFileRequestsView(t *testing.T) {
 	test.IsEqualInt(t, len(b.Items), 1)
 	test.IsEqualString(t, b.Items[0].DownloadUrl, "")
 	test.IsEqualBool(t, b.Items[0].CanDelete, true)
-	test.IsEqualBool(t, b.ZipUrl != "", true)
+	// the zip button comes from a handler, not from a zip URL
+	test.IsEqualString(t, b.ZipUrl, "")
+	test.IsEqualBool(t, b.ZipByHandler, true)
 	// A viewer who may not delete other people's uploads cannot delete this one
 	other := newFileRequestsView(httptest.NewRequest("GET", "/filerequests", nil), admin, models.User{Id: 8})
 	test.IsEqualBool(t, other.Browsers["frmodel"].Items[0].CanDelete, false)

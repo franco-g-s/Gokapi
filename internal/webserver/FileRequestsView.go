@@ -7,13 +7,6 @@ import (
 	"github.com/forceu/gokapi/internal/models"
 )
 
-// fileRequestsZipUrl is what the "filerequest" browsers carry in data-zip-url.
-// The built-in zip (ZipUrl plus ids) is not used: request files are zipped
-// through the presigned flow, because /files/zip refuses request uploads. The
-// value only switches the "Download as .zip" button on; admin_ui_filerequest.js
-// handles the click.
-const fileRequestsZipUrl = "./api/files/downloadzip"
-
 // FileRequestsView is the File requests page: the admin frame, plus one
 // shared file browser per request, keyed by the request's id.
 type FileRequestsView struct {
@@ -36,7 +29,9 @@ func newFileRequestsView(r *http.Request, admin AdminView, user models.User) Fil
 			items = append(items, browserItemFromFile(r, f, user, ctxFileRequest, "", names))
 		}
 		browser := newFileBrowser("fr-"+request.Id, ctxFileRequest, items, user)
-		browser.ZipUrl = fileRequestsZipUrl
+		// /files/zip refuses request uploads: admin_ui_filerequest.js zips
+		// them through the presigned flow
+		browser.ZipByHandler = true
 		view.Browsers[request.Id] = browser
 	}
 	return view

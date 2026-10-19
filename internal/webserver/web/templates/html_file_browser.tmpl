@@ -80,7 +80,7 @@
 {{/* One selection-bar button. Zip only where the page has a zip endpoint. */}}
 {{ define "file_browser_bulk_button" }}
 {{- if eq .Key "download" }}<button type="button" class="btn btn-sm btn-light" data-act="download">Download</button>
-{{- else if eq .Key "zip" }}{{ if .B.ZipUrl }}<button type="button" class="btn btn-sm btn-outline-light" data-act="zip">Download as .zip</button>{{ end }}
+{{- else if eq .Key "zip" }}{{ if or .B.ZipUrl .B.ZipByHandler }}<button type="button" class="btn btn-sm btn-outline-light" data-act="zip">Download as .zip</button>{{ end }}
 {{- else if eq .Key "photos" }}<button type="button" class="btn btn-sm btn-outline-light d-none" data-act="photos">Save to Photos</button>
 {{- else if eq .Key "link" }}<button type="button" class="btn btn-sm btn-outline-light" data-act="link">Create one link</button>
 {{- else if eq .Key "add-to-collection" }}<button type="button" class="btn btn-sm btn-outline-light" data-act="add-to-collection">Add to collection…</button>

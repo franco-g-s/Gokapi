@@ -97,8 +97,8 @@ For each fingerprint (SHA1) the worker produces:
 
 | Output | Spec |
 |---|---|
-| Thumbnail | WebP, ~640 px wide, ~40–60 KB. Used for grid icons and boards. |
-| Preview | JPEG, ~2000 px on the long side. Used in the viewer. |
+| Thumbnail | WebP, ~480 px wide (revised from 640 on 2026-10-19 to save storage). Used for grid icons, list icons and boards. |
+| Preview | JPEG, ~1600 px on the long side, quality ~75 (revised from 2000 px). Used in the viewer, which labels it as a lower-resolution preview. |
 | Poster | Video only: one frame, sized like the thumbnail. |
 | Metadata | Width and height **after EXIF rotation**, taken-at timestamp (EXIF `DateTimeOriginal`, or the QuickTime creation date), duration for video, average colour, perceptual hash. |
 
@@ -109,6 +109,8 @@ Storage and status:
   column: `pending`, `ready`, `failed` or `unsupported`.
 - Previews are keyed by fingerprint, so identical files are processed once.
 - Previews are deleted when the last file with that fingerprint is deleted.
+- A generator version is recorded. When the sizes or quality change, existing
+  previews are regenerated once, automatically, in the background.
 
 Supported formats:
 
@@ -152,17 +154,39 @@ cannot cache it, because the pages are private.
 
 ### Files tab (new page `/files`)
 
+Revised 2026-10-19 after Franco tried the preview build.
+
 - **View switch:** **My files** (the default) or **Everything**. For the admin,
   Everything means every file from every person. For others it means their own
   files plus those in their groups.
-- **Grid view:** thumbnails, with an icon-size slider. Each tile shows the
-  uploader and the upload date.
-- **List view:** columns are name · uploaded by · uploaded · taken · size ·
-  expires · downloads.
-- **Actions:** the existing ones, all through existing endpoints: copy link,
-  share, edit, delete, add to collection. From part 2, also **add to group**.
-- **Multi-select:** download, download as zip, Save to Photos on iOS/iPadOS,
-  and (from part 2) **add to group**.
+- **Grid view:**
+  - Thumbnails, with an icon-size slider. Each tile shows the uploader and the
+    upload date.
+  - A **Square / True shape** toggle. True shape shows the whole picture,
+    letterboxed inside each square cell, so orientation and aspect ratio are
+    visible.
+- **List view:**
+  - Columns are a small thumbnail plus name · uploaded by · uploaded · taken ·
+    size · expires · downloads · actions.
+  - There is no icon-size slider; it shows only in grid view.
+- **Opening and selecting:**
+  - A **Select** button toggles select mode.
+  - With select mode off, there are no checkboxes. Clicking a tile, or a name
+    in the list, opens the full-screen viewer.
+  - With select mode on, checkboxes appear and clicking toggles selection.
+- **Per-file actions:**
+  - One "⋯" menu, identical in grid and list. It holds Open, Download original,
+    Copy link, Share…, QR code, Edit, Replace content, Add to collection… and
+    Delete. From part 2 it also holds **Add to group…**.
+  - Edit covers the name, expiry, download limit and password. Renaming is a
+    small server addition, because upstream cannot rename.
+  - In the grid, the menu sits on the tile corner: always visible on touch
+    screens, shown on hover on desktop.
+- **Bulk actions (select mode):**
+  - Download, Download as .zip, Save to Photos on iOS/iPadOS.
+  - Create one link, Add to collection…, Change expiry & limits.
+  - Delete, which asks for confirmation.
+  - From part 2, also **Add to group…**.
 - **The Upload page** goes back to being only for uploading. The file table
   moves here.
 
@@ -170,8 +194,12 @@ cannot cache it, because the pages are private.
 
 A full-screen overlay that opens from any grid, board or collection page.
 
-- **Navigation:** arrow keys or swipe.
-- **Photos:** shows the ~2000 px preview.
+- **Navigation:** arrow keys, swipe on touch screens, or a horizontal
+  trackpad swipe / horizontal scroll on desktop.
+- **Photos:** shows the ~1600 px preview, labelled "Lower-resolution preview —
+  download the original for full quality".
+- **Stacking:** the viewer covers everything on the page, including the
+  sidebar and user badge from the custom branding.
 - **Videos:** play from the original file using range requests, which
   `http.ServeContent` already supports. If the browser cannot play the video
   (for example HEVC in Firefox), the poster is shown with a download button.
@@ -200,6 +228,10 @@ Default layout:
 |---|---|---|
 | Collection page | List | Board / List |
 | Group page | Board | Board / List |
+
+Collection pages use the full width on desktop rather than a fixed narrow card;
+phones are unchanged. In the Collections tab, a collection's name opens its
+page.
 
 ### Download all, and zip
 
@@ -313,6 +345,9 @@ uploading. Only your own files can be added; the admin can add anyone's.
 - **Joining:** open the link, or type the code under **Join** on the Groups
   tab, then sign in with Google if not already signed in. Join attempts are
   rate-limited per IP and per account through the existing rate limiter.
+- **From an existing collection:** a collection's owner can **Turn into a
+  group**. The new group starts with the collection's files and its name. The
+  owner picks the expiry as for a new group.
 - **Roles:**
   - **Creator:** can rename, extend, reset the code (which invalidates the old
     code and link), remove members, remove any item, and delete the group.

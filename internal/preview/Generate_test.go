@@ -38,6 +38,10 @@ func fixtures(t *testing.T) string {
 	run(t, "ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=duration=2:size=320x240:rate=10",
 		"-metadata", "com.apple.quicktime.creationdate=2026-08-14T14:33:00+0200",
 		"-movflags", "use_metadata_tags", filepath.Join(dir, "clip.mov"))
+	run(t, "ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=duration=1:size=2160x3840:rate=1",
+		filepath.Join(dir, "portrait.mp4"))
+	test.IsNil(t, os.WriteFile(filepath.Join(dir, "evil.mp4"),
+		[]byte("#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nfile:///etc/passwd\n#EXT-X-ENDLIST\n"), 0600))
 	test.IsNil(t, os.WriteFile(filepath.Join(dir, "corrupt.jpg"), []byte("not an image at all"), 0600))
 	return dir
 }
@@ -73,6 +77,26 @@ func TestGenerate(t *testing.T) {
 
 	_, err = Generate(ctx, filepath.Join(dir, "corrupt.jpg"), out, "shabad", models.PreviewKindImage)
 	test.IsNotNil(t, err)
+	noOutputs(t, out, "shabad")
+
+	// A renamed HLS playlist must be refused, not interpreted.
+	_, err = Generate(ctx, filepath.Join(dir, "evil.mp4"), out, "shaevil", models.PreviewKindVideo)
+	test.IsNotNil(t, err)
+	noOutputs(t, out, "shaevil")
+
+	// Portrait video: the long edge is capped, not just the width.
+	por, err := Generate(ctx, filepath.Join(dir, "portrait.mp4"), out, "shapor", models.PreviewKindVideo)
+	test.IsNil(t, err)
+	test.IsEqualBool(t, por.Height <= 2000 && por.Height > por.Width, true)
+}
+
+func noOutputs(t *testing.T, out, sha string) {
+	t.Helper()
+	left, err := filepath.Glob(filepath.Join(out, sha+"-*"))
+	test.IsNil(t, err)
+	if len(left) != 0 {
+		t.Fatalf("partial outputs left behind: %v", left)
+	}
 }
 
 func TestKind(t *testing.T) {

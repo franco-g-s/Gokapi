@@ -53,7 +53,8 @@ func Paths(dir, sha1 string) (thumb, view, poster string) {
 
 func command(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = append(os.Environ(), "VIPS_CONCURRENCY=1")
+	// VIPS_BLOCK_UNTRUSTED makes vips refuse loaders not marked safe for hostile input.
+	cmd.Env = append(os.Environ(), "VIPS_CONCURRENCY=1", "VIPS_BLOCK_UNTRUSTED=1")
 	out, err := cmd.Output()
 	if err != nil {
 		var ee *exec.ExitError
@@ -66,10 +67,19 @@ func command(ctx context.Context, name string, args ...string) ([]byte, error) {
 }
 
 // Generate produces the display outputs for one blob and returns its metadata.
-func Generate(ctx context.Context, src, outDir, sha1, kind string) (models.Preview, error) {
-	if err := os.MkdirAll(outDir, 0700); err != nil {
+// On error, no partial outputs for this sha1 are left behind.
+func Generate(ctx context.Context, src, outDir, sha1, kind string) (p models.Preview, err error) {
+	if err = os.MkdirAll(outDir, 0700); err != nil {
 		return models.Preview{}, err
 	}
+	defer func() {
+		if err != nil {
+			thumb, view, poster := Paths(outDir, sha1)
+			for _, f := range []string{thumb, view, poster, filepath.Join(outDir, sha1+"-tiny.png")} {
+				_ = os.Remove(f)
+			}
+		}
+	}()
 	switch kind {
 	case models.PreviewKindImage:
 		return generateImage(ctx, src, outDir, sha1)
@@ -97,10 +107,15 @@ func generateVideo(parent context.Context, src, outDir, sha1 string) (models.Pre
 	ctx, cancel := context.WithTimeout(parent, 120*time.Second)
 	defer cancel()
 	thumb, view, poster := Paths(outDir, sha1)
-	probe, err := command(ctx, "ffprobe", "-v", "error", "-print_format", "json",
-		"-show_entries", "format=duration:format_tags:stream=codec_type,width,height:stream_side_data=rotation", src)
+	// Uploads are untrusted: only local files, and only MOV/MP4 containers, so a
+	// renamed playlist (hls, concat) cannot make ffmpeg fetch or read other files.
+	probe, err := command(ctx, "ffprobe", "-v", "error", "-protocol_whitelist", "file", "-print_format", "json",
+		"-show_entries", "format=duration,format_name:format_tags:stream=codec_type,width,height:stream_side_data=rotation", src)
 	if err != nil {
 		return models.Preview{}, err
+	}
+	if !allowedContainer(probe) {
+		return models.Preview{}, errors.New("unsupported video container")
 	}
 	p := models.Preview{Sha1: sha1, Kind: models.PreviewKindVideo}
 	p.TakenAt, p.DurationMs = parseProbe(probe)
@@ -109,8 +124,10 @@ func generateVideo(parent context.Context, src, outDir, sha1 string) (models.Pre
 	if p.DurationMs < 1500 {
 		seek = "0"
 	}
-	_, err = command(ctx, "ffmpeg", "-loglevel", "error", "-threads", "1", "-y", "-ss", seek, "-i", src,
-		"-frames:v", "1", "-vf", fmt.Sprintf("scale='min(%d,iw)':-2", viewMaxEdge), view)
+	// The scale caps the long edge (after autorotation), so portrait clips are bounded too.
+	scale := fmt.Sprintf("scale='if(gt(iw,ih),min(%[1]d,iw),-2)':'if(gt(iw,ih),-2,min(%[1]d,ih))'", viewMaxEdge)
+	_, err = command(ctx, "ffmpeg", "-loglevel", "error", "-threads", "1", "-y", "-protocol_whitelist", "file",
+		"-ss", seek, "-f", "mov", "-i", src, "-frames:v", "1", "-vf", scale, view)
 	if err != nil {
 		return models.Preview{}, err
 	}
@@ -234,6 +251,20 @@ func imageTakenAt(ctx context.Context, src string) int64 {
 		return 0
 	}
 	return t.UTC().Unix()
+}
+
+// allowedContainer accepts only the MOV/MP4 demuxer family.
+func allowedContainer(raw []byte) bool {
+	var probe struct {
+		Format struct {
+			FormatName string `json:"format_name"`
+		} `json:"format"`
+	}
+	if json.Unmarshal(raw, &probe) != nil {
+		return false
+	}
+	n := probe.Format.FormatName
+	return strings.Contains(n, "mov") || strings.Contains(n, "mp4")
 }
 
 func parseProbe(raw []byte) (takenAt, durationMs int64) {

@@ -56,9 +56,21 @@ func TestCollectionBoardMarkup(t *testing.T) {
 			"fgs-viewer", "fgs-help-sheet", "fgs-collection-wide", "data-fgs-downloads", "data-fgs-download-all",
 			"data-fgs-photos", "data-fgs-download-zip", `href="./cz?id=` + col.Id + `"`, "Download all 2 files",
 			`data-bytes="1"`,
+			// G2: the Back button is in the markup but hidden until the script finds a same-origin referrer
+			`class="btn btn-sm btn-outline-light d-none mb-2" data-fgs-back>`, `<i class="bi bi-arrow-left"></i> Back`,
+			"FGS.initBackButton(",
 		},
 		ExcludedContent: collectionPublicExcluded,
 	})
+}
+
+// G2: the Back button's rule lives in media.js: same-origin referrer, not this page
+func TestCollectionBackButtonScript(t *testing.T) {
+	js, err := os.ReadFile("web/static/js/media.js")
+	test.IsNil(t, err)
+	for _, want := range []string{"FGS.initBackButton = function", "ref.origin !== page.origin", "ref.pathname === page.pathname", "window.history.back()", "window.location.href = ref.href", "setTimeout(", "350", `"pagehide"`} {
+		test.IsEqualBool(t, strings.Contains(string(js), want), true)
+	}
 }
 
 // The file count is the list's own ("Files: n"); the header no longer says it again
@@ -99,7 +111,7 @@ func TestCollectionPasswordPageHasNoBrowser(t *testing.T) {
 	test.HttpPageResult(t, test.HttpTestConfig{
 		Url: "http://localhost:53843/c?id=" + col.Id, IsHtml: true,
 		RequiredContent: []string{"This collection is password protected.", `name="password"`},
-		ExcludedContent: []string{"data-fgs-browser", "file_browser", "fgs-viewer", "fgs-help-sheet", "data-fgs-downloads", "boardfile0000000004"},
+		ExcludedContent: []string{"data-fgs-browser", "file_browser", "fgs-viewer", "fgs-help-sheet", "data-fgs-downloads", "boardfile0000000004", "data-fgs-back", "initBackButton"},
 	})
 }
 

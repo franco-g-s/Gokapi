@@ -18,6 +18,11 @@
 {{ else }}
         <div class="card-body p-4">
 
+            {{/* Hidden until media.js finds a same-origin referrer other than this page (FGS.initBackButton); the margin is on the button so a hidden one leaves no gap */}}
+            <button type="button" class="btn btn-sm btn-outline-light d-none mb-2" data-fgs-back>
+                <i class="bi bi-arrow-left"></i> Back
+            </button>
+
             <div class="text-center mb-4">
                 <h3 class="card-title mb-1">{{ .Collection.Name }}</h3>
                 <p class="text-muted mb-0">
@@ -36,6 +41,7 @@
             // Download all, Save to Photos and the zip link act on every file in the list;
             // the selection bar inside it acts on the selected ones
             FGS.initDownloadButtons(document.querySelector("[data-fgs-downloads]"));
+            FGS.initBackButton(document.querySelector("[data-fgs-back]"));
             </script>
 
         </div>

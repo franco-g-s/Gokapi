@@ -694,15 +694,26 @@ func showAdminMenu(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	view := (&AdminView{}).convertGlobalConfig(ViewMain, user)
+	view := UploadView{}
+	view.AdminView = *(&AdminView{}).convertGlobalConfig(ViewMain, user)
 	if len(configuration.GetEnvironment().ActiveDeprecations) > 0 {
 		if user.IsSuperAdmin() {
 			view.ShowDeprecationNotice = true
 		}
 	}
+	// Starts empty: only what is uploaded now is added, live, by
+	// admin_ui_upload.js. Stored files are on the Files tab.
+	view.Browser = newFileBrowser("fgs-upload", ctxUpload, []browserItem{}, user)
 
-	err = templateFolder.ExecuteTemplate(w, "admin", view)
+	err = templateFolder.ExecuteTemplate(w, "admin", &view)
 	helper.CheckIgnoreTimeout(err)
+}
+
+// UploadView is the upload page: the admin view plus the shared file list of
+// the files uploaded now
+type UploadView struct {
+	AdminView
+	Browser fileBrowser
 }
 
 // Handling of /logs

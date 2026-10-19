@@ -104,29 +104,16 @@
 </div>
 		<br><br>
 		<p class="small text-muted mt-2 mb-1">Files you upload now appear below. Everything you have shared is in <a href="./files">Files</a>.</p>
-		<div class="table-responsive">
-			<table id="maintable" class="table table-dark" data-count-label="Uploaded now: ">
-				<thead>
-					<tr>
-						<th scope="col" style="text-align: center;">Filename</th>
-						<th scope="col" style="text-align: center;">Size</th>
-						<th scope="col" style="text-align: center;">Downloads remaining</th>
-						<th scope="col" style="text-align: center;">Stored until</th>
-						<th scope="col" style="text-align: center;">Downloads</th>
-						<th scope="col" style="text-align: center;">ID</th>
-						<th scope="col" style="text-align: center; min-width:13em;">Actions</th>
-					</tr>
-				</thead>
-				<tbody id="downloadtable">
-				</tbody>
-			</table>
-		      </div>
+		{{ template "file_browser" .Browser }}
+		{{ template "media_viewer" }}
+		{{ template "media_help_sheet" }}
 		  </div>
 		</div>
 	    </div>
    	 </div>
 	
 	{{ template "admin_modal_edit" }}
+	{{ template "file_browser_dialogs" .ServerUrl }}
 	
 
 	<div id="toastnotification" class="toastnotification" data-default="URL copied to clipboard">Toast Text</div>
@@ -157,30 +144,9 @@
 	Dropzone.options.uploaddropzone["retryChunks"] = true;
 	Dropzone.options.uploaddropzone["previewsContainer"] = false;
 	
-	$(document).ready(function () {
-	
-	    $('#maintable').DataTable({
-	    "responsive": true,
-	    "order": [], // disables initial sorting
-	    "columnDefs": [ {
-		"targets": 6,
-		"orderable": false
-		} ],
-	    "paging": false,
-	    "language": {
-	      "info": "Uploaded now: _TOTAL_",
-	      "emptyTable": "Nothing uploaded yet",
-	      "infoEmpty": "",
-	    }
-	    });
-	});
-	
 	registerChangeHandler();
-		
-	var canReplaceOwnFiles = {{.ActiveUser.HasPermissionReplace}};
 	setUploadDefaults();
 	setAutoLinkDefault();
-	revealNativeShareItems();
 	
 {{ if .ShowDeprecationNotice }}
 	showDeprecationNotice();
@@ -217,74 +183,6 @@
 {{ end }}
 
 
-
-{{ define "admin_button_download" }}
-			<button
-			    type="button"
-			    title="Download"
-			    class="btn btn-outline-light btn-sm {{if .CurrentFile.RequiresClientSideDecryption}}disabled{{end}}"
-			    onclick="downloadFileWithPresign('{{.CurrentFile.Id }}');">
-		   	    <i class="bi bi-download"></i> Download
-			</button>
-
-{{ end }}
-
-{{ define "admin_button_edit" }}
-			<button
-			    type="button"
-			    title="Edit"
-			    {{ if and (ne .ActiveUser.Id .CurrentFile.UploaderId) (not .ActiveUser.HasPermissionEditOtherUploads) }}
-			    	disabled
-			    {{ end }}
-			    class="btn btn-outline-light btn-sm"
-			    onclick="showEditModal('{{.CurrentFile.Name }}',
-			    	'{{.CurrentFile.Id}}', {{.CurrentFile.DownloadsRemaining }},
-			    	 {{.CurrentFile.ExpireAt }}, {{.CurrentFile.IsPasswordProtected}},
-			    	 {{.CurrentFile.UnlimitedDownloads }}, {{.CurrentFile.UnlimitedTime}},
-			    	 {{.CurrentFile.IsEndToEndEncrypted}},
-			    	 {{ or (and (eq .ActiveUser.Id .CurrentFile.UploaderId) (.ActiveUser.HasPermissionReplace))
-			    	 	(.ActiveUser.HasPermissionReplaceOtherUploads) }});">
-		   	    <i class="bi bi-pencil"></i>
-			</button>
-
-{{ end }}
-
-
-{{ define "admin_button_delete" }}
-			<button id="button-delete-{{ .CurrentFile.Id}}"
-			   type="button"
-			   title="Delete"
-			    {{ if and (ne .ActiveUser.Id .CurrentFile.UploaderId) (not .ActiveUser.HasPermissionDeleteOtherUploads) }}
-			    	disabled
-			    {{ end }}
-			   class="btn btn-outline-danger btn-sm"
-			   onclick="deleteFile('{{ .CurrentFile.Id }}')">
-			   <i class="bi bi-trash3"></i>
-			</button>
-{{ end }}
-
-{{ define "admin_button_copyurl" }}
-		    <button id="url-button-{{ .CurrentFile.Id }}" type="button" onclick="showToast(1000)"
-		    	data-clipboard-text="{{ .CurrentFile.UrlDownload }}" class="copyurl btn btn-outline-light btn-sm" title="Copy URL"><i class="bi bi-copy"></i> URL</button>
-		    <button type="button" class="btn btn-outline-light btn-sm dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
-		    </button>
-			<ul class="dropdown-menu dropdown-menu-end" data-bs-theme="dark" >
-	{{ if ne .CurrentFile.UrlHotlink "" }}
-			    <li style="cursor: pointer;"><a class="dropdown-item copyurl" title="Copy hotlink" onclick="showToast(1000)"
-			    	data-clipboard-text="{{ .CurrentFile.UrlHotlink }}"><i class="bi bi-copy"></i> Hotlink</a></li>
-		{{ else }}
-			    <li><a class="dropdown-item disabled">Hotlink not available</a></li>
-	{{ end }}
-			    <li><hr class="dropdown-divider"></li>
-			    <li class="native-share-item" style="cursor: pointer; display: none;"><a class="dropdown-item"
-			       title="Share via device" onclick="shareNativeUrl('{{ .CurrentFile.Id }}')"><i class="bi bi-box-arrow-up"></i> Share...</a></li>
-			    <li style="cursor: pointer;"><a class="dropdown-item" id="qrcode-{{ .CurrentFile.Id }}" title="Open QR Code"
-			       onclick="showQrCode('{{ .CurrentFile.UrlDownload }}');"><i class="bi bi-qr-code"></i> QR Code</a></li>
-			    <li style="cursor: pointer;"><a class="dropdown-item" id="email-{{ .CurrentFile.Id }}"
-			       href="mailto:?body={{ .CurrentFile.UrlDownload | urlquery}}" target="_blank"
-			       title="Share via email"><i class="bi bi-envelope"></i> Email</a></li>
-			</ul>
-{{ end }}
 
 {{ define "admin_modal_edit" }}
 

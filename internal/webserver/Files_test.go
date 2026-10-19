@@ -75,8 +75,26 @@ func TestUploadPageDoesNotListStoredFiles(t *testing.T) {
 		Url:             "http://localhost:53843/admin",
 		IsHtml:          true,
 		Cookies:         []test.Cookie{filesAdminSession()},
-		RequiredContent: []string{`id="downloadtable"`, "Downloads remaining", `<a href="./files">Files</a>`},
-		ExcludedContent: []string{`id="row-unlimitedDownload"`},
+		RequiredContent: []string{`data-context="upload"`, `<a href="./files">Files</a>`},
+		ExcludedContent: []string{`id="row-unlimitedDownload"`, `data-id="unlimitedDownload"`, `data-row-id="unlimitedDownload"`},
+	})
+}
+
+// The upload page's "uploaded now" list is the shared file list, empty until
+// something is uploaded, with the dialogs its actions need. The old table is
+// gone, so the custom branding's #maintable bar finds nothing.
+func TestUploadPageUsesFileBrowser(t *testing.T) {
+	test.HttpPageResult(t, test.HttpTestConfig{
+		Url:     "http://localhost:53843/admin",
+		IsHtml:  true,
+		Cookies: []test.Cookie{filesAdminSession()},
+		RequiredContent: []string{`id="fgs-upload"`, `data-fgs-browser`, `data-context="upload"`,
+			`data-default-view="grid"`, `data-count-label="Uploaded now: "`, `data-zip-url="./files/zip?ids="`,
+			`data-act="link"`, `data-act="add-to-collection"`, `data-act="change-expiry"`,
+			`id="fgs-collect-modal"`, `id="fgs-expiry-modal"`, `id="fgs-viewer"`,
+			`template data-fgs-tpl="tile"`, `id="modaledit"`, `id="toastnotificationUndo"`,
+			"Files you upload now appear below."},
+		ExcludedContent: []string{`id="maintable"`, `id="downloadtable"`, "Downloads remaining"},
 	})
 }
 

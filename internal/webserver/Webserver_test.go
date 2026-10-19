@@ -171,7 +171,7 @@ func TestAdminAuth(t *testing.T) {
 	t.Parallel()
 	test.HttpPageResult(t, test.HttpTestConfig{
 		Url:             "http://localhost:53843/admin",
-		RequiredContent: []string{"Downloads remaining"},
+		RequiredContent: []string{`data-context="upload"`},
 		IsHtml:          true,
 		Cookies: []test.Cookie{{
 			Name:  "session_token",
@@ -195,7 +195,7 @@ func TestAdminRenewalAuth(t *testing.T) {
 	t.Parallel()
 	cookies := test.HttpPageResult(t, test.HttpTestConfig{
 		Url:             "http://localhost:53843/admin",
-		RequiredContent: []string{"Downloads remaining"},
+		RequiredContent: []string{`data-context="upload"`},
 		IsHtml:          true,
 		Cookies: []test.Cookie{{
 			Name:  "session_token",
@@ -214,7 +214,7 @@ func TestAdminRenewalAuth(t *testing.T) {
 	}
 	test.HttpPageResult(t, test.HttpTestConfig{
 		Url:             "http://localhost:53843/admin",
-		RequiredContent: []string{"Downloads remaining"},
+		RequiredContent: []string{`data-context="upload"`},
 		IsHtml:          true,
 		Cookies: []test.Cookie{{
 			Name:  "session_token",
@@ -316,7 +316,7 @@ func TestLogout(t *testing.T) {
 	t.Parallel()
 	test.HttpPageResult(t, test.HttpTestConfig{
 		Url:             "http://localhost:53843/admin",
-		RequiredContent: []string{"Downloads remaining"},
+		RequiredContent: []string{`data-context="upload"`},
 		IsHtml:          true,
 		Cookies: []test.Cookie{{
 			Name:  "session_token",
@@ -639,7 +639,7 @@ func TestDisableLogin(t *testing.T) {
 	authentication.Init(configuration.Get().Authentication)
 	test.HttpPageResult(t, test.HttpTestConfig{
 		Url:             "http://localhost:53843/admin",
-		RequiredContent: []string{"Downloads remaining"},
+		RequiredContent: []string{`data-context="upload"`},
 		IsHtml:          true,
 		Cookies: []test.Cookie{{
 			Name:  "session_token",

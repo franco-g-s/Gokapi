@@ -132,7 +132,7 @@
       function report() {
         var notes = [];
         if (bigVideos) notes.push(bigVideos + " large video(s) were left out");
-        if (overCap) notes.push(overCap + " file(s) didn't fit in this batch (save them in another batch)");
+        if (overCap) notes.push(overCap + " file(s) didn't fit in one go");
         if (failed) notes.push(failed + " file(s) could not be fetched");
         if (noUrl) notes.push(noUrl + " file(s) can't be fetched here");
         if (notes.length) alert(notes.join("; ") + ". Use Download as .zip for those" + (failed ? ", or try again." : "."));
@@ -143,7 +143,7 @@
       button.disabled = true;
       var done = 0, files = [], fetched = 0;
       button.textContent = "Preparing 0/" + items.length + "…";
-      var tick = function () { done++; button.textContent = "Preparing " + done + "/" + items.length + "…"; };
+      var tick = function () { if (state.cancelled) return; done++; button.textContent = "Preparing " + done + "/" + items.length + "…"; };
       items.reduce(function (p, it) {
         return p.then(function () {
           if (state.cancelled) return null;
@@ -193,6 +193,7 @@
     state.busy = true;
     navigator.share({ files: batch }).then(function () {
       state.busy = false;
+      if (state.cancelled) return;  // selection changed while the sheet was open
       state.next += PHOTO_BATCH;
       if (state.next >= state.files.length) {
         button.textContent = "Saved ✓"; button._fgs = null;
@@ -207,6 +208,7 @@
     }, function (err) {
       // Cancelling the sheet is normal: keep the prepared files, they can tap again
       state.busy = false;
+      if (state.cancelled) return;
       if (!err || err.name !== "AbortError") FGS.openHelpSheet();
     });
   };

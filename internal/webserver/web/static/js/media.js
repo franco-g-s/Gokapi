@@ -36,8 +36,17 @@
     var length = historyLength === undefined ? window.history.length : historyLength;
     button.classList.remove("d-none");
     button.addEventListener("click", function () {
-      if (length > 1) window.history.back();
-      else window.location.href = ref.href;
+      if (length <= 1) {
+        window.location.href = ref.href;
+        return;
+      }
+      // history.back() does nothing when there is no usable entry, and goes
+      // elsewhere when the entry is not the referrer. If this page is still
+      // here shortly after, go to the referrer; leaving the page (pagehide,
+      // also a bfcache restore later) cancels the fallback.
+      var timer = setTimeout(function () { window.location.href = ref.href; }, 350);
+      window.addEventListener("pagehide", function () { clearTimeout(timer); }, { once: true });
+      window.history.back();
     });
   };
 

@@ -57,7 +57,7 @@ func TestCollectionBoardMarkup(t *testing.T) {
 			"data-fgs-photos", "data-fgs-download-zip", `href="./cz?id=` + col.Id + `"`, "Download all 2 files",
 			`data-bytes="1"`,
 			// G2: the Back button is in the markup but hidden until the script finds a same-origin referrer
-			`class="btn btn-sm btn-outline-light d-none" data-fgs-back`, `<i class="bi bi-arrow-left"></i> Back`,
+			`class="btn btn-sm btn-outline-light d-none mb-2" data-fgs-back>`, `<i class="bi bi-arrow-left"></i> Back`,
 			"FGS.initBackButton(",
 		},
 		ExcludedContent: collectionPublicExcluded,
@@ -68,7 +68,7 @@ func TestCollectionBoardMarkup(t *testing.T) {
 func TestCollectionBackButtonScript(t *testing.T) {
 	js, err := os.ReadFile("web/static/js/media.js")
 	test.IsNil(t, err)
-	for _, want := range []string{"FGS.initBackButton = function", "ref.origin !== page.origin", "ref.pathname === page.pathname", "window.history.back()", "window.location.href = ref.href"} {
+	for _, want := range []string{"FGS.initBackButton = function", "ref.origin !== page.origin", "ref.pathname === page.pathname", "window.history.back()", "window.location.href = ref.href", "setTimeout(", "350", `"pagehide"`} {
 		test.IsEqualBool(t, strings.Contains(string(js), want), true)
 	}
 }

@@ -21,8 +21,8 @@
             <div class="text-center mb-4">
                 <h3 class="card-title mb-1">{{ .Collection.Name }}</h3>
                 <p class="text-muted mb-0">
-                    {{ .FileCount }} file{{ if ne .FileCount 1 }}s{{ end }} &middot; {{ .TotalSize }}
-                    {{ if not .NeverExpires }} &middot; available until {{ .ExpiryString }}{{ end }}
+                    {{/* The file count is the list's own ("Files: n"), which follows what is shown */}}
+                    {{ .TotalSize }}{{ if not .NeverExpires }} &middot; available until {{ .ExpiryString }}{{ end }}
                 </p>
             </div>
 

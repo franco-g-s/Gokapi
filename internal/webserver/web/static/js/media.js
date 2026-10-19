@@ -775,9 +775,13 @@
       // are the way to take several at once
       var dl = bar.querySelector("[data-act=download]");
       var photos = bar.querySelector("[data-act=photos]");
-      if (dl && (photos || bar.querySelector("[data-act=zip]"))) dl.classList.add("d-none");
-      if (photos) photos.classList.remove("d-none");
-      if (help) help.classList.remove("d-none");
+      // Save to Photos needs navigator.canShare, like the page's own button
+      var canPhotos = !!photos && !!navigator.canShare;
+      if (dl && (canPhotos || bar.querySelector("[data-act=zip]"))) dl.classList.add("d-none");
+      if (canPhotos) photos.classList.remove("d-none");
+      // One "?" per page: where the page has its own buttons (the collection
+      // link page, FGS.initDownloadButtons), that one is the "?"
+      if (help && !document.querySelector("[data-fgs-downloads]")) help.classList.remove("d-none");
     }
     if (help) help.addEventListener("click", function () { FGS.openHelpSheet(); });
 

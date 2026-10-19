@@ -61,6 +61,23 @@ func TestCollectionBoardMarkup(t *testing.T) {
 	})
 }
 
+// The file count is the list's own ("Files: n"); the header no longer says it again
+func TestCollectionPageShowsFileCountOnce(t *testing.T) {
+	f := accessFile("boardfile0000000005", func(f *models.File) { f.SHA1 = "boardsha5" })
+	g := accessFile("boardfile0000000006", func(f *models.File) { f.SHA1 = "boardsha6" })
+	col, err := storage.CreateCollection(storage.CollectionParameters{Name: "count", FileIds: []string{f.Id, g.Id}}, models.User{Id: 7})
+	test.IsNil(t, err)
+	test.HttpPageResult(t, test.HttpTestConfig{
+		Url: "http://localhost:53843/c?id=" + col.Id, IsHtml: true,
+		RequiredContent: []string{`data-count-label="Files: "`, `class="fgs-count`, "<h3 class=\"card-title mb-1\">count</h3>"},
+		ExcludedContent: []string{"2 files &middot;"},
+	})
+	resp, body := filesGet(t, "", "/c?id="+col.Id)
+	test.IsEqualInt(t, resp, 200)
+	// Only the "Download all 2 files" button still says it
+	test.IsEqualInt(t, strings.Count(string(body), "2 files"), 1)
+}
+
 // Even the collection's owner, logged in, sees the visitor's page on /c
 func TestCollectionPublicHasNoManagementForOwner(t *testing.T) {
 	f := accessFile("boardfile0000000003", func(f *models.File) { f.SHA1 = "boardsha3" })

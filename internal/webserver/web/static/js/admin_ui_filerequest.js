@@ -530,11 +530,17 @@ function createFileRequestRow(jsonResult, user) {
         FGS.saveToPhotos(items, button);
     }
 
-    function removeFile(a, id, name) {
+    // Takes a deleted file out of this request's list and keeps the row's
+    // count and its "Download all" button in step
+    function forgetFile(a, id) {
         const requestId = requestIdOf(a.root);
         a.browser.removeItem(id);
         changeFileCountFr(requestId, -1);
         removeDownloadFileReference(id, requestId);
+    }
+
+    function removeFile(a, id, name) {
+        forgetFile(a, id);
         showToastFileDeletionFr(id, name);
     }
 
@@ -556,34 +562,51 @@ function createFileRequestRow(jsonResult, user) {
             });
     }
 
+    // Several files: asked first, then deleted at once (no undo), each taken
+    // out of the list as it goes. No reload: it would collapse the open row.
     async function deleteMany(a) {
         if (!confirm("Delete " + a.tiles.length + " file(s)? This cannot be undone.")) return;
         a.button.disabled = true;
         const failures = [];
-        for (let i = 0; i < a.tiles.length; i++) {
-            const name = a.tiles[i].getAttribute("data-name");
-            a.status.textContent = "Deleting " + (i + 1) + " of " + a.tiles.length + "...";
-            if (!mayDelete(a, a.tiles[i])) {
-                failures.push(name + ": you may not delete this file");
-                continue;
+        let deleted = 0;
+        try {
+            for (let i = 0; i < a.tiles.length; i++) {
+                const name = a.tiles[i].getAttribute("data-name");
+                a.status.textContent = "Deleting " + (i + 1) + " of " + a.tiles.length + "...";
+                if (!mayDelete(a, a.tiles[i])) {
+                    failures.push(name + ": you may not delete this file");
+                    continue;
+                }
+                try {
+                    await apiFilesDelete(a.ids[i], 0);
+                } catch (error) {
+                    failures.push(name + ": " + errorText(error));
+                    continue;
+                }
+                // Deleted on the server: showing it must not count as a failure
+                deleted++;
+                try {
+                    forgetFile(a, a.ids[i]);
+                } catch (error) {
+                    console.error("Error:", error);
+                }
             }
-            try {
-                await apiFilesDelete(a.ids[i], 0);
-            } catch (error) {
-                failures.push(name + ": " + errorText(error));
-            }
+        } finally {
+            a.button.disabled = false;
         }
+        a.status.textContent = "Deleted " + deleted + " file(s).";
         if (failures.length) {
             alert("Could not delete " + failures.length + " file(s):\n" + failures.join("\n"));
         }
-        location.reload();
     }
 
     FGS.registerFileActions({
         "download": download,
         "zip": zip,
         "photos": photos,
-        "delete": a => (a.bulk ? deleteMany(a) : deleteOne(a))
+        // One selected file is the menu's Delete (10 s undo); several are
+        // confirmed and permanent
+        "delete": a => (a.ids.length > 1 ? deleteMany(a) : deleteOne(a))
     }, "filerequest");
 
     // The lists sit in collapsed rows: lay out and size them once shown

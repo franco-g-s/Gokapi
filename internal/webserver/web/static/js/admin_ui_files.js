@@ -534,32 +534,44 @@ function initFilesPage() {
         setExpiryRunning(true);
         expiryFailures.textContent = "";
         var failed = 0, total = expiryTiles.length;
-        for (var i = 0; i < total; i++) {
-            var f = fileData(expiryTiles[i]);
-            expiryStatus.textContent = "Updating " + (i + 1) + " of " + total + "…";
-            if (!f.canEdit) {
-                failed++;
-                failure(expiryFailures, f.name, "you may not edit this file");
-                continue;
+        // finally: whatever happens (an exception, a reload cancelled by
+        // beforeunload) the dialog must become closable again
+        try {
+            for (var i = 0; i < total; i++) {
+                expiryStatus.textContent = "Updating " + (i + 1) + " of " + total + "…";
+                var f;
+                try {
+                    f = fileData(expiryTiles[i]);
+                } catch (error) {
+                    failed++;
+                    failure(expiryFailures, expiryTiles[i].getAttribute("data-name") || "a file", errorText(error));
+                    continue;
+                }
+                if (!f.canEdit) {
+                    failed++;
+                    failure(expiryFailures, f.name, "you may not edit this file");
+                    continue;
+                }
+                // null leaves it unchanged; 0 means unlimited / never to the API
+                var downloads = limitChoice === "keep" ? null : limit;
+                var expiry = expiryChoice === "keep" ? null : expiryAt;
+                try {
+                    await apiFilesModify(f.id, downloads, expiry, "", true);
+                    expiryChanged = true;
+                } catch (error) {
+                    failed++;
+                    failure(expiryFailures, f.name, errorText(error));
+                }
             }
-            // null leaves it unchanged; 0 means unlimited / never to the API
-            var downloads = limitChoice === "keep" ? null : limit;
-            var expiry = expiryChoice === "keep" ? null : expiryAt;
-            try {
-                await apiFilesModify(f.id, downloads, expiry, "", true);
-                expiryChanged = true;
-            } catch (error) {
-                failed++;
-                failure(expiryFailures, f.name, errorText(error));
+            if (!failed) {
+                expiryStatus.textContent = "Updated " + plural(total, "file") + ".";
+                location.reload();
+                return;
             }
+            expiryStatus.textContent = (total - failed) + " of " + plural(total, "file") + " updated; " + failed + " failed:";
+        } finally {
+            setExpiryRunning(false);
         }
-        if (!failed) {
-            expiryStatus.textContent = "Updated " + plural(total, "file") + ".";
-            location.reload();
-            return;
-        }
-        setExpiryRunning(false);
-        expiryStatus.textContent = (total - failed) + " of " + plural(total, "file") + " updated; " + failed + " failed:";
     });
     // While files are being changed the dialog cannot be dismissed (backdrop,
     // Escape, Close): closing would reload the page mid-run and lose the failures

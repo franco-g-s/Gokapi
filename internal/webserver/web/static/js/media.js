@@ -904,8 +904,8 @@
       setData(tile, "w", info.Width || 0);
       setData(tile, "h", info.Height || 0);
       if (info.TakenAt) setData(tile, "taken", info.TakenAt);
+      var open = tile.querySelector(".fgs-tile-open");
       if (info.Thumb) {
-        var open = tile.querySelector(".fgs-tile-open");
         open.textContent = "";
         open.appendChild(thumbImg("", info));
         if (info.Video) {
@@ -918,6 +918,33 @@
         }
         var old = row && row.querySelector(".fgs-list-thumb");
         if (old) old.parentNode.replaceChild(thumbImg("fgs-list-thumb", info), old);
+      } else {
+        // No thumbnail (unsupported, failed, or the new one not made yet):
+        // back to the type icon, e.g. an image replaced by a PDF
+        var name = tile.getAttribute("data-name") || "";
+        var typeIcon = fileTypeIcon(name);
+        if (!open.querySelector(".fgs-typeicon")) {
+          open.textContent = "";
+          var span = document.createElement("span");
+          span.className = "fgs-typeicon";
+          var glyph = document.createElement("i");
+          glyph.className = "bi " + typeIcon;
+          var small = document.createElement("small");
+          small.textContent = name.slice(0, 40);
+          span.appendChild(glyph);
+          span.appendChild(small);
+          open.appendChild(span);
+        }
+        var thumb = row && row.querySelector(".fgs-list-thumb");
+        if (thumb && !thumb.classList.contains("fgs-list-icon")) {
+          var holder = document.createElement("span");
+          holder.className = "fgs-list-thumb fgs-list-icon";
+          holder.setAttribute("aria-hidden", "true");
+          var rowGlyph = document.createElement("i");
+          rowGlyph.className = "bi " + typeIcon;
+          holder.appendChild(rowGlyph);
+          thumb.parentNode.replaceChild(holder, thumb);
+        }
       }
       var taken = row && row.querySelector("td[data-col=taken]");
       if (taken && info.TakenAt) {
@@ -925,8 +952,9 @@
         taken.textContent = fmt(info.TakenAt);
         if (dataTable) dataTable.row(row).invalidate("dom");
       }
-      // A replaced file's new preview is still being made: ask for it
-      if (info.Status === "pending") startPolling(id);
+      // A replaced file's new preview is still being made (or its row does
+      // not exist yet): ask for it
+      if (!info.Status || info.Status === "pending") startPolling(id);
       layoutBoard();
     }
 
@@ -1131,6 +1159,7 @@
       removeItem: removeItem,
       updateItem: updateItem,
       applyPreview: applyPreview,
+      pollPreview: startPolling,
       tile: function (id) { return tilesById[id] || null; },
       row: function (id) { return rowsById[id] || null; },
       selected: selected,

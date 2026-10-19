@@ -459,6 +459,10 @@ function showEditedFile(fileInfo, replaced) {
             browser.updateItem(fileInfo);
             if (preview !== null) {
                 browser.applyPreview(fileInfo.Id, preview);
+            } else if (replaced) {
+                // The new preview could not be fetched: keep what is shown
+                // and ask again until it arrives (or the poll gives up)
+                browser.pollPreview(fileInfo.Id);
             }
         });
         if (isE2EEnabled) {
@@ -694,6 +698,8 @@ function registerChangeHandler() {
                     let browser = uploadBrowser();
                     if (browser !== null && browser.tile(sanitizeId(event.data.item.Id)) === null) {
                         addUploadedFile(event.data.item);
+                    } else if (browser === null) {
+                        addToFilesTab(sanitizeId(event.data.item.Id));
                     }
                 } else if (event.data.type === "fileDeleted") {
                     // Another tab deleted a file — remove it silently (no toast,
@@ -831,6 +837,35 @@ function addUploadedFile(item, preview) {
     item.Id = sanitizeId(item.Id);
     browser.addItem(item, preview || undefined);
     return item.Id;
+}
+
+// A file another tab added back (an undone delete) onto the Files tab's list:
+// its current info is fetched first, so an expired or changed file shows as
+// it is. Other pages have no list for it and ignore the message.
+function addToFilesTab(id) {
+    let root = document.querySelector('[data-fgs-browser][data-context="files"]');
+    if (root === null || !window.FGS || !FGS.initFileBrowser) {
+        return;
+    }
+    let browser = FGS.initFileBrowser(root);
+    if (browser.tile(id) !== null) {
+        return;
+    }
+    apiFilesListById(id)
+        .then(item => {
+            if (browser.tile(id) !== null) {
+                return;
+            }
+            return fetch("./files/previewinfo?id=" + encodeURIComponent(id), { credentials: "same-origin", cache: "no-store" })
+                .then(response => response.ok ? response.json() : undefined)
+                .catch(() => undefined)
+                .then(preview => {
+                    if (browser.tile(id) === null) {
+                        browser.addItem(item, preview);
+                    }
+                });
+        })
+        .catch(error => console.error("Unable to show the added file:", error));
 }
 
 function sanitizeId(str) {

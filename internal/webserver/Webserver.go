@@ -901,13 +901,11 @@ func (u *AdminView) convertGlobalConfig(view int, user models.User) *AdminView {
 		_, u.DiskUsage, u.DiskTotal, u.DiskUsagePercent = serverstats.GetDiskInfo()
 		u.CpuLoad = serverstats.GetCpuUsage()
 	case ViewUsers:
-		uploadCounts := storage.GetUploadCounts()
 		fileStats := userFileStats()
 		u.Users = make([]userInfo, 0)
 		for _, userEntry := range database.GetAllUsers() {
 			userWithUploads := userInfo{
-				UploadCount: uploadCounts[userEntry.Id],
-				FileCount:   fileStats[userEntry.Id].Count,
+				UploadCount: fileStats[userEntry.Id].Count,
 				TotalSize:   helper.ByteCountSI(fileStats[userEntry.Id].Bytes),
 				Groups:      userGroupNames(userEntry.Id),
 				User:        userEntry,
@@ -1002,8 +1000,7 @@ func sortApiKeys(input []models.ApiKey) []models.ApiKey {
 }
 
 type userInfo struct {
-	UploadCount int
-	FileCount   int      // files the Files tab lists for this person
+	UploadCount int      // files the Files tab lists for this person; Size covers the same files
 	TotalSize   string   // their size, human-readable
 	Groups      []string // names of the live groups they belong to
 	User        models.User

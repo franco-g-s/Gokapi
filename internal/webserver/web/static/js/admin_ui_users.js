@@ -282,17 +282,15 @@ function addRowUser(userid, name, permissions) {
     let cellGroup = row.insertCell(1);
     let cellLastOnline = row.insertCell(2);
     let cellUploads = row.insertCell(3);
-    let cellFiles = row.insertCell(4);
-    let cellSize = row.insertCell(5);
-    let cellGroups = row.insertCell(6);
-    let cellPermissions = row.insertCell(7);
-    let cellActions = row.insertCell(8);
+    let cellSize = row.insertCell(4);
+    let cellGroups = row.insertCell(5);
+    let cellPermissions = row.insertCell(6);
+    let cellActions = row.insertCell(7);
 
     cellName.classList.add("newUser");
     cellGroup.classList.add("newUser");
     cellLastOnline.classList.add("newUser");
     cellUploads.classList.add("newUser");
-    cellFiles.classList.add("newUser");
     cellSize.classList.add("newUser");
     cellGroups.classList.add("newUser");
     cellPermissions.classList.add("newUser");
@@ -302,19 +300,18 @@ function addRowUser(userid, name, permissions) {
     cellName.innerText = name;
     cellGroup.innerText = "User";
     cellLastOnline.innerText = "Never";
-    cellUploads.innerText = "0";
 
     // Same cells as html_users.tmpl: count and link, size, groups
     const fileCount = document.createElement("span");
-    fileCount.className = "user-filecount";
+    fileCount.className = "user-uploadcount";
     fileCount.innerText = "0";
     const filesLink = document.createElement("a");
     filesLink.href = "./files?user=" + encodeURIComponent(userid);
     filesLink.className = "link-light ms-1";
     filesLink.innerText = "View files";
-    cellFiles.appendChild(fileCount);
-    cellFiles.appendChild(document.createTextNode(" "));
-    cellFiles.appendChild(filesLink);
+    cellUploads.appendChild(fileCount);
+    cellUploads.appendChild(document.createTextNode(" "));
+    cellUploads.appendChild(filesLink);
     cellSize.innerText = "0 B";
     cellGroups.innerText = "—";
 

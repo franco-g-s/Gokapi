@@ -1,7 +1,6 @@
 package webserver
 
 import (
-	"strings"
 	"time"
 
 	"github.com/forceu/gokapi/internal/configuration"
@@ -45,12 +44,4 @@ func userGroupNames(userId int) []string {
 		names = append(names, g.Name)
 	}
 	return names
-}
-
-// GroupsText is the Groups cell: the names, or a dash for nobody's groups
-func (u userInfo) GroupsText() string {
-	if len(u.Groups) == 0 {
-		return "—"
-	}
-	return strings.Join(u.Groups, ", ")
 }

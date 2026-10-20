@@ -42,8 +42,15 @@ func userRow(t *testing.T, page string, userId string) string {
 func TestUsersPage(t *testing.T) {
 	user := models.User{Id: 31, Name: "stats@example.com", Permissions: models.UserPermissionNone, UserLevel: models.UserLevelUser}
 	database.SaveUser(user, false)
+	defer database.DeleteUser(31)
 	lonely := models.User{Id: 32, Name: "lonely@example.com", Permissions: models.UserPermissionNone, UserLevel: models.UserLevelUser}
 	database.SaveUser(lonely, false)
+	defer database.DeleteUser(32)
+	defer func() {
+		for _, id := range []string{"usersfile1", "usersfile2", "usersexpired", "userspending", "usersrequest", "usersother"} {
+			database.DeleteMetaData(id)
+		}
+	}()
 	mine := func(size int64) func(*models.File) {
 		return func(f *models.File) { f.UserId = 31; f.SizeBytes = size }
 	}
@@ -73,7 +80,7 @@ func TestUsersPage(t *testing.T) {
 
 	page := getPage(t, "http://localhost:53843/users", filesAdminSession())
 	row := userRow(t, page, "31")
-	test.IsEqualBool(t, strings.Contains(row, `<span class="user-filecount">2</span>`), true)
+	test.IsEqualBool(t, strings.Contains(row, `<span class="user-uploadcount">2</span>`), true)
 	test.IsEqualBool(t, strings.Contains(row, `href="./files?user=31"`), true)
 	test.IsEqualBool(t, strings.Contains(row, "View files"), true)
 	test.IsEqualBool(t, strings.Contains(row, "3.9 kB"), true)
@@ -82,13 +89,15 @@ func TestUsersPage(t *testing.T) {
 
 	// A person with one file in no group
 	row = userRow(t, page, "32")
-	test.IsEqualBool(t, strings.Contains(row, `<span class="user-filecount">1</span>`), true)
+	test.IsEqualBool(t, strings.Contains(row, `<span class="user-uploadcount">1</span>`), true)
 	test.IsEqualBool(t, strings.Contains(row, "7 B"), true)
 	test.IsEqualBool(t, strings.Contains(row, "—"), true)
 	test.IsEqualBool(t, strings.Contains(row, "Iceland trip"), false)
 
+	// One count column: no separate Files column
+	test.IsEqualBool(t, strings.Contains(page, `<th scope="col">Files</th>`), false)
 	// The columns are in the header, in the order addRowUser builds them
-	for _, heading := range []string{`<th scope="col">Files</th>`, `<th scope="col">Size</th>`, `<th scope="col">Groups</th>`} {
+	for _, heading := range []string{`<th scope="col">Uploads</th>`, `<th scope="col">Size</th>`, `<th scope="col">Groups</th>`} {
 		test.IsEqualBool(t, strings.Contains(page, heading), true)
 	}
 }

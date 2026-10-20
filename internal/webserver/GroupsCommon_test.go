@@ -5,6 +5,7 @@ package webserver
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -135,4 +136,64 @@ func TestGroupJsonHelpers(t *testing.T) {
 	test.IsEqualString(t, v.Name, "x")
 	big := `{"Name":"` + strings.Repeat("a", 1<<20) + `"}`
 	test.IsNotNil(t, readJsonBody(httptest.NewRequest("POST", "/", strings.NewReader(big)), &v))
+}
+
+// jsonRequest is a request declaring a JSON body, as every page script sends
+func jsonRequest(method, target string, body io.Reader) *http.Request {
+	r := httptest.NewRequest(method, target, body)
+	r.Header.Set("Content-Type", "application/json")
+	return r
+}
+
+// I1: a same-site page could post a text/plain form whose body parses as
+// JSON. jsonOnly refuses anything not declared as JSON with a 415.
+func TestJsonOnly(t *testing.T) {
+	for _, contentType := range []string{"", "text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x"} {
+		r := httptest.NewRequest("POST", "/groups/x", strings.NewReader(`{"id":"x"}`))
+		if contentType != "" {
+			r.Header.Set("Content-Type", contentType)
+		}
+		w := httptest.NewRecorder()
+		test.IsEqualBool(t, jsonOnly(w, r), false)
+		test.IsEqualInt(t, w.Code, http.StatusUnsupportedMediaType)
+	}
+	for _, contentType := range []string{"application/json", "application/json; charset=UTF-8"} {
+		r := httptest.NewRequest("POST", "/groups/x", nil)
+		r.Header.Set("Content-Type", contentType)
+		w := httptest.NewRecorder()
+		test.IsEqualBool(t, jsonOnly(w, r), true)
+		test.IsEqualInt(t, w.Code, 200)
+	}
+}
+
+// I1: the join form is accepted only from the server's own origin
+// (configuration ServerUrl, "http://127.0.0.1:53843/" in the tests)
+func TestIsSameOriginForm(t *testing.T) {
+	cases := []struct {
+		origin, referer string
+		want            bool
+	}{
+		{"", "", true},
+		{"http://127.0.0.1:53843", "", true},
+		{"HTTP://127.0.0.1:53843", "", true},
+		{"http://127.0.0.1:53843", "https://evil.example/", true}, // Origin decides
+		{"https://split.example.com", "", false},
+		{"http://127.0.0.1:53844", "", false},
+		{"https://127.0.0.1:53843", "", false},
+		{"null", "", false},
+		{"", "http://127.0.0.1:53843/join?t=abc", true},
+		{"", "https://split.example.com/page", false},
+	}
+	for _, c := range cases {
+		r := httptest.NewRequest("POST", "/groups/join", nil)
+		if c.origin != "" {
+			r.Header.Set("Origin", c.origin)
+		}
+		if c.referer != "" {
+			r.Header.Set("Referer", c.referer)
+		}
+		test.IsEqualBool(t, isSameOriginForm(r), c.want)
+	}
+	test.IsEqualString(t, originOf("https://share.example.com/some/path/"), "https://share.example.com")
+	test.IsEqualString(t, originOf("null"), "")
 }

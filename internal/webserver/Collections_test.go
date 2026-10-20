@@ -58,7 +58,7 @@ func TestCollectionPasswordChangeRevokesUnlocks(t *testing.T) {
 		test.IsEqualBool(t, canView(), true)
 
 		body := `{"id":"` + collection.Id + `","password":"` + newPassword + `"}`
-		r := httptest.NewRequest("POST", "/collections/modify", bytes.NewBufferString(body))
+		r := jsonRequest("POST", "/collections/modify", bytes.NewBufferString(body))
 		r = authentication.SetUserInRequest(r, owner)
 		w = httptest.NewRecorder()
 		modifyCollection(w, r)
@@ -83,7 +83,7 @@ func TestCollectionPasswordChangeRevokesUnlocks(t *testing.T) {
 	w := httptest.NewRecorder()
 	writeCollectionPwCookie(w, collection)
 	cookie := w.Result().Cookies()[0]
-	r := httptest.NewRequest("POST", "/collections/modify", bytes.NewBufferString(`{"id":"`+collection.Id+`","name":"renamed"}`))
+	r := jsonRequest("POST", "/collections/modify", bytes.NewBufferString(`{"id":"`+collection.Id+`","name":"renamed"}`))
 	w = httptest.NewRecorder()
 	modifyCollection(w, authentication.SetUserInRequest(r, owner))
 	test.IsEqualInt(t, w.Code, http.StatusOK)
@@ -137,7 +137,7 @@ func TestCollectionModifyRemoveFileIds(t *testing.T) {
 	test.IsNil(t, err)
 	modify := func(body map[string]any) (int, map[string]any) {
 		raw, _ := json.Marshal(body)
-		r := authentication.SetUserInRequest(httptest.NewRequest("POST", "/collections/modify", bytes.NewReader(raw)), owner)
+		r := authentication.SetUserInRequest(jsonRequest("POST", "/collections/modify", bytes.NewReader(raw)), owner)
 		w := httptest.NewRecorder()
 		modifyCollection(w, r)
 		result := map[string]any{}
@@ -258,7 +258,7 @@ func TestCollectionsListHasSummary(t *testing.T) {
 func collectionModify(t *testing.T, user models.User, body map[string]any) (int, map[string]any) {
 	t.Helper()
 	raw, _ := json.Marshal(body)
-	r := authentication.SetUserInRequest(httptest.NewRequest("POST", "/collections/modify", bytes.NewReader(raw)), user)
+	r := authentication.SetUserInRequest(jsonRequest("POST", "/collections/modify", bytes.NewReader(raw)), user)
 	w := httptest.NewRecorder()
 	modifyCollection(w, r)
 	result := map[string]any{}

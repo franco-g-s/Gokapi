@@ -64,10 +64,10 @@ func writeGroupError(w http.ResponseWriter, err error) {
 	writeJsonError(w, groupErrorStatus(err), err)
 }
 
-// groupRequest starts every group mutation: POST only, a signed-in user, and
-// the JSON body decoded into v
+// groupRequest starts every group mutation: POST only, a JSON body, a
+// signed-in user, and the body decoded into v
 func groupRequest(w http.ResponseWriter, r *http.Request, v any) (models.User, bool) {
-	if !postOnly(w, r) {
+	if !postOnly(w, r) || !jsonOnly(w, r) {
 		return models.User{}, false
 	}
 	user, err := authentication.GetUserFromRequest(r)
@@ -221,14 +221,16 @@ func createGroup(w http.ResponseWriter, r *http.Request) {
 
 // ---------------------------------------------------------------- joining
 
-// isJsonRequest reports whether the body is JSON rather than a form
-func isJsonRequest(r *http.Request) bool {
+// isFormRequest reports whether the body is an urlencoded form, the join page's
+func isFormRequest(r *http.Request) bool {
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	return err == nil && mediaType == "application/json"
+	return err == nil && mediaType == "application/x-www-form-urlencoded"
 }
 
 // joinGroup answers POST /groups/join: JSON {code} from the Join dialog, or
 // the join page's form t=<token>, which then goes on to the group (303).
+// The form must come from this server's own pages (isSameOriginForm);
+// anything that is neither is a 415.
 // Every attempt, right or wrong, is rate-limited per IP and per account.
 func joinGroup(w http.ResponseWriter, r *http.Request) {
 	if !postOnly(w, r) {
@@ -241,6 +243,19 @@ func joinGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, groupJsonBodyLimit)
 	asJson := isJsonRequest(r)
+	// Refused before the rate limiter, so a forged request cannot use up
+	// the victim's join attempts
+	if !asJson {
+		if !isFormRequest(r) {
+			writeJsonError(w, http.StatusUnsupportedMediaType, errJsonRequired)
+			return
+		}
+		if !isSameOriginForm(r) {
+			addNoCacheHeader(w)
+			http.Error(w, errForeignOrigin.Error(), http.StatusForbidden)
+			return
+		}
+	}
 	if !ratelimiter.IsAllowedGroupJoin(logging.GetIpAddress(r), user.Id) {
 		if asJson {
 			writeJsonError(w, http.StatusTooManyRequests, errTooManyJoins)

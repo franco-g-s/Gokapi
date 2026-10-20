@@ -41,10 +41,19 @@ func groupsTabUsers() {
 // groupsTabDo sends a request on the real server, with the session if given
 func groupsTabDo(t *testing.T, method, path, token, contentType, body string, cookies ...*http.Cookie) (*http.Response, string) {
 	t.Helper()
+	return groupsTabDoHeaders(t, method, path, token, map[string]string{"Content-Type": contentType}, body, cookies...)
+}
+
+// groupsTabDoHeaders is groupsTabDo with any request headers; empty ones are
+// left out
+func groupsTabDoHeaders(t *testing.T, method, path, token string, headers map[string]string, body string, cookies ...*http.Cookie) (*http.Response, string) {
+	t.Helper()
 	req, err := http.NewRequest(method, groupsTabServer+path, strings.NewReader(body))
 	test.IsNil(t, err)
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
+	for k, v := range headers {
+		if v != "" {
+			req.Header.Set(k, v)
+		}
 	}
 	if token != "" {
 		req.AddCookie(&http.Cookie{Name: "session_token", Value: token})
@@ -342,4 +351,77 @@ func TestClosesLabel(t *testing.T) {
 	nextYear := time.Date(2027, 1, 12, 9, 0, 0, 0, time.Local)
 	test.IsEqualString(t, closesLabel(models.Group{Expires: nextYear.Unix()}, now), "closes 12 Jan 2027")
 	test.IsEqualString(t, closesLabel(models.Group{Expires: 0}, now), "never closes")
+}
+
+// I1: every group and collection JSON endpoint answers 415 to a body not
+// declared as JSON, so a same-site <form enctype="text/plain"> cannot forge
+// one. Nothing changes.
+func TestGroupEndpointsRequireJson(t *testing.T) {
+	groupsTabUsers()
+	group, err := storage.CreateGroup("Json only", 30, models.User{Id: 7, UserLevel: models.UserLevelUser})
+	test.IsNil(t, err)
+	defer database.DeleteGroup(group.Id)
+	collection, err := storage.CreateCollection(storage.CollectionParameters{Name: "Json only"}, models.User{Id: 7})
+	if err != nil {
+		// A collection needs a live file; the delete case then uses a made-up id
+		collection = models.Collection{Id: "nosuchcollection"}
+	}
+	body := `{"id":"` + group.Id + `","name":"forged","fileIds":[],"collectionId":"x","days":30,"code":"ZZZ-ZZZ"}`
+	for _, path := range []string{
+		// GroupsTab.go (groupRequest)
+		"/groups/create", "/groups/rename", "/groups/extend", "/groups/resetcode", "/groups/removemember",
+		"/groups/leave", "/groups/delete", "/groups/removefiles",
+		// GroupsAdd.go
+		"/groups/add", "/groups/fromcollection",
+		// GroupPage.go
+		"/groups/nearkeep",
+		// /groups/join: neither JSON nor its form
+		"/groups/join",
+		// Collections.go
+		"/collections/create", "/collections/modify", "/collections/delete?id=" + collection.Id,
+	} {
+		for _, contentType := range []string{"text/plain", ""} {
+			resp, _ := groupsTabDo(t, "POST", path, "gtab7", contentType, body)
+			if resp.StatusCode != http.StatusUnsupportedMediaType {
+				t.Errorf("%s with Content-Type %q: %d, want 415", path, contentType, resp.StatusCode)
+			}
+		}
+	}
+	stored, ok := storage.GetGroup(group.Id)
+	test.IsEqualBool(t, ok, true)
+	test.IsEqualString(t, stored.Name, "Json only")
+	test.IsEqualString(t, stored.JoinCode, group.JoinCode)
+	// A GET deletes no collection either (405)
+	resp, _ := groupsTabDo(t, "GET", "/collections/delete?id="+collection.Id, "gtab7", "", "")
+	test.IsEqualInt(t, resp.StatusCode, http.StatusMethodNotAllowed)
+}
+
+// I1: the join page's form is refused from any other origin, before the rate
+// limiter is charged; from the server's own origin it joins
+func TestGroupJoinFormOrigin(t *testing.T) {
+	groupsTabUsers()
+	group, err := storage.CreateGroup("Origin check", 30, models.User{Id: 7, UserLevel: models.UserLevelUser})
+	test.IsNil(t, err)
+	defer database.DeleteGroup(group.Id)
+	form := "t=" + url.QueryEscape(group.InviteToken)
+	formType := "application/x-www-form-urlencoded"
+
+	for _, h := range []map[string]string{
+		{"Origin": "https://split.example.com"},
+		{"Origin": "null"},
+		{"Referer": "https://split.example.com/attack.html"},
+	} {
+		h["Content-Type"] = formType
+		resp, _ := groupsTabDoHeaders(t, "POST", "/groups/join", "gtab62", h, form)
+		test.IsEqualInt(t, resp.StatusCode, http.StatusForbidden)
+		_, member := storage.GroupRole(group, 62)
+		test.IsEqualBool(t, member, false)
+	}
+
+	// The server's own origin (configuration ServerUrl) joins: 303 to the group
+	resp, _ := groupsTabDoHeaders(t, "POST", "/groups/join", "gtab62",
+		map[string]string{"Content-Type": formType, "Origin": "http://127.0.0.1:53843"}, form)
+	test.IsEqualInt(t, resp.StatusCode, http.StatusSeeOther)
+	_, member := storage.GroupRole(group, 62)
+	test.IsEqualBool(t, member, true)
 }

@@ -28,7 +28,7 @@ type addAnswer struct {
 func postAs(t *testing.T, handler func(http.ResponseWriter, *http.Request), method string, user models.User, body string) (*httptest.ResponseRecorder, addAnswer) {
 	t.Helper()
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(method, "/groups/x", strings.NewReader(body))
+	r := jsonRequest(method, "/groups/x", strings.NewReader(body))
 	handler(w, authentication.SetUserInRequest(r, user))
 	var answer addAnswer
 	_ = json.Unmarshal(w.Body.Bytes(), &answer)
@@ -161,7 +161,7 @@ func TestGroupFromCollection(t *testing.T) {
 	call := func(method string, user models.User, id string, days int) (*httptest.ResponseRecorder, fromCollectionAnswer) {
 		b, _ := json.Marshal(map[string]any{"collectionId": id, "days": days})
 		w := httptest.NewRecorder()
-		groupFromCollection(w, authentication.SetUserInRequest(httptest.NewRequest(method, "/groups/fromcollection", strings.NewReader(string(b))), user))
+		groupFromCollection(w, authentication.SetUserInRequest(jsonRequest(method, "/groups/fromcollection", strings.NewReader(string(b))), user))
 		var answer fromCollectionAnswer
 		_ = json.Unmarshal(w.Body.Bytes(), &answer)
 		return w, answer

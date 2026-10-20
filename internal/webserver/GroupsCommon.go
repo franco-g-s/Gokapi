@@ -5,9 +5,12 @@ package webserver
 import (
 	"encoding/json"
 	"errors"
+	"mime"
 	"net/http"
+	"net/url"
 	"strings"
 
+	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/models"
 	"github.com/forceu/gokapi/internal/storage"
@@ -85,6 +88,59 @@ func postOnly(w http.ResponseWriter, r *http.Request) bool {
 }
 
 var errMethodNotAllowed = errors.New("method not allowed")
+
+// isJsonRequest reports whether the body is declared as JSON
+func isJsonRequest(r *http.Request) bool {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return err == nil && mediaType == "application/json"
+}
+
+// jsonOnly is false, with a 415 written, unless the request declares a JSON
+// body. The Lax session cookie stops cross-site POSTs, but not same-site
+// ones: a page on a sibling subdomain could post an HTML form whose
+// text/plain body happens to parse as JSON. A form can never send
+// application/json, and a script on another origin cannot either without a
+// CORS preflight this server never answers.
+func jsonOnly(w http.ResponseWriter, r *http.Request) bool {
+	if isJsonRequest(r) {
+		return true
+	}
+	writeJsonError(w, http.StatusUnsupportedMediaType, errJsonRequired)
+	return false
+}
+
+var errJsonRequired = errors.New("the request body must be application/json")
+
+// isSameOriginForm reports whether a form POST may come from this server's
+// own pages: refused when Origin is present and is not the server's origin
+// (a literal "null" included), or, without an Origin, when a Referer is
+// present and points elsewhere. A request with neither is let through: some
+// privacy settings strip both, and the Lax cookie still keeps out
+// cross-site posts.
+func isSameOriginForm(r *http.Request) bool {
+	own := originOf(configuration.Get().ServerUrl)
+	if own == "" {
+		return false
+	}
+	if origin := r.Header.Get("Origin"); origin != "" {
+		return originOf(origin) == own
+	}
+	if referer := r.Header.Get("Referer"); referer != "" {
+		return originOf(referer) == own
+	}
+	return true
+}
+
+// originOf is scheme://host[:port] of a URL, lower case; "" if it has none
+func originOf(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	return strings.ToLower(u.Scheme + "://" + u.Host)
+}
+
+var errForeignOrigin = errors.New("this form must be sent from this server's own pages")
 
 // readJsonBody decodes a JSON request body of at most 1 MiB into v
 func readJsonBody(r *http.Request, v any) error {

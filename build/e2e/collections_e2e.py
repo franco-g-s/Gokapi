@@ -145,7 +145,8 @@ check("list shows its public link", c2["Id"] in listing)
 
 # ---- 11. delete removes the collection but keeps the files -----------------
 req = urllib.request.Request(BASE + "/collections/delete?id=" + c2["Id"],
-                             data=b"", method="POST")
+                             data=b"{}", method="POST",
+                             headers={"Content-Type": "application/json"})
 res = json.loads(opener.open(req).read())
 check("delete returns OK", res.get("Result") == "OK", str(res)[:60])
 try:

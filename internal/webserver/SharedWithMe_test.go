@@ -100,7 +100,7 @@ func TestSharedWithMe(t *testing.T) {
 	test.IsEqualInt64(t, database.GetCollectionsSeen(8)[0].FirstOpened, first)
 
 	// Deleting the collection removes it from the list
-	r := httptest.NewRequest("POST", "/collections/delete?id="+collection.Id, nil)
+	r := jsonRequest("POST", "/collections/delete?id="+collection.Id, nil)
 	w := httptest.NewRecorder()
 	deleteCollection(w, authentication.SetUserInRequest(r, owner))
 	test.IsEqualInt(t, w.Code, http.StatusOK)

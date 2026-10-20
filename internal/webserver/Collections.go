@@ -178,10 +178,13 @@ type collectionCreateRequest struct {
 
 // createCollection is called by the admin page to bundle selected files.
 //
-// Authenticated by the session cookie rather than an API token. That is
-// CSRF-safe because the session cookie is SameSite=Lax, so a cross-site POST
-// never carries it.
+// Authenticated by the session cookie rather than an API token. The session
+// cookie is SameSite=Lax, so a cross-site POST never carries it; jsonOnly
+// keeps out same-site forms as well.
 func createCollection(w http.ResponseWriter, r *http.Request) {
+	if !postOnly(w, r) || !jsonOnly(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	user, err := authentication.GetUserFromRequest(r)
 	if err != nil {
@@ -231,7 +234,12 @@ func createCollection(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteCollection removes a collection. The files themselves are untouched.
+// The id is in the query, but the request must still be a POST declaring a
+// JSON body: a link or a form cannot delete anything.
 func deleteCollection(w http.ResponseWriter, r *http.Request) {
+	if !postOnly(w, r) || !jsonOnly(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	user, err := authentication.GetUserFromRequest(r)
 	if err != nil {
@@ -397,6 +405,9 @@ func canEditCollection(r *http.Request, id string) (models.Collection, models.Us
 // modifyCollection renames a collection and/or replaces its member list.
 // A collection with no members left would be unreachable, so that is refused.
 func modifyCollection(w http.ResponseWriter, r *http.Request) {
+	if !postOnly(w, r) || !jsonOnly(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	var request collectionModifyRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&request); err != nil {

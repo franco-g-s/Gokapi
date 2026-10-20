@@ -26,7 +26,7 @@ type addRefusal struct {
 // addToGroup answers POST /groups/add {id, fileIds}: puts the caller's own
 // files (anyone's, for the admin) into a group they can see
 func addToGroup(w http.ResponseWriter, r *http.Request) {
-	if !postOnly(w, r) {
+	if !postOnly(w, r) || !jsonOnly(w, r) {
 		return
 	}
 	user, err := authentication.GetUserFromRequest(r)
@@ -91,7 +91,7 @@ func addToGroup(w http.ResponseWriter, r *http.Request) {
 // a new group named after the collection, with its files. The collection and
 // its link stay as they are (D6).
 func groupFromCollection(w http.ResponseWriter, r *http.Request) {
-	if !postOnly(w, r) {
+	if !postOnly(w, r) || !jsonOnly(w, r) {
 		return
 	}
 	user, err := authentication.GetUserFromRequest(r)

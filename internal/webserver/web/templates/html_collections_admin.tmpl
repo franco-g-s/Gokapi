@@ -537,7 +537,8 @@ document.querySelectorAll(".collection-delete").forEach(function (button) {
         }
         button.disabled = true;
         fetch("./collections/delete?id=" + encodeURIComponent(id), {
-            method: "POST", credentials: "same-origin"
+            method: "POST", credentials: "same-origin",
+            headers: { "Content-Type": "application/json" }, body: "{}"
         }).then(function (r) { return r.json(); }).then(function (data) {
             if (data.Result !== "OK") {
                 window.alert("Could not delete: " + (data.ErrorMessage || "unknown error"));

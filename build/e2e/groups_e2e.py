@@ -11,6 +11,11 @@ container). Then:
   duplicates are refused (blocking: 409) or silently dropped (non-blocking: 200)
   B's downloads tick the tiles; the zip is byte-equal to the originals
   D, who is in no group, sees the empty Groups page and cannot reach the group
+  I1: JSON endpoints refuse other content types (415); the join form is
+      refused from another origin (403)
+  I2: B's page carries no /d link or management data for A's files
+  M4: turning a collection none of whose files may go into a group leaves
+      no group (400)
 
 Every request is made with urllib and one cookie jar per person. Redirects are
 never followed, so 303s can be asserted.
@@ -61,9 +66,10 @@ class Client:
     def post_json(self, path, obj):
         return self.req("POST", path, json.dumps(obj).encode(), {"Content-Type": "application/json"})
 
-    def post_form(self, path, fields):
-        return self.req("POST", path, urllib.parse.urlencode(fields).encode(),
-                        {"Content-Type": "application/x-www-form-urlencoded"})
+    def post_form(self, path, fields, extra=None):
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        headers.update(extra or {})
+        return self.req("POST", path, urllib.parse.urlencode(fields).encode(), headers)
 
     def text(self, path):
         s, b, _ = self.get(path)
@@ -240,11 +246,15 @@ def item_of(client, fid):
 item1 = retry(lambda: item_of(B, f1))
 item2 = retry(lambda: item_of(B, f2))
 check("/groups/item answers 200 for both (B, a member)", bool(item1 and item2))
+own1 = item_of(A, f1)      # A's own item carries the file's terms
+if own1:
+    check("the file follows the group's closing time", abs(own1["ExpireAt"] - group_expires) <= 1,
+          "%s vs %s" % (own1["ExpireAt"], group_expires))
+    check("unlimited downloads, no password", own1["UnlimitedDownloads"] and not own1["IsPasswordProtected"])
 if item1:
-    check("the file follows the group's closing time", abs(item1["ExpireAt"] - group_expires) <= 1,
-          "%s vs %s" % (item1["ExpireAt"], group_expires))
-    check("unlimited downloads, no password", item1["UnlimitedDownloads"] and not item1["IsPasswordProtected"])
     check("the item names A as uploader", item1["UploaderName"] == A.name, item1.get("UploaderName", ""))
+    check("I2: B's item for A's file has no /d link, hotlink or counts",
+          item1["UrlDownload"] == "" and item1["UrlHotlink"] == "" and item1["DownloadCount"] == 0, str(item1)[:120])
 check("B has not downloaded them (not ticked)", item1 is not None and item1["Downloaded"] is False)
 # the tick is a Downloads row only; "own uploads count as had" (D12) is the filters' rule
 a_item = item_of(A, f1)
@@ -253,6 +263,21 @@ a_tiles = re.findall(r'<figure class="fgs-tile"[^>]*data-mine="(\w+)"[^>]*data-i
 check("A's page marks both tiles data-mine=\"true\" (D12 input)", sorted(a_tiles) == sorted([("true", f1), ("true", f2)]), str(a_tiles))
 s, page_b = B.text("/g?id=" + gid)
 check("B's group page shows exactly the two tiles", s == 200 and set(tiles(page_b)) == {f1, f2}, str(tiles(page_b)))
+
+
+def menu_tag(page, fid):
+    m = re.search(r'<div class="dropdown fgs-menu" data-fgs-file-menu data-id="%s"[^>]*>' % re.escape(fid), page)
+    return m.group(0) if m else ""
+
+
+check("I2: B's page has no /d link for A's files", ("/d?id=" + f1) not in page_b and ("/d?id=" + f2) not in page_b)
+check("I2: no data-url or download data on A's file for B",
+      bool(menu_tag(page_b, f1)) and all(k not in menu_tag(page_b, f1) for k in ("data-url", "data-downloads", "data-expire")),
+      menu_tag(page_b, f1)[:120])
+check("I2: no Expires or Downloads column on a group page", "<th>Expires</th>" not in page_b and "<th>Downloads</th>" not in page_b)
+_, page_a = A.text("/g?id=" + gid)
+check("I2: A's own view keeps the /d link and data-url for A's file",
+      ("/d?id=" + f1) in page_a and 'data-url="' in menu_tag(page_a, f1), menu_tag(page_a, f1)[:120])
 
 # ---- 5. B asks whether the bytes are already there --------------------------
 print("5. /groups/has")
@@ -345,6 +370,51 @@ s, _, _ = D.post_json("/groups/join", {"code": "ZZZZZZ"})
 check("D joining with a wrong code is refused", s in (400, 404), str(s))
 check("a member (B) cannot delete the group (403)", B.post_json("/groups/delete", {"id": gid})[0] == 403)
 check("the group is untouched", any(g["id"] == gid for g in A.json("/groups/list")[1]))
+
+# ---- 10. I1: forged requests ----------------------------------------------
+print("10. I1: content type and origin")
+forged = json.dumps({"id": gid}).encode()
+for path in ("/groups/delete", "/groups/resetcode", "/groups/rename", "/groups/add", "/groups/fromcollection",
+             "/groups/nearkeep", "/collections/create", "/collections/modify"):
+    s, _, _ = A.req("POST", path, forged, {"Content-Type": "text/plain"})
+    check("text/plain JSON to %s is 415" % path, s == 415, str(s))
+s, _, _ = A.req("POST", "/groups/join", json.dumps({"code": code}).encode(), {"Content-Type": "text/plain"})
+check("text/plain to /groups/join is 415", s == 415, str(s))
+s, _, _ = A.req("GET", "/collections/delete?id=whatever")
+check("GET /collections/delete is 405", s == 405, str(s))
+s, listing = A.json("/groups/list")
+row = next((g for g in listing if g["id"] == gid), None)
+check("the group survived, code unchanged", bool(row) and A.text("/g?id=" + gid)[1].find(code) >= 0)
+s, _, h = D.post_form("/groups/join", {"t": token}, {"Origin": "https://evil.example"})
+check("the join form from another origin is refused (403)", s == 403, str(s))
+s, _, h = D.post_form("/groups/join", {"t": token}, {"Origin": "null"})
+check("the join form from Origin: null is refused (403)", s == 403, str(s))
+check("D joined nothing", D.json("/groups/list")[1] == [])
+s, _, h = D.post_form("/groups/join", {"t": token}, {"Origin": BASE})
+check("the join form from the server's own origin joins (303)", s == 303 and ("g?id=" + gid) in h.get("Location", ""),
+      "%s %s" % (s, h.get("Location")))
+check("D is now a member", any(g["id"] == gid for g in D.json("/groups/list")[1]))
+
+# ---- 11. M4: no empty group from a collection -------------------------------
+print("11. M4: Turn into a group with nothing that may go in")
+L = make_user("L")
+s, b, _ = admin.req("POST", "/api/user/modify", b"",
+                    {"apikey": admin.token("PERM_MANAGE_USERS"), "userid": str(L.id),
+                     "userpermission": "PERM_LIST", "permissionModifier": "GRANT"})
+check("L is given PERM_LIST", s == 200, "%s %s" % (s, b[:80]))
+L.login(L.name, NEW_PW)            # a fresh session carries the new right
+s, r = B.upload("private-%s.txt" % RUN, b"private bytes " + RUN.encode())
+bprivate = (r.get("FileInfo") or {}).get("Id", "")
+check("B uploads a private file", s == 200 and bool(bprivate), str(r)[:80])
+s, b, _ = L.post_json("/collections/create", {"name": "Not L's " + RUN, "fileIds": [bprivate]})
+col = json.loads(b) if b else {}
+check("L (PERM_LIST) makes a collection of B's file", s == 200 and col.get("Files") == 1, str(col)[:100])
+before = len(L.json("/groups/list")[1])
+s, b, _ = L.post_json("/groups/fromcollection", {"collectionId": col.get("Id", ""), "days": 30})
+answer = json.loads(b) if b else {}
+check("Turn into a group answers 400 'None of these files could go into a group'",
+      s == 400 and answer.get("ErrorMessage") == "None of these files could go into a group", "%s %s" % (s, str(answer)[:90]))
+check("and leaves no group behind", len(L.json("/groups/list")[1]) == before)
 
 print("\n" + ("ALL CHECKS PASSED" if ok else "SOME CHECKS FAILED"))
 sys.exit(0 if ok else 1)

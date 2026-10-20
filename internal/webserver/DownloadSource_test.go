@@ -5,6 +5,7 @@ package webserver
 import (
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/storage/presign"
 	"github.com/forceu/gokapi/internal/test"
+	"github.com/forceu/gokapi/internal/webserver/authentication"
 )
 
 // get requests a path on the test server with an optional session cookie,
@@ -113,6 +115,25 @@ func TestEveryDownloadRouteRecords(t *testing.T) {
 		resp.Body.Close()
 		test.IsEqualInt(t, resp.StatusCode, http.StatusOK)
 		test.IsEqualBool(t, downloaded(7, a), false)
+	})
+
+	t.Run("presigned attributes to the context user, with no session cookie", func(t *testing.T) {
+		// Header and Disabled authentication have no session: requireLogin
+		// puts the user in the context, and that is who downloaded
+		for _, ids := range [][]string{{a.Id}, {a.Id, b.Id}} {
+			clear()
+			presign.Save(models.Presign{Id: "dlpresignctx", FileIds: ids, Expiry: time.Now().Add(time.Hour).Unix(), Filename: "ctx"})
+			r := httptest.NewRequest("GET", "/downloadPresigned?key=dlpresignctx", nil)
+			r = authentication.SetUserInRequest(r, models.User{Id: 8})
+			w := httptest.NewRecorder()
+			downloadPresigned(w, r)
+			test.IsEqualInt(t, w.Code, http.StatusOK)
+			for _, f := range []models.File{a, b} {
+				want := f.Id == a.Id || len(ids) == 2
+				test.IsEqualBool(t, downloaded(8, f), want)
+			}
+			test.IsEqualBool(t, downloaded(7, a), false)
+		}
 	})
 
 	t.Run("an expired or unknown file records nothing", func(t *testing.T) {

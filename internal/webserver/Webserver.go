@@ -1102,13 +1102,18 @@ func downloadPresigned(w http.ResponseWriter, r *http.Request) {
 	}
 	presign.Delete(presignedUrl.Id)
 
+	// requireLogin route: the user is in the context, in every authentication mode
+	user, err := authentication.GetUserFromRequest(r)
+	if err != nil {
+		panic(err)
+	}
 	if len(files) == 1 {
 		file := files[0]
 		forceDecryption := file.Encryption.IsEncrypted && !file.Encryption.IsEndToEndEncrypted
-		storage.ServeFile(file, w, tagDownload(r, models.DownloadViaFile), true, false, forceDecryption, false)
+		storage.ServeFile(file, w, tagDownloadUser(r, models.DownloadViaFile, user.Id), true, false, forceDecryption, false)
 		return
 	}
-	storage.ServeFilesAsZip(files, presignedUrl.Filename, w, tagDownload(r, models.DownloadViaZip))
+	storage.ServeFilesAsZip(files, presignedUrl.Filename, w, tagDownloadUser(r, models.DownloadViaZip, user.Id))
 }
 
 func serveFile(id string, isRootUrl bool, w http.ResponseWriter, r *http.Request) {

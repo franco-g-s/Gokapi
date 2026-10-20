@@ -39,6 +39,11 @@ func TestGroupsHas(t *testing.T) {
 	database.SaveUser(anna, false)
 	database.SaveUser(member, false)
 	database.SaveUser(stranger, false)
+	defer func() {
+		for _, u := range []models.User{anna, member, stranger} {
+			database.DeleteUser(u.Id)
+		}
+	}()
 
 	g, err := storage.CreateGroup("Has", 30, anna)
 	test.IsNil(t, err)
@@ -48,6 +53,7 @@ func TestGroupsHas(t *testing.T) {
 
 	const sha = "0123456789abcdef0123456789abcdef01234567"
 	f := accessFile("groupshas000000001", func(f *models.File) { f.SHA1 = sha; f.UserId = anna.Id })
+	defer database.DeleteMetaData(f.Id)
 	added, err := storage.AddFilesToGroup(g, []string{f.Id}, anna)
 	test.IsNil(t, err)
 	test.IsEqualInt(t, len(added.Added), 1)

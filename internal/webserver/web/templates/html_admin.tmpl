@@ -20,7 +20,17 @@
 				</div>
 			</form>
 		
-		<div class="form-check form-switch d-inline-flex align-items-center gap-2 mt-3">
+		<div id="fgs-upload-options-area">
+		<div class="d-flex flex-wrap align-items-center column-gap-4 row-gap-2 mt-3">
+		<div id="fgs-upload-target-wrap" hidden>
+		  <div class="d-inline-flex align-items-center gap-2">
+		    <label for="fgs-upload-target" class="small text-muted text-nowrap">Upload to</label>
+		    <select id="fgs-upload-target" class="form-select form-select-sm w-auto" autocomplete="off"{{ if .EndToEndEncryption }} data-e2e="true"{{ end }}>
+		      <option value="">My files</option>
+		    </select>
+		  </div>
+		</div>
+		<div class="form-check form-switch d-inline-flex align-items-center gap-2 mb-0 fgs-combine-option">
 		  <input class="form-check-input" type="checkbox" role="switch"
 		         id="enableAutoCollection" onchange="saveAutoLinkDefault()"
 		         aria-label="Combine each upload into one link">
@@ -28,6 +38,8 @@
 		    Combine each upload into one link
 		  </label>
 		</div>
+		</div>
+		<p id="fgs-upload-target-note" class="small text-muted mt-2 mb-0" hidden>Files uploaded to a group stay until the group closes and can be downloaded by its members.</p>
 		<div id="autoCollectionResult"></div>
 
 		<div id="uploadstatus" class="container uploads-container">
@@ -99,6 +111,7 @@
 		  </div>
 
 		</div>
+		</div>
 <div id="errordiv" class="alert alert-danger" style="display:none">
   <span id="errormessage" ></span>
 </div>
@@ -133,20 +146,12 @@
 	
 	initDropzone();
 
-	Dropzone.options.uploaddropzone["maxFilesize"] = {{ .MaxFileSize }};
-	Dropzone.options.uploaddropzone["timeout"] = 1200000;
-	Dropzone.options.uploaddropzone["chunking"] = true;
-	Dropzone.options.uploaddropzone["chunkSize"] = {{ .ChunkSize }} * 1024 * 1024;
-	Dropzone.options.uploaddropzone["parallelUploads"] = 1;
-	Dropzone.options.uploaddropzone["parallelChunkUploads"] = {{.MaxParallelUploads}};
-	Dropzone.options.uploaddropzone["forceChunking"] = true;
-	Dropzone.options.uploaddropzone["retryChunksLimit"] = 3;
-	Dropzone.options.uploaddropzone["retryChunks"] = true;
-	Dropzone.options.uploaddropzone["previewsContainer"] = false;
+	setUploadDropzoneOptions({{ .MaxFileSize }}, {{ .ChunkSize }}, {{ .MaxParallelUploads }});
 	
 	registerChangeHandler();
 	setUploadDefaults();
 	setAutoLinkDefault();
+	initUploadTarget();
 	
 {{ if .ShowDeprecationNotice }}
 	showDeprecationNotice();

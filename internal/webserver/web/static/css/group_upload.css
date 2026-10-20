@@ -1,0 +1,13 @@
+/* Part 2, G7: uploading into a group. With a group chosen under "Upload to",
+   the settings the group decides are greyed out (their inputs are also
+   disabled by admin_ui_groupupload.js). */
+.fgs-target-group .upload-options-grid,
+.fgs-target-group .fgs-combine-option {
+    opacity: 0.45;
+    pointer-events: none;
+}
+
+.fgs-upload-unavailable {
+    opacity: 0.6;
+    cursor: not-allowed;
+}

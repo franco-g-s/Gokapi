@@ -144,6 +144,8 @@ func Start() {
 	mux.HandleFunc("/p/poster", servePreviewFile("poster"))
 	mux.HandleFunc("/p/video", streamVideo)
 	mux.HandleFunc("/p/info", publicPreviewInfo)
+	// Part 2, G7: uploading into a group
+	mux.HandleFunc("/groups/has", requireLogin(groupHas, false, false))
 	// Part 2, G2: groups (shared)
 	mux.HandleFunc("/groups/list", requireLogin(listGroups, false, false))
 	mux.HandleFunc("/d/{id}/{filename}", redirectFromFilename)
@@ -707,6 +709,7 @@ func showAdminMenu(w http.ResponseWriter, r *http.Request) {
 	// Starts empty: only what is uploaded now is added, live, by
 	// admin_ui_upload.js. Stored files are on the Files tab.
 	view.Browser = newFileBrowser("fgs-upload", ctxUpload, []browserItem{}, user)
+	view.Browser.UploadSink = true
 
 	err = templateFolder.ExecuteTemplate(w, "admin", &view)
 	helper.CheckIgnoreTimeout(err)

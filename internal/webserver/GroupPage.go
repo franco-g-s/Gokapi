@@ -7,6 +7,7 @@ package webserver
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"sort"
 	"time"
 
@@ -127,17 +128,18 @@ func groupBoard(r *http.Request, g models.Group, files []models.File, user model
 	return items, ordered
 }
 
-// groupFileById returns a live file of the group, from its GroupFiles
-func groupFileById(files []models.File, fileId string) (models.File, bool) {
-	if fileId == "" {
+// groupFileById returns a live file of the group, as GroupFiles would list
+// it, with one membership query and one metadata read rather than reading
+// the whole group (M3: every /gd of a 1,000-item group did that)
+func groupFileById(g models.Group, fileId string) (models.File, bool) {
+	if fileId == "" || !slices.Contains(database.GetGroupIdsOfFile(fileId), g.Id) {
 		return models.File{}, false
 	}
-	for _, f := range files {
-		if f.Id == fileId {
-			return f, true
-		}
+	f, ok := database.GetMetaDataById(fileId)
+	if !ok || f.IsPendingForDeletion() || storage.IsExpiredFile(f, time.Now().Unix()) {
+		return models.File{}, false
 	}
-	return models.File{}, false
+	return f, true
 }
 
 // Handling of /g
@@ -263,7 +265,7 @@ func downloadGroupFile(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	file, ok := groupFileById(storage.GroupFiles(g), r.URL.Query().Get("file"))
+	file, ok := groupFileById(g, r.URL.Query().Get("file"))
 	if !ok || file.Encryption.IsEndToEndEncrypted {
 		http.NotFound(w, r)
 		return
@@ -317,13 +319,17 @@ func groupItem(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	files := storage.GroupFiles(g)
-	file, ok := groupFileById(files, r.URL.Query().Get("file"))
+	file, ok := groupFileById(g, r.URL.Query().Get("file"))
 	if !ok {
 		writeJsonError(w, http.StatusNotFound, storage.ErrGroupNotFound)
 		return
 	}
-	item := groupBrowserItem(r, g, file, user, memberNamesOf(g, files),
+	// Only the uploader's name is shown
+	names := map[int]string{}
+	if owner, found := database.GetUser(file.UserId); found {
+		names[file.UserId] = displayName(owner)
+	}
+	item := groupBrowserItem(r, g, file, user, names,
 		database.GetDownloadedFileIds(user.Id), storage.CanManageGroup(g, user))
 	writeJson(w, groupItemAnswer{
 		FileApiOutput: item.File,
@@ -353,7 +359,7 @@ func keepNearCopy(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	file, ok := groupFileById(storage.GroupFiles(g), req.FileId)
+	file, ok := groupFileById(g, req.FileId)
 	if !ok {
 		writeJsonError(w, http.StatusNotFound, storage.ErrGroupNotFound)
 		return

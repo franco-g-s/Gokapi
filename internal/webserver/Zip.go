@@ -24,7 +24,7 @@ func downloadCollectionZip(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "c?id="+collection.Id)
 		return
 	}
-	storage.ServeZip(selectedMembers(collection.Files, r), collection.Name, w, r, true)
+	storage.ServeZip(selectedMembers(collection.Files, r), collection.Name, w, tagDownload(r, models.DownloadViaZip), true)
 }
 
 // selectedMembers applies /cz's optional files= filter: the comma-separated
@@ -69,5 +69,5 @@ func downloadFilesZip(w http.ResponseWriter, r *http.Request) {
 		}
 		files = append(files, f)
 	}
-	storage.ServeZip(files, "Files", w, r, false)
+	storage.ServeZip(files, "Files", w, tagDownloadUser(r, models.DownloadViaZip, user.Id), false)
 }

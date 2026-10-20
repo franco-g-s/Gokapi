@@ -97,7 +97,7 @@ func downloadOwnFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	forceDecryption := file.Encryption.IsEncrypted && !file.Encryption.IsEndToEndEncrypted
-	if !storage.ServeFile(file, w, r, true, false, forceDecryption, true) {
+	if !storage.ServeFile(file, w, tagDownloadUser(r, models.DownloadViaFile, user.Id), true, false, forceDecryption, true) {
 		http.NotFound(w, r)
 	}
 }

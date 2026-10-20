@@ -643,6 +643,7 @@ func ServeFile(file models.File, w http.ResponseWriter, r *http.Request, forceDo
 	apimutex.Unlock(apimutex.TypeMetaData, file.Id)
 
 	logging.LogDownload(file, r, configuration.Get().SaveIp)
+	recordDownload(file, r)
 	go serverstats.AddTraffic(uint64(file.SizeBytes))
 
 	if !file.IsLocalStorage() {
@@ -730,6 +731,7 @@ func ServeFilesAsZip(files []models.File, filename string, w http.ResponseWriter
 		entryWriter, err := zipWriter.CreateHeader(header)
 		helper.Check(err)
 		logging.LogDownload(file, r, saveIp)
+		recordDownload(file, r)
 		go serverstats.AddTraffic(uint64(file.SizeBytes))
 		if !file.IsLocalStorage() {
 			statusId := downloadstatus.SetDownload(file)

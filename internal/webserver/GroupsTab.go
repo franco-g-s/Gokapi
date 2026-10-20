@@ -54,6 +54,8 @@ func groupErrorStatus(err error) int {
 		return http.StatusForbidden
 	case errors.Is(err, storage.ErrGroupNotFound):
 		return http.StatusNotFound
+	case errors.Is(err, storage.ErrGroupsUnsupported):
+		return http.StatusNotImplemented
 	}
 	return http.StatusBadRequest
 }

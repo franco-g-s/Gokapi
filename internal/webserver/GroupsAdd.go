@@ -11,19 +11,6 @@ import (
 	"github.com/forceu/gokapi/internal/webserver/authentication"
 )
 
-// groupErrorStatus maps a group error to the status it is answered with
-func groupErrorStatus(err error) int {
-	switch {
-	case errors.Is(err, storage.ErrGroupForbidden):
-		return http.StatusForbidden
-	case errors.Is(err, storage.ErrGroupNotFound):
-		return http.StatusNotFound
-	case errors.Is(err, storage.ErrGroupsUnsupported):
-		return http.StatusNotImplemented
-	}
-	return http.StatusBadRequest
-}
-
 type addDuplicate struct {
 	FileId   string
 	Name     string

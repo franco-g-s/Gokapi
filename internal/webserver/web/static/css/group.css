@@ -1,0 +1,23 @@
+/* Part 2, G10: the group page header and its near-copies. The circle's
+   colour is set inline from the person's id (D9). */
+.fgs-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.fgs-near-thumb {
+    width: 3.5rem;
+    height: 3.5rem;
+    object-fit: cover;
+    border-radius: 0.25rem;
+    background: #333;
+}

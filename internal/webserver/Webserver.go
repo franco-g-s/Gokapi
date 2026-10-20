@@ -144,6 +144,12 @@ func Start() {
 	mux.HandleFunc("/p/poster", servePreviewFile("poster"))
 	mux.HandleFunc("/p/video", streamVideo)
 	mux.HandleFunc("/p/info", publicPreviewInfo)
+	// Part 2, G10: the group page
+	mux.HandleFunc("/g", requireLogin(showGroup, true, false))
+	mux.HandleFunc("/gd", requireLogin(downloadGroupFile, false, false))
+	mux.HandleFunc("/gz", requireLogin(downloadGroupZip, false, false))
+	mux.HandleFunc("/groups/item", requireLogin(groupItem, false, false))
+	mux.HandleFunc("/groups/nearkeep", requireLogin(keepNearCopy, false, false))
 	// Part 2, G7: uploading into a group
 	mux.HandleFunc("/groups/has", requireLogin(groupHas, false, false))
 	// Part 2, G8: adding files to a group

@@ -19,24 +19,24 @@
 
 ## Decisions this plan takes where the spec is silent or contradicts itself
 
-Franco is asked about D1–D5. The plan is written with the default shown, and each answer only changes the task named.
+Franco answered D1–D5 on 2026-10-20, and D4 and D9 were changed on his say-so. Everything else is the default he accepted.
 
 | # | Gap | Default in this plan | Task |
 |---|---|---|---|
-| D1 | **Join code vs. its hash.** The spec stores only `join-code hash`, but the header shows the code. Both cannot be true. | Store the spec's hash column, used for lookup by code. Display the code by deriving it from the invite token with HMAC-SHA256 keyed on `SaltFiles`. Resetting the code mints a new token, which gives a new code. | G2 |
-| D2 | **Who can sign in.** If `OnlyRegisteredUsers` is on in the live config, a new Google account is refused before it reaches the group. | No code change. Franco confirms the setting (or lets the controller read `config.json` read-only). | deploy |
-| D3 | **Server-side encryption salts SHA1** (`sha1(content‖SaltFiles)` for encryption levels that salt). The browser cannot compute that hash. | The browser pre-check is an optimisation and says when it cannot run: `checkable:false` makes the browser upload without checking. The authoritative check runs on the server after upload and always works, because identical content gets an identical salted hash. | G7 |
-| D4 | **Remove vs. delete.** `DeleteFile` expires a file everywhere: in every group, every collection and its own link. | **Remove from group:** the creator and the admin on any item; a member on their own items. **Delete:** only the file's owner, or someone with PERM_DELETE, as everywhere else. The group menu offers both. Edit is **not** offered on group pages: it could shorten a file below the group's expiry. | G3, G10 |
-| D5 | **Names.** `User.Name` is the lowercased Google email, so tiles and "uploaded by Anna" would show full email addresses to every member. | Until Part 4's display name, members see `displayName(u)`: the part before `@`. The admin's own pages (Users, Files) keep full names. | G2 |
+| D1 | **Join code.** The spec stored a `join-code hash`, but the header shows the code. | **Revised 2026-10-20: store the code itself** (`Groups.JoinCode`, unique), as Discord invites and Google Classroom class codes do. The invite token is stored in plain text beside it and grants the same access, so hashing the code protected nothing. Guessing is stopped by the rate limiter and the code space (30^6 ≈ 729 million); a leaked code or link is undone with Reset code. The spec table is amended to match. | G1, G2 |
+| D2 | **Who can sign in** | Checked in the live `config.json` on 2026-10-20 (read-only): Google sign-in, `OnlyRegisteredUsers = false`. Any Google account can join. No change. | – |
+| D3 | **Encryption and fingerprints** | Live `Encryption.Level = 0` (checked 2026-10-20), so stored SHA1s are plain and the browser pre-check works. It stays an optimisation that reports `checkable:false` if encryption is ever turned on. The server check after upload remains the authoritative one. Franco is fine with the server alone flagging duplicates, so the pre-check must never block an upload. | G7 |
+| D4 | **Remove vs. delete, and editing in groups** | **Remove from group:** the creator and the admin on any item; a member on their own items. **Delete:** only the file's owner, or someone with PERM_DELETE, as everywhere else. **Edit stays on group pages (revised 2026-10-20)**: you may rename a file or replace its content. Its expiry, download limit and password are locked while it is in a live group, on every page: the edit dialog hides them and shows "Expiry and download limit follow the group “Iceland trip”." `/api/files/modify` refuses those changes on the server too, so "Change expiry & limits" on the Files tab reports them as failures. | G2, G3, G10 |
+| D5 | **Names.** `User.Name` is the lowercased Google email, so tiles and "uploaded by Anna" would show full email addresses to every member. | Until Part 4's display name, members see `displayName(u)`: the part before `@`. The admin's own pages (Users, Files) keep full names. Franco: fine for now; real display names (Part 4) are a priority improvement. | G2 |
 | D6 | Turning a collection into a group | The collection and its link stay untouched. Its password does not carry over: group members sign in instead. | G8 |
 | D7 | Deleting a group | Only the group goes. Its files stay with their uploaders and keep their current expiry. | G2 |
 | D8 | Leaving | Members can **Leave group**. The creator cannot: they delete the group instead. Files they put in stay in the group. | G2, G10 |
-| D9 | Avatars | Initials in a coloured circle, with the colour derived from the user id. No pictures are stored. | G10 |
+| D9 | **Avatars** | Initials in a coloured circle, with the colour derived from the user id. Google's sign-in also offers a profile photo (`picture`), but Gokapi does not store it today; showing it would mean saving its URL at sign-in, with each viewer's browser loading it from Google. **Open question for Franco**; if wanted, it goes into Part 4 with display names, which come from the same sign-in. | G10 |
 | D10 | "Upload to" | It is never remembered and resets to *My files* on every visit, so private files never go into a group by accident. Choosing a group disables expiry, download limit, password and "Combine…", because the group sets them. End-to-end encryption and groups exclude each other. | G7 |
 | D11 | Near-copies "Keep both" | Persisted in a new table `GroupNearKept(GroupId, FileId)`, because the spec has no table for it. Flags compare only against **other uploaders'** items, so your own burst shots are never flagged. Two items match when their dHash Hamming distance is ≤ `nearCopyMaxDistance = 6`, tuned on the preview with real photos. | G1, G10 |
 | D12 | "New to me" and "Hide what I've downloaded" | Your own uploads count as already had. | G3 |
 | D13 | Board order | Date taken ascending (shooting order), falling back to the upload date. Live-added items are inserted at their sorted position. | G3, G10 |
-| D14 | Batches of ~100 and server-side filters (spec "Board layout" 3–4) | Part 1 never built these: every list renders all items server-side. Part 2 keeps that. Filters and "Select all (N)" act on everything rendered, which is the full set. Paging becomes necessary at roughly **2,000 items in one group** (the DOM and DataTables get slow); it is not built now. | G3 |
+| D14 | **Batches of ~100 and server-side filters** (spec "Board layout" 3–4) | **Not built in Part 1 or Part 2.** Every list renders all its items server-side. Filters and "Select all (N)" act on everything rendered, which is the full set. That holds to about 2,000 items in one list, after which the DOM and DataTables get slow. **Franco, 2026-10-20: it must be built before the revamp is finished.** It is scheduled in Part 3; see "Deferred work" below and the spec's build order. | G3 now; Part 3 |
 | D15 | Redis | `SupportsGroups()` is false on Redis. Every group action returns `ErrGroupsUnsupported`, which pages show as "Groups need the SQLite database". `SaveDownload` and `SaveCollectionSeen` are no-ops there, so downloads never break. Nothing fails silently. | G1, G2 |
 | D16 | "Select all (N)" | It goes on **every** file list, not just groups ("each page differs only in what it lists and which actions it allows"). "Select everything new to me" is offered on group pages only. | G3 |
 | D17 | Who is "the admin" in group rules | `user.IsAdmin()` (admin or super admin). | G2 |
@@ -45,6 +45,16 @@ Franco is asked about D1–D5. The plan is written with the default shown, and e
 | D20 | Join requests | `GET /join` shows a confirmation page, and only `POST /groups/join` joins. A Lax session cookie rides on cross-site GETs, so a GET must never change anything. Every group mutation endpoint refuses methods other than POST. | G6 |
 
 ---
+
+## Deferred work that must ship before the revamp ends
+
+- **List batching and server-side filters** (spec "Board layout", items 3 and 4). Scheduled for **Part 3**:
+  - the item list is fetched in batches of about 100 as the reader nears the bottom;
+  - the person filter, "Hide what I've downloaded", "Select all (N)" and "Select everything new to me" are answered by the server over the full set;
+  - zip and download act on ids the page has not rendered yet.
+
+  Recorded in the spec's build order and in `~/atlas/memory/gokapi-share-redesign.md`, so it cannot be lost between parts.
+- **Display names** (Part 4). Until then members see the part of the email before `@` (D5).
 
 ## Global Constraints
 
@@ -213,7 +223,7 @@ type Group struct {
 	CreatorId    int    `json:"creatorId" redis:"creatorid"`
 	Created      int64  `json:"created" redis:"created"`
 	Expires      int64  `json:"expires" redis:"expires"` // 0 = never
-	JoinCodeHash string `json:"-" redis:"joincodehash"`  // sha256 hex of the normalised code
+	JoinCode     string `json:"-" redis:"joincode"`      // "K7P-4QX", unique; shown to members, reset with the token
 	InviteToken  string `json:"-" redis:"invitetoken"`   // the t= of /g/join; the code derives from it
 }
 
@@ -273,7 +283,7 @@ Add these to `dbabstraction.Database`, and add same-named wrappers in `database/
 	SupportsGroups() bool
 	GetGroup(id string) (models.Group, bool)
 	GetGroupByToken(token string) (models.Group, bool)
-	GetGroupByCodeHash(hash string) (models.Group, bool)
+	GetGroupByCode(code string) (models.Group, bool) // code as normalised by storage
 	GetAllGroups() []models.Group // newest first
 	SaveGroup(g models.Group)
 	// DeleteGroup removes the group, its members, its file links and its kept
@@ -308,18 +318,18 @@ func TestGroupsRoundTrip(t *testing.T) {
 	test.IsEqualBool(t, instance.SupportsGroups(), true)
 
 	g := models.Group{Id: "g1", Name: "Iceland trip", CreatorId: 7, Created: 100, Expires: 5000,
-		JoinCodeHash: "codehash1", InviteToken: "token1"}
+		JoinCode: "AAA-AA1", InviteToken: "token1"}
 	instance.SaveGroup(g)
 	got, ok := instance.GetGroup("g1")
 	test.IsEqualBool(t, ok, true)
 	test.IsEqualBool(t, got == g, true)
 	got, ok = instance.GetGroupByToken("token1")
 	test.IsEqualBool(t, ok && got.Id == "g1", true)
-	got, ok = instance.GetGroupByCodeHash("codehash1")
+	got, ok = instance.GetGroupByCode("AAA-AA1")
 	test.IsEqualBool(t, ok && got.Id == "g1", true)
 	_, ok = instance.GetGroupByToken("")
 	test.IsEqualBool(t, ok, false)
-	instance.SaveGroup(models.Group{Id: "g2", Name: "Wedding", CreatorId: 8, Created: 200, JoinCodeHash: "codehash2", InviteToken: "token2"})
+	instance.SaveGroup(models.Group{Id: "g2", Name: "Wedding", CreatorId: 8, Created: 200, JoinCode: "AAA-AA2", InviteToken: "token2"})
 	all := instance.GetAllGroups()
 	test.IsEqualInt(t, len(all), 2)
 	test.IsEqualString(t, all[0].Id, "g2") // newest first
@@ -393,7 +403,7 @@ func TestGroupTablesIdempotentWithoutSchemaBump(t *testing.T) {
 		instance, err := New(cfg)
 		test.IsNil(t, err)
 		test.IsEqualInt(t, instance.GetDbVersion(), 17)
-		instance.SaveGroup(models.Group{Id: "x", Name: "x", JoinCodeHash: "h", InviteToken: "t"})
+		instance.SaveGroup(models.Group{Id: "x", Name: "x", JoinCode: "h", InviteToken: "t"})
 		instance.Close()
 	}
 }
@@ -418,7 +428,7 @@ func (p DatabaseProvider) ensureGroupTables() error {
 			"CreatorId"	INTEGER NOT NULL,
 			"Created"	INTEGER NOT NULL,
 			"Expires"	INTEGER NOT NULL,
-			"JoinCodeHash"	TEXT NOT NULL UNIQUE,
+			"JoinCode"	TEXT NOT NULL UNIQUE,
 			"InviteToken"	TEXT NOT NULL UNIQUE,
 			PRIMARY KEY("Id")
 		) WITHOUT ROWID;
@@ -461,7 +471,7 @@ func (p DatabaseProvider) ensureGroupTables() error {
 
   Implementation notes:
   - Follow `collections.go`:
-    - explicit column lists (`const groupColumns = "Id, Name, CreatorId, Created, Expires, JoinCodeHash, InviteToken"`);
+    - explicit column lists (`const groupColumns = "Id, Name, CreatorId, Created, Expires, JoinCode, InviteToken"`);
     - a `scanGroup(scan func(dest ...any) error)` helper;
     - `helper.Check(err)` on unexpected errors;
     - `sql.ErrNoRows` → `false`;
@@ -508,6 +518,8 @@ func (p DatabaseProvider) ensureGroupTables() error {
 - Create: `internal/storage/Groups.go`, `internal/storage/Groups_test.go`
 - Modify: `internal/storage/FileServing.go` `CleanUp`. Two lines in the per-file block, and one call after `cleanUpCollections(timeNow)`.
 - Modify: `internal/webserver/access/Access.go`. Add the group grant.
+- Modify: `internal/webserver/api/Api.go` `apiEditFile`. Add the group lock (D4), a few lines calling `storage.GroupLock`.
+- Test: the `api` package. Add `TestEditFileInGroupLocked` to `Api_test.go` or a new `//go:build test` file.
 - Modify: `internal/webserver/access_test.go`. Add the group cases.
 - Create: `internal/webserver/GroupsCommon.go`, `internal/webserver/GroupsCommon_test.go`
 - Modify: `internal/webserver/Webserver.go`. Add one route block.
@@ -535,7 +547,7 @@ var GroupExpiryDays = []int{30, 60, 90, 0}
 const GroupDefaultExpiryDays = 60
 
 func ExpiryFromChoice(days int, now int64) (int64, error)
-func GroupCode(g models.Group) string           // "K7P-4QX"
+func GroupCode(g models.Group) string           // "K7P-4QX", the stored JoinCode
 func NormaliseGroupCode(input string) string    // "k7p 4qx" -> "K7P-4QX"; "" if not 6 alphabet chars
 func GroupInviteUrl(g models.Group) string       // configuration.Get().ServerUrl + "g/join?t=" + token
 
@@ -582,6 +594,10 @@ func StoredSha1IsPlain() bool // false when stored SHA1s are salted (D3)
 func RemoveFilesFromGroup(g models.Group, fileIds []string, actor models.User) (removed int, err error)
 func GroupFromCollection(collectionId string, days int, actor models.User) (models.Group, GroupAddResult, error)
 func UserSharesGroupWithFile(userId int, fileId string) bool // for access.CanView
+// GroupLock reports whether a file is in a live group, and the name of the
+// latest-closing one: its expiry, download limit and password then follow the
+// group and cannot be edited (D4)
+func GroupLock(fileId string) (groupName string, locked bool)
 func cleanUpGroups(timeNow int64)
 ```
 
@@ -602,6 +618,19 @@ type groupListItem struct {
 func listGroups(w http.ResponseWriter, r *http.Request)
 ```
 
+**The lock in `apiEditFile` (D4).** When `storage.GroupLock(file.Id)` is locked, refuse the request with 400 and the message `Expiry and download limit follow the group "<name>"` if it would:
+- set a download limit (anything but unlimited);
+- set any expiry other than keeping the current one;
+- set or remove a password.
+
+Renaming (`filename`) and replacing content still work. Find where `apiEditFile` reads those headers, and use the same `foundHeaders` checks the rename change (R1) used.
+
+`TestEditFileInGroupLocked` covers:
+- for a file in a live group: renaming works; a download limit, an expiry or a password is refused with that message;
+- after the group expires, the same changes work again.
+
+`JoinGroupByCode` looks the code up as `database.GetGroupByCode(NormaliseGroupCode(code))`, and an empty normalised code is `ErrInvalidJoin` without querying. `CreateGroup` and `ResetGroupCode` both use `withFreshInvite`.
+
 Rules every function enforces:
 - **Admin:** `user.IsAdmin()` (D17).
 - **Unsupported provider:** writes return `ErrGroupsUnsupported` when `!database.SupportsGroups()`.
@@ -613,18 +642,29 @@ Key implementations (write them as shown; the rest follow the same pattern):
 ```go
 const groupCodeAlphabet = "23456789ABCDEFGHJKMNPQRSTVWXYZ" // no 0/O, 1/I/L or U: nothing to misread
 
-// GroupCode is derived from the invite token, so resetting the token resets
-// both, and the code can be shown again without storing it (D1)
-func GroupCode(g models.Group) string {
-	mac := hmac.New(sha256.New, []byte(configuration.Get().Authentication.SaltFiles))
-	mac.Write([]byte("group-code:" + g.InviteToken))
-	sum := mac.Sum(nil)
+// GroupCode is the code members type under "Join" (D1). It is stored as is,
+// like the invite token next to it: both are shown to members again, so a
+// hash would protect nothing. Guessing is stopped by the rate limiter and the
+// code space (30^6 ≈ 729 million), and a leak is undone with "Reset code".
+func GroupCode(g models.Group) string { return g.JoinCode }
+
+// newGroupCode draws six characters from the alphabet with crypto/rand,
+// rejection-sampled so every character is equally likely
+func newGroupCode() string {
 	var b strings.Builder
-	for i := 0; i < 6; i++ {
-		if i == 3 {
+	for b.Len() < 7 {
+		if b.Len() == 3 {
 			b.WriteByte('-')
+			continue
 		}
-		b.WriteByte(groupCodeAlphabet[int(sum[i])%len(groupCodeAlphabet)])
+		var one [1]byte
+		if _, err := rand.Read(one[:]); err != nil {
+			panic(err)
+		}
+		if int(one[0]) >= 256-256%len(groupCodeAlphabet) {
+			continue
+		}
+		b.WriteByte(groupCodeAlphabet[int(one[0])%len(groupCodeAlphabet)])
 	}
 	return b.String()
 }
@@ -643,18 +683,13 @@ func NormaliseGroupCode(input string) string {
 	return s[:3] + "-" + s[3:]
 }
 
-func groupCodeHash(code string) string {
-	sum := sha256.Sum256([]byte(NormaliseGroupCode(code)))
-	return hex.EncodeToString(sum[:])
-}
-
-// withFreshToken gives the group a new invite token whose code no other group
-// uses. Codes are 30^6 ≈ 729 million, so a clash is rare; five tries is plenty.
-func withFreshToken(g models.Group) models.Group {
+// withFreshInvite gives the group a new invite token and a new code that no
+// other group uses. A clash is rare; five tries is plenty.
+func withFreshInvite(g models.Group) models.Group {
+	g.InviteToken = helper.GenerateRandomString(32)
 	for i := 0; i < 5; i++ {
-		g.InviteToken = helper.GenerateRandomString(32)
-		g.JoinCodeHash = groupCodeHash(GroupCode(g))
-		if other, taken := database.GetGroupByCodeHash(g.JoinCodeHash); !taken || other.Id == g.Id {
+		g.JoinCode = newGroupCode()
+		if other, taken := database.GetGroupByCode(g.JoinCode); !taken || other.Id == g.Id {
 			return g
 		}
 	}
@@ -784,14 +819,18 @@ func groupFile(id string, owner int, mutate func(*models.File)) models.File {
 }
 
 func TestGroupCodes(t *testing.T) {
-	g := models.Group{InviteToken: "abc"}
-	code := GroupCode(g)
-	test.IsEqualInt(t, len(code), 7)
-	test.IsEqualString(t, code[3:4], "-")
-	test.IsEqualString(t, GroupCode(g), code) // stable
-	test.IsEqualString(t, NormaliseGroupCode(strings.ToLower(strings.ReplaceAll(code, "-", " "))), code)
+	seen := map[string]bool{}
+	for i := 0; i < 200; i++ {
+		code := newGroupCode()
+		test.IsEqualInt(t, len(code), 7)
+		test.IsEqualString(t, code[3:4], "-")
+		test.IsEqualString(t, NormaliseGroupCode(code), code)
+		seen[code] = true
+	}
+	test.IsEqualBool(t, len(seen) > 190, true) // random, not derived
+	test.IsEqualString(t, NormaliseGroupCode("k7p 4qx"), "K7P-4QX")
 	test.IsEqualString(t, NormaliseGroupCode("K7P-4Q"), "")
-	test.IsNotEqualString(t, GroupCode(models.Group{InviteToken: "abd"}), code)
+	test.IsEqualString(t, NormaliseGroupCode("O1I-L0U"), "") // look-alikes are not in the alphabet
 }
 
 func TestCreateJoinRolesAndReset(t *testing.T) {
@@ -935,7 +974,7 @@ func TestExtendPropagates(t *testing.T) {
 }
 
 func TestGroupCleanUp(t *testing.T) {
-	g := models.Group{Id: "grpexpired", Name: "x", CreatorId: 7, Expires: 1, JoinCodeHash: "grpexp", InviteToken: "grpexp"}
+	g := models.Group{Id: "grpexpired", Name: "x", CreatorId: 7, Expires: 1, JoinCode: "grpexp", InviteToken: "grpexp"}
 	database.SaveGroup(g)
 	database.AddGroupFile(g.Id, "grpsomefile")
 	cleanUpGroups(time.Now().Unix())
@@ -1005,7 +1044,7 @@ manageMenu = []string{"open", "download", "copy", "hotlink", "share", "qr", "ema
 manageBulk = []string{"download", "zip", "photos", "link", "add-to-collection", "add-to-group", "change-expiry", "delete"}
 
 ctxGroup: {
-	Menu:        []string{"open", "download", "remove-from-group", "delete"},
+	Menu:        []string{"open", "download", "edit", "replace", "remove-from-group", "delete"},
 	Bulk:        []string{"download", "zip", "photos", "remove-from-group", "delete"},
 	DefaultView: viewBoard,
 },
@@ -1039,7 +1078,7 @@ func initialsOf(name string) string // "anna.mueller" -> "AM", "ben" -> "B"
 - For `ctxGroup`:
   - `DownloadUrl = "./gd?id=" + scopeId + "&file=" + f.Id`.
   - Previews are not scoped (`previewCollection = ""`), because `CanView` admits members.
-  - `Mine`, `Uploader`, `CanDelete` follow the default branch; `CanEdit` and `CanReplace` are false.
+  - `Mine`, `Uploader`, `CanEdit`, `CanDelete` and `CanReplace` follow the default branch.
   - `UploaderId = f.UserId`; `Initials = initialsOf(Uploader)`.
   - `CanRemove` is left to the caller (G10 knows the role).
 
@@ -1052,7 +1091,17 @@ func initialsOf(name string) string // "anna.mueller" -> "AM", "ben" -> "B"
 
 `InfoUrl()` returns `"./p/info?id="` for `ctxGroup`.
 
-`ItemPerms()` is `b.HasMenu("delete") || b.HasMenu("remove-from-group")`. `Manages()` stays `HasMenu("edit")`, which keeps Edit off group pages.
+`ItemPerms()` is `b.HasMenu("delete") || b.HasMenu("remove-from-group")`. `Manages()` stays `HasMenu("edit")`, so group pages are managed lists: the Expires and Downloads columns show, and the edit data is rendered.
+
+**The group lock in the edit dialog (D4):**
+- `browserItem` gains `GroupLock string`: the name from `storage.GroupLock`, filled in `browserItemFromFile` for every managing context, not only `group`.
+- The menu renders `data-group-lock="<name>"` when it is set.
+- `editFromMenu` in `admin_ui_filebrowser.js` passes it on. `showEditModal` in `admin_ui_upload.js` then:
+  - hides the expiry, download-limit and password fields;
+  - shows `Expiry and download limit follow the group “<name>”.` with `textContent`.
+
+  That `showEditModal` edit is the one change G3 makes outside the shared files. Keep it minimal.
+- "Change expiry & limits" needs no special case: the server refuses each locked file, and the dialog's existing failure list shows the message.
 
 **Template:**
 - **`file_browser`:** the root gets these attributes:
@@ -1112,13 +1161,14 @@ func initialsOf(name string) string // "anna.mueller" -> "AM", "ben" -> "B"
 - [ ] **Step 1: Update `TestFileBrowserActionTable`** with the new `manageMenu`/`manageBulk`, `ctxGroup`'s row and `test.IsEqualInt(t, len(want), 6)`.
   Then add `TestGroupBrowser`:
   - `newFileBrowser("g", ctxGroup, …).WithGroup(models.Group{Id: "G1"}, people)` gives `ZipUrl "./gz?id=G1&files="`, `DownloadBase "./gd?id=G1&file="`, `InfoUrl "./p/info?id="`, `DefaultView "board"`.
-  - `Manages()` is false and `ItemPerms()` is true.
+  - `Manages()` and `ItemPerms()` are both true.
+  - An item for a file in a live group has `GroupLock` set to the group's name, and the rendered menu contains `data-group-lock`.
   - `browserItemFromFile(r, f, user7, ctxGroup, "G1", names)` gives `DownloadUrl "./gd?id=G1&file="+f.Id`, `CanEdit` false, `CanDelete` true for the owner, `UploaderId` 7.
   - `initialsOf("anna.mueller") == "AM"`, `initialsOf("ben") == "B"`, `initialsOf("") == ""`.
 
 - [ ] **Step 2: Add a template render test** `TestGroupBrowserMarkup`. Execute the `file_browser` template into a buffer, with `templateFolder` as other tests use it:
   - A group browser with one downloaded item contains `data-fgs-select-new`, `data-fgs-person`, `Hide what I&#39;ve downloaded`, `data-downloaded="true"`, `data-can-remove`, `data-sort="taken-asc"`.
-  - It does not contain `data-menu="edit"`.
+  - It contains `data-menu="edit"` and `data-menu="replace"`, and does not contain `data-menu="copy"` or `data-menu="share"`.
   - A `ctxFiles` browser contains `data-fgs-select-all` and `data-menu="add-to-group"`, and does not contain `data-fgs-select-new`.
 
 - [ ] **Step 3: Run the tests and confirm they fail.** `build/dev/gotest.sh ./internal/webserver/ -run 'TestFileBrowser|TestGroupBrowser|TestBrowserItem' -v` → FAIL.

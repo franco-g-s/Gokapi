@@ -76,8 +76,8 @@ func avatarHue(userId int) int {
 func groupExtendChoices(g models.Group, now int64) []groupExtendChoice {
 	result := make([]groupExtendChoice, 0, len(storage.GroupExpiryDays))
 	for _, choice := range groupExpiryChoices() {
-		expires, _ := storage.ExpiryFromChoice(choice.Days, now)
-		disabled := g.NeverExpires() || (expires != 0 && expires <= g.Expires)
+		expires, err := storage.ExpiryFromChoice(choice.Days, now)
+		disabled := err != nil || g.NeverExpires() || (expires != 0 && expires <= g.Expires)
 		result = append(result, groupExtendChoice{Days: choice.Days, Label: choice.Label, Disabled: disabled})
 	}
 	return result
@@ -104,8 +104,7 @@ func groupBrowserItem(r *http.Request, g models.Group, f models.File, user model
 
 // groupBoard returns the group's live files as board items and as files,
 // both in shooting order, with the file id as the tie-break
-func groupBoard(r *http.Request, g models.Group, user models.User, names map[int]string) ([]browserItem, []models.File) {
-	files := storage.GroupFiles(g)
+func groupBoard(r *http.Request, g models.Group, files []models.File, user models.User, names map[int]string) ([]browserItem, []models.File) {
 	downloaded := database.GetDownloadedFileIds(user.Id)
 	manager := storage.CanManageGroup(g, user)
 	byId := make(map[string]models.File, len(files))
@@ -128,12 +127,12 @@ func groupBoard(r *http.Request, g models.Group, user models.User, names map[int
 	return items, ordered
 }
 
-// groupFileById returns a live file of the group
-func groupFileById(g models.Group, fileId string) (models.File, bool) {
+// groupFileById returns a live file of the group, from its GroupFiles
+func groupFileById(files []models.File, fileId string) (models.File, bool) {
 	if fileId == "" {
 		return models.File{}, false
 	}
-	for _, f := range storage.GroupFiles(g) {
+	for _, f := range files {
 		if f.Id == fileId {
 			return f, true
 		}
@@ -162,8 +161,9 @@ func showGroup(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	role, member := storage.GroupRole(g, user.Id)
 	manager := storage.CanManageGroup(g, user)
-	names := memberNames(g)
-	items, files := groupBoard(r, g, user, names)
+	files := storage.GroupFiles(g)
+	names := memberNamesOf(g, files)
+	items, files := groupBoard(r, g, files, user, names)
 
 	view := GroupView{
 		AdminView: *(&AdminView{}).convertGlobalConfig(ViewGroups, user),
@@ -180,13 +180,15 @@ func showGroup(w http.ResponseWriter, r *http.Request) {
 		view.ExtendChoices = groupExtendChoices(g, now.Unix())
 	}
 
-	// The header lists every member; the person filter only those with an
-	// item, both in member order
+	// The header lists every member. The person filter lists everyone with
+	// an item: members first, in member order, then people who have left
+	// (their files stay, D8), in shooting order of their first item.
 	hasItems := make(map[int]bool)
 	for _, f := range files {
 		hasItems[f.UserId] = true
 	}
 	people := make([]browserPerson, 0)
+	listed := make(map[int]bool)
 	for _, m := range database.GetGroupMembers(g.Id) {
 		name, known := names[m.UserId]
 		if !known {
@@ -201,9 +203,18 @@ func showGroup(w http.ResponseWriter, r *http.Request) {
 			IsCreator: creator,
 			Removable: manager && !creator,
 		})
-		if hasItems[m.UserId] {
+		if hasItems[m.UserId] && !listed[m.UserId] {
+			listed[m.UserId] = true
 			people = append(people, browserPerson{Id: m.UserId, Name: name})
 		}
+	}
+	for _, f := range files {
+		name, known := names[f.UserId]
+		if !known || listed[f.UserId] {
+			continue
+		}
+		listed[f.UserId] = true
+		people = append(people, browserPerson{Id: f.UserId, Name: name})
 	}
 
 	itemById := make(map[string]browserItem, len(items))
@@ -212,6 +223,10 @@ func showGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, near := range storage.NearCopies(files, user.Id, database.GetNearCopiesKept(g.Id)) {
 		mine, match := itemById[near.FileId], itemById[near.MatchId]
+		matchUser := names[near.MatchUser]
+		if matchUser == "" {
+			matchUser = "someone" // the uploader's account is gone
+		}
 		view.NearCopies = append(view.NearCopies, groupNearCopy{
 			FileId:     near.FileId,
 			FileName:   mine.File.Name,
@@ -219,7 +234,7 @@ func showGroup(w http.ResponseWriter, r *http.Request) {
 			MatchId:    near.MatchId,
 			MatchName:  match.File.Name,
 			MatchThumb: match.Preview.Thumb,
-			MatchUser:  names[near.MatchUser],
+			MatchUser:  matchUser,
 			MatchAt:    near.MatchAt,
 			MatchTime:  time.Unix(near.MatchAt, 0).Format("15:04"),
 		})
@@ -248,7 +263,7 @@ func downloadGroupFile(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	file, ok := groupFileById(g, r.URL.Query().Get("file"))
+	file, ok := groupFileById(storage.GroupFiles(g), r.URL.Query().Get("file"))
 	if !ok || file.Encryption.IsEndToEndEncrypted {
 		http.NotFound(w, r)
 		return
@@ -302,12 +317,13 @@ func groupItem(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	file, ok := groupFileById(g, r.URL.Query().Get("file"))
+	files := storage.GroupFiles(g)
+	file, ok := groupFileById(files, r.URL.Query().Get("file"))
 	if !ok {
 		writeJsonError(w, http.StatusNotFound, storage.ErrGroupNotFound)
 		return
 	}
-	item := groupBrowserItem(r, g, file, user, memberNames(g),
+	item := groupBrowserItem(r, g, file, user, memberNamesOf(g, files),
 		database.GetDownloadedFileIds(user.Id), storage.CanManageGroup(g, user))
 	writeJson(w, groupItemAnswer{
 		FileApiOutput: item.File,
@@ -337,7 +353,7 @@ func keepNearCopy(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	file, ok := groupFileById(g, req.FileId)
+	file, ok := groupFileById(storage.GroupFiles(g), req.FileId)
 	if !ok {
 		writeJsonError(w, http.StatusNotFound, storage.ErrGroupNotFound)
 		return

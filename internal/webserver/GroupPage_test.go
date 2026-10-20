@@ -22,7 +22,8 @@ import (
 // groupPageFixture is one group with three files in it and one outside:
 //
 //	A  anna's, uploaded 100, taken 3000
-//	B  carla's, uploaded 200, taken 1000, a dHash two bits from A's
+//	B  carla's, uploaded 200, taken 1000, a dHash two bits from A's: B is
+//	   the newer of the pair, so carla is the one asked about it
 //	C  carla's, uploaded 5000, no preview
 //	D  anna's, not in the group
 //
@@ -224,16 +225,48 @@ func TestGroupPage(t *testing.T) {
 		test.IsEqualBool(t, strings.Contains(body, "Leave group"), false)
 	})
 
-	t.Run("a near-copy is flagged to its uploader only", func(t *testing.T) {
-		body := groupPageCall(showGroup, "GET", page, fx.member, "").Body.String()
-		test.IsEqualBool(t, strings.Contains(body, `data-near-file="`+fx.a.Id+`"`), true)
-		test.IsEqualBool(t, strings.Contains(body, "Looks like carla's photo from"), true)
+	t.Run("a near-copy is flagged to the newer item's uploader only", func(t *testing.T) {
+		body := groupPageCall(showGroup, "GET", page, fx.creator, "").Body.String()
+		test.IsEqualBool(t, strings.Contains(body, `data-near-file="`+fx.b.Id+`"`), true)
+		test.IsEqualBool(t, strings.Contains(body, "Looks like anna's photo from"), true)
 		test.IsEqualBool(t, strings.Contains(body, "Keep both"), true)
 		test.IsEqualBool(t, strings.Contains(body, "Remove mine"), true)
-		// carla's B looks like anna's A as well, so she is told about B
-		body = groupPageCall(showGroup, "GET", page, fx.creator, "").Body.String()
-		test.IsEqualBool(t, strings.Contains(body, `data-near-file="`+fx.b.Id+`"`), true)
-		test.IsEqualBool(t, strings.Contains(body, `data-near-file="`+fx.a.Id+`"`), false)
+		// anna's A was there first: she is never asked about the pair
+		body = groupPageCall(showGroup, "GET", page, fx.member, "").Body.String()
+		test.IsEqualBool(t, strings.Contains(body, "data-near-file="), false)
+		test.IsEqualBool(t, strings.Contains(body, "Keep both"), false)
+	})
+
+	t.Run("the person filter lists everyone with items, former members last", func(t *testing.T) {
+		former := models.User{Id: 74, Name: "olaf@example.com", UserLevel: models.UserLevelUser}
+		database.SaveUser(former, false)
+		defer database.DeleteUser(former.Id)
+		_, err := storage.JoinGroupByToken(fx.group.InviteToken, former)
+		test.IsNil(t, err)
+		e := accessFile("grouppagee000000001", func(f *models.File) {
+			f.SHA1 = "sha-grouppagee"
+			f.UserId = former.Id
+			f.UploadDate = 50
+		})
+		defer func() {
+			database.RemoveFileFromGroups(e.Id)
+			database.DeleteMetaData(e.Id)
+		}()
+		added, err := storage.AddFilesToGroup(fx.group, []string{e.Id}, former)
+		test.IsNil(t, err)
+		test.IsEqualInt(t, len(added.Added), 1)
+		test.IsNil(t, storage.LeaveGroup(fx.group, former))
+
+		body := groupPageCall(showGroup, "GET", page, fx.member, "").Body.String()
+		carla := strings.Index(body, `<option value="71">carla</option>`)
+		anna := strings.Index(body, `<option value="72">anna</option>`)
+		olaf := strings.Index(body, `<option value="74">olaf</option>`)
+		test.IsEqualBool(t, carla > 0 && anna > 0 && olaf > 0, true)
+		test.IsEqualBool(t, carla < anna && anna < olaf, true) // members in member order, then former members
+		test.IsEqualInt(t, strings.Count(body, `<option value="74">`), 1)
+		// Olaf is no longer in the header
+		test.IsEqualBool(t, strings.Contains(body, `data-group-person="74"`), false)
+		test.IsEqualBool(t, strings.Contains(body, `data-group-person="72"`), true)
 	})
 }
 
@@ -336,18 +369,20 @@ func TestGroupPageNearKeep(t *testing.T) {
 	}
 
 	test.IsEqualInt(t, groupPageCall(keepNearCopy, "GET", "/groups/nearkeep", fx.member, "").Code, http.StatusMethodNotAllowed)
-	// Only the file's owner keeps it, not another member, nor the creator
+	// Only the file's owner keeps it: not another member, nor the creator,
+	// nor the admin
 	test.IsEqualInt(t, keep(fx.member, fx.b.Id), http.StatusForbidden)
 	test.IsEqualInt(t, keep(fx.creator, fx.a.Id), http.StatusForbidden)
+	test.IsEqualInt(t, keep(fx.admin, fx.b.Id), http.StatusForbidden)
 	test.IsEqualInt(t, keep(fx.member, fx.d.Id), http.StatusNotFound)
-	test.IsEqualInt(t, keep(fx.outside, fx.a.Id), http.StatusNotFound)
+	test.IsEqualInt(t, keep(fx.outside, fx.b.Id), http.StatusNotFound)
 	test.IsEqualInt(t, len(database.GetNearCopiesKept(g.Id)), 0)
 
-	test.IsEqualInt(t, keep(fx.member, fx.a.Id), http.StatusOK)
-	test.IsEqualBool(t, database.GetNearCopiesKept(g.Id)[fx.a.Id], true)
-	body := groupPageCall(showGroup, "GET", "/g?id="+g.Id, fx.member, "").Body.String()
-	test.IsEqualBool(t, strings.Contains(body, `data-near-file="`+fx.a.Id+`"`), false)
-	// carla's own flag is hers to keep
-	body = groupPageCall(showGroup, "GET", "/g?id="+g.Id, fx.creator, "").Body.String()
-	test.IsEqualBool(t, strings.Contains(body, `data-near-file="`+fx.b.Id+`"`), true)
+	test.IsEqualInt(t, keep(fx.creator, fx.b.Id), http.StatusOK)
+	test.IsEqualBool(t, database.GetNearCopiesKept(g.Id)[fx.b.Id], true)
+	// Settled for good: neither side is asked about the pair again
+	for _, u := range []models.User{fx.creator, fx.member} {
+		body := groupPageCall(showGroup, "GET", "/g?id="+g.Id, u, "").Body.String()
+		test.IsEqualBool(t, strings.Contains(body, "data-near-file="), false)
+	}
 }

@@ -9,12 +9,9 @@
   <div class="alert alert-secondary py-2" role="status">You are not a member of this group</div>
   {{ end }}
 
-  <div class="d-flex flex-wrap align-items-baseline column-gap-3 row-gap-1">
-    <h3 class="card-title mb-0" id="groupName">{{ .Group.Name }}</h3>
-    <span class="text-muted" id="groupCloses">{{ .Closes }}</span>
-  </div>
+  <h3 class="card-title mb-0" id="groupName">{{ .Group.Name }}</h3>
 
-  <ul class="fgs-group-people list-unstyled d-flex flex-wrap column-gap-3 row-gap-2 my-3" id="groupPeople">
+  <ul class="fgs-group-people list-unstyled d-flex flex-wrap column-gap-3 row-gap-2 mt-3 mb-2" id="groupPeople">
     {{ range .People }}
     <li class="d-flex align-items-center gap-2" data-group-person="{{ .Id }}">
       <span class="fgs-avatar" style="background-color: hsl({{ .Hue }}, 45%, 45%)" aria-hidden="true">{{ .Initials }}</span>
@@ -27,6 +24,7 @@
     </li>
     {{ end }}
   </ul>
+  <p class="text-muted mb-3" id="groupCloses">{{ .Closes }}</p>
 
   <div class="d-flex flex-wrap column-gap-3 row-gap-2 mb-3">
     <div class="input-group input-group-sm w-auto">

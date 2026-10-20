@@ -30,6 +30,12 @@ func displayName(u models.User) string {
 // memberNames maps user ids to display names, for the members of a group and
 // the owners of its files. People who no longer exist are left out.
 func memberNames(g models.Group) map[int]string {
+	return memberNamesOf(g, storage.GroupFiles(g))
+}
+
+// memberNamesOf is memberNames for a caller that already has the group's
+// live files, so they are not read twice
+func memberNamesOf(g models.Group, files []models.File) map[int]string {
 	result := make(map[int]string)
 	add := func(id int) {
 		if _, done := result[id]; done {
@@ -42,7 +48,7 @@ func memberNames(g models.Group) map[int]string {
 	for _, m := range database.GetGroupMembers(g.Id) {
 		add(m.UserId)
 	}
-	for _, f := range storage.GroupFiles(g) {
+	for _, f := range files {
 		add(f.UserId)
 	}
 	return result

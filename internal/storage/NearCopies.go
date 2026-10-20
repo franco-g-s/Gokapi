@@ -28,8 +28,14 @@ type nearCandidate struct {
 }
 
 // NearCopies: for each of userId's files in files with a ready preview and a
-// non-zero PHash, the closest item from another uploader within the
+// non-zero PHash, the closest older item from another uploader within the
 // threshold, unless kept (Keep both). Exact SHA1 twins are not near-copies.
+//
+// Only the newer item of a pair is flagged (spec: "the new item's perceptual
+// hash is compared with the rest of the group's"): newer is the later
+// UploadDate, the larger id breaking a tie. The older item's uploader never
+// sees the pair, so the newer uploader's "Keep both" settles it for good.
+//
 // The result follows the order of files; on equal distance the match that
 // comes first in files wins.
 func NearCopies(files []models.File, userId int, kept map[string]bool) []NearCopy {
@@ -55,7 +61,7 @@ func NearCopies(files []models.File, userId int, kept map[string]bool) []NearCop
 		}
 		best, bestDistance := -1, nearCopyMaxDistance+1
 		for i, other := range candidates {
-			if other.file.UserId == userId || other.file.SHA1 == mine.file.SHA1 {
+			if other.file.UserId == userId || other.file.SHA1 == mine.file.SHA1 || !isNewer(mine.file, other.file) {
 				continue
 			}
 			if d := bits.OnesCount64(mine.hash ^ other.hash); d < bestDistance {
@@ -70,4 +76,13 @@ func NearCopies(files []models.File, userId int, kept map[string]bool) []NearCop
 			MatchUser: match.file.UserId, MatchAt: match.at})
 	}
 	return result
+}
+
+// isNewer reports whether a was put in after b: the later upload date, the
+// larger id breaking a tie
+func isNewer(a, b models.File) bool {
+	if a.UploadDate != b.UploadDate {
+		return a.UploadDate > b.UploadDate
+	}
+	return a.Id > b.Id
 }

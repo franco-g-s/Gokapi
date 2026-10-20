@@ -158,7 +158,7 @@ func downloadCollectionFile(w http.ResponseWriter, r *http.Request) {
 	// increaseCounter is true: a download through a collection is exactly a
 	// download of that file, so it consumes the file's own budget. ServeFile
 	// logs it and re-checks expiry itself.
-	storage.ServeFile(file, w, r, true, true, forceDecryption, true)
+	storage.ServeFile(file, w, tagDownload(r, models.DownloadViaCollection), true, true, forceDecryption, true)
 }
 
 // collectionCreateRequest is the JSON body posted by the admin page

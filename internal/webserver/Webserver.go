@@ -661,7 +661,7 @@ func showHotlink(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(imageExpiredPicture)
 		return
 	}
-	validFile := storage.ServeFile(file, w, r, false, true, false, true)
+	validFile := storage.ServeFile(file, w, tagDownload(r, models.DownloadViaFile), false, true, false, true)
 	if !validFile {
 		// Only called if the file has already expired during the expiry check of storage.ServeFile()
 		w.Header().Set("Content-Type", "image/svg+xml")
@@ -1102,13 +1102,18 @@ func downloadPresigned(w http.ResponseWriter, r *http.Request) {
 	}
 	presign.Delete(presignedUrl.Id)
 
+	// requireLogin route: the user is in the context, in every authentication mode
+	user, err := authentication.GetUserFromRequest(r)
+	if err != nil {
+		panic(err)
+	}
 	if len(files) == 1 {
 		file := files[0]
 		forceDecryption := file.Encryption.IsEncrypted && !file.Encryption.IsEndToEndEncrypted
-		storage.ServeFile(file, w, r, true, false, forceDecryption, false)
+		storage.ServeFile(file, w, tagDownloadUser(r, models.DownloadViaFile, user.Id), true, false, forceDecryption, false)
 		return
 	}
-	storage.ServeFilesAsZip(files, presignedUrl.Filename, w, r)
+	storage.ServeFilesAsZip(files, presignedUrl.Filename, w, tagDownloadUser(r, models.DownloadViaZip, user.Id))
 }
 
 func serveFile(id string, isRootUrl bool, w http.ResponseWriter, r *http.Request) {
@@ -1133,7 +1138,7 @@ func serveFile(id string, isRootUrl bool, w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	validFile := storage.ServeFile(savedFile, w, r, true, true, false, true)
+	validFile := storage.ServeFile(savedFile, w, tagDownload(r, models.DownloadViaFile), true, true, false, true)
 	if !validFile {
 		// Only called if the file has already expired during the expiry check of storage.ServeFile()
 		if isRootUrl {

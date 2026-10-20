@@ -21,6 +21,7 @@ import (
 	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/storage/chunking"
 	"github.com/forceu/gokapi/internal/storage/chunking/chunkreservation"
+	"github.com/forceu/gokapi/internal/storage/downloadlog"
 	"github.com/forceu/gokapi/internal/storage/filerequest"
 	"github.com/forceu/gokapi/internal/storage/presign"
 	"github.com/forceu/gokapi/internal/webserver/api/mutex/apimutex"
@@ -639,7 +640,7 @@ func apiDownloadSingle(w http.ResponseWriter, r requestParser, user models.User,
 	}
 	if !request.PresignUrl {
 		forceDecryption := file.Encryption.IsEncrypted && !file.Encryption.IsEndToEndEncrypted
-		storage.ServeFile(file, w, request.WebRequest, true, request.IncreaseCounter, forceDecryption, false)
+		storage.ServeFile(file, w, downloadlog.With(request.WebRequest, models.DownloadViaFile, user.Id), true, request.IncreaseCounter, forceDecryption, false)
 		return
 	}
 	createAndOutputPresignedUrl([]string{file.Id}, w, "")
@@ -663,7 +664,7 @@ func apiDownloadZip(w http.ResponseWriter, r requestParser, user models.User, _ 
 		requestedFileIds = append(requestedFileIds, file.Id)
 	}
 	if !request.PresignUrl {
-		storage.ServeFilesAsZip(requestedFiles, request.Filename, w, request.WebRequest)
+		storage.ServeFilesAsZip(requestedFiles, request.Filename, w, downloadlog.With(request.WebRequest, models.DownloadViaZip, user.Id))
 		return
 	}
 	createAndOutputPresignedUrl(requestedFileIds, w, request.Filename)

@@ -531,10 +531,12 @@ func doBlockingPartCompleteChunk(w http.ResponseWriter, uuid string, fileHeader 
 		chunkreservation.SetComplete(uploadParameters.FileRequestId, uuid)
 	}
 	fr, _ := filerequest.Get(uploadParameters.FileRequestId)
-	logging.LogUpload(file, user, fr)
 	if !attachToGroup(w, group, file, user) {
 		return // the copy already in the group stays; this one was deleted
 	}
+	// Logged once it is known to stay: a duplicate deleted a moment later
+	// must not mail an upload notice (M6)
+	logging.LogUpload(file, user, fr)
 	preview.Enqueue(file)
 	outputFileJson(w, file)
 }

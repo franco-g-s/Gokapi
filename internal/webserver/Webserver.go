@@ -144,6 +144,9 @@ func Start() {
 	mux.HandleFunc("/p/poster", servePreviewFile("poster"))
 	mux.HandleFunc("/p/video", streamVideo)
 	mux.HandleFunc("/p/info", publicPreviewInfo)
+	// Part 2, G8: adding files to a group
+	mux.HandleFunc("/groups/add", requireLogin(addToGroup, false, false))
+	mux.HandleFunc("/groups/fromcollection", requireLogin(groupFromCollection, false, false))
 	// Part 2, G2: groups (shared)
 	mux.HandleFunc("/groups/list", requireLogin(listGroups, false, false))
 	mux.HandleFunc("/d/{id}/{filename}", redirectFromFilename)

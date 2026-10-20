@@ -92,6 +92,34 @@
         {{ end }}
 
         </p>
+
+        {{ if .SharedWithMe }}
+          <h2 class="h5 mt-4">Shared with me</h2>
+          <div class="table-responsive">
+            <table id="sharedwithmetable" class="table table-dark">
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">From</th>
+                  <th scope="col">Files</th>
+                  <th scope="col">Size</th>
+                  <th scope="col">First opened</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{ range .SharedWithMe }}
+                <tr id="shared-{{ .Id }}">
+                  <td><a class="collection-name-link" href="./c?id={{ .Id }}">{{ .Name }}</a></td>
+                  <td>{{ .OwnerName }}</td>
+                  <td>{{ .FileCount }}</td>
+                  <td>{{ .TotalSize }}</td>
+                  <td>{{ .FirstOpened }}</td>
+                </tr>
+                {{ end }}
+              </tbody>
+            </table>
+          </div>
+        {{ end }}
       </div>
     </div>
   </div>

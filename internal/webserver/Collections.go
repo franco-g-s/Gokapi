@@ -96,6 +96,14 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A signed-in visitor who is not the owner finds the collection under
+	// "Shared with me" from now on. Anonymous visits and the password form
+	// (which returned above) record nothing.
+	if visitor, signedIn := authentication.SessionIdentity(r); signedIn && visitor.Id != collection.UserId {
+		database.SaveCollectionSeen(models.CollectionSeen{
+			UserId: visitor.Id, CollectionId: collection.Id, FirstOpened: time.Now().Unix()})
+	}
+
 	config := configuration.Get()
 	view := CollectionView{
 		Name:           collection.Name,
@@ -327,6 +335,7 @@ func showCollectionsAdmin(w http.ResponseWriter, r *http.Request) {
 
 	view := (&AdminView{}).convertGlobalConfig(ViewCollections, user)
 	view.Collections = rows
+	view.SharedWithMe = sharedWithMe(user, config.ServerUrl)
 	err = templateFolder.ExecuteTemplate(w, "collections_admin", view)
 	helper.CheckIgnoreTimeout(err)
 }

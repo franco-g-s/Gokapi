@@ -72,3 +72,22 @@ func TestReturnToWithoutCookie(t *testing.T) {
 	// nothing to clear, so nothing is set
 	test.IsEqualBool(t, returnToCookie(w) == nil, true)
 }
+
+// Google sign-in, which the live instance uses, comes back through the OAuth
+// callback: it must return to the invite too
+func TestReturnToAfterOauth(t *testing.T) {
+	Init(modelOauth)
+	info := OAuthUserInfo{
+		ClaimsSent: testInfo{Output: []byte(`{"email":"test@test.com","email_verified":true,"groups":["admins","dev"]}`)},
+		Subject:    "random",
+		Email:      "random",
+	}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/oauth-callback", nil)
+	r.AddCookie(&http.Cookie{Name: cookieReturnTo, Value: "join?t=abc"})
+	test.IsNil(t, CheckOauthUserAndRedirect(w, r, info))
+	test.ResponseIsRedirect(t, w, "join?t=abc", false)
+	cleared := returnToCookie(w)
+	test.IsEqualBool(t, cleared != nil, true)
+	test.IsEqualInt(t, cleared.MaxAge, -1)
+}

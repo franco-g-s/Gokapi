@@ -73,6 +73,20 @@ func groupsTabPost(t *testing.T, path, token string, v any) (int, map[string]any
 	return resp.StatusCode, result
 }
 
+// groupsTabRow returns the table row of the group on the Groups tab
+func groupsTabRow(t *testing.T, page, id string) string {
+	t.Helper()
+	start := strings.Index(page, `href="./g?id=`+id+`"`)
+	if start < 0 {
+		t.Fatalf("group %s is not listed", id)
+	}
+	end := strings.Index(page[start:], "</tr>")
+	if end < 0 {
+		t.Fatalf("row of group %s does not end", id)
+	}
+	return page[start : start+end]
+}
+
 func TestGroupsTab(t *testing.T) {
 	groupsTabUsers()
 
@@ -111,8 +125,10 @@ func TestGroupsTab(t *testing.T) {
 	test.IsEqualString(t, items[id].Role, models.GroupRoleCreator)
 	_, page = groupsTabDo(t, "GET", "/groups", "gtab7", "", "")
 	test.IsEqualBool(t, strings.Contains(page, "<table"), true)
-	test.IsEqualBool(t, strings.Contains(page, `href="./g?id=`+id+`"`), true)
-	test.IsEqualBool(t, strings.Contains(page, "Iceland trip"), true)
+	row := groupsTabRow(t, page, id)
+	test.IsEqualBool(t, strings.Contains(row, "Iceland trip"), true)
+	test.IsEqualBool(t, strings.Contains(row, "Creator"), true)
+	test.IsEqualBool(t, strings.Contains(row, "not a member"), false)
 	test.IsEqualBool(t, strings.Contains(page, closesLabel(group, time.Now())), true)
 
 	// Every mutation endpoint answers 405 to anything but POST
@@ -248,8 +264,9 @@ func TestGroupsTab(t *testing.T) {
 
 	// The admin sees a group he is not in, marked as such, and may delete it
 	_, page = groupsTabDo(t, "GET", "/groups", "gtab5", "", "")
-	test.IsEqualBool(t, strings.Contains(page, "Iceland 2027"), true)
-	test.IsEqualBool(t, strings.Contains(page, "not a member"), true)
+	row = groupsTabRow(t, page, id)
+	test.IsEqualBool(t, strings.Contains(row, "Iceland 2027"), true)
+	test.IsEqualBool(t, strings.Contains(row, "not a member"), true)
 	status, _ = groupsTabPost(t, "/groups/delete", "gtab5", map[string]any{"id": id})
 	test.IsEqualInt(t, status, 200)
 	_, ok = storage.GetGroup(id)

@@ -19,6 +19,17 @@ function uploadBrowser() {
     return FGS.initFileBrowser(root);
 }
 
+// The list this page adds its finished uploads to: the upload page's list,
+// or a group page's board (data-upload-sink="true"). Only uploads made on
+// this page go there; files another tab added still use uploadBrowser().
+function uploadSinkBrowser() {
+    let root = document.querySelector('[data-fgs-browser][data-upload-sink="true"]');
+    if (root === null || !window.FGS || !FGS.initFileBrowser) {
+        return null;
+    }
+    return FGS.initFileBrowser(root);
+}
+
 
 function initDropzone() {
 
@@ -29,10 +40,17 @@ function initDropzone() {
         chunksUploaded: function(file, done) {
             sendChunkComplete(file, done);
         },
+        // Runs after "addedfile": a file going into a group is checked for
+        // a copy already there first (admin_ui_groupupload.js)
+        accept: function(file, done) {
+            uploadTargetAccept(file, done);
+        },
         init: function() {
             dropzoneObject = this;
             this.on("addedfile", file => {
                 file.upload.uuid = getUuid();
+                // Where it goes is fixed when it is added, not when it finishes
+                file.fgsTarget = uploadTargetDetails();
                 saveUploadDefaults();
                 addFileProgress(file);
                 addFileToUploadBatch(file);
@@ -53,6 +71,10 @@ function initDropzone() {
             // Error handling for chunk upload, especially returning 413 error code (invalid nginx configuration)
             this.on("error", function(file, errorMessage, xhr) {
                 console.log(errorMessage);
+                if (file.fgsDuplicate === true) {
+                    uploadTargetNotice(file.upload.uuid, errorMessage);
+                    return;
+                }
                 if (xhr) {
                     if (xhr.status === 413) {
                         showError(file, "File too large to upload. If you are using a reverse proxy, make sure that the allowed body size is at least 70MB.");
@@ -125,6 +147,23 @@ function initDropzone() {
 }
 
 
+// The upload page's and a group page's Dropzone settings. Call after
+// initDropzone(), from an inline script, before Dropzone discovers the form.
+function setUploadDropzoneOptions(maxFileSize, chunkSizeMb, maxParallelUploads) {
+    let options = Dropzone.options.uploaddropzone;
+    options["maxFilesize"] = maxFileSize;
+    options["timeout"] = 1200000;
+    options["chunking"] = true;
+    options["chunkSize"] = chunkSizeMb * 1024 * 1024;
+    options["parallelUploads"] = 1;
+    options["parallelChunkUploads"] = maxParallelUploads;
+    options["forceChunking"] = true;
+    options["retryChunksLimit"] = 3;
+    options["retryChunks"] = true;
+    options["previewsContainer"] = false;
+}
+
+
 function updateProgressbar(file, progress, bytesSent) {
     let chunkId = file.upload.uuid;
     let container = document.getElementById(`us-container-${chunkId}`);
@@ -187,6 +226,11 @@ function setUploadDefaults() {
 }
 
 function saveUploadDefaults() {
+    // A group page has none of these settings
+    if (["allowedDownloads", "expiryDays", "password", "enableDownloadLimit", "enableTimeLimit"]
+        .some(id => document.getElementById(id) === null)) {
+        return;
+    }
     localStorage.setItem("defaultDownloads", document.getElementById("allowedDownloads").value);
     localStorage.setItem("defaultExpiry", document.getElementById("expiryDays").value);
     localStorage.setItem("defaultPassword", document.getElementById("password").value);
@@ -223,17 +267,32 @@ function sendChunkComplete(file, done) {
     let filesize = file.size;
     let realsize = file.size;
     let contenttype = file.type;
-    let allowedDownloads = document.getElementById("allowedDownloads").value;
-    let expiryDays = document.getElementById("expiryDays").value;
-    let password = document.getElementById("password").value;
     let isE2E = file.isEndToEndEncrypted === true;
     let nonblocking = true;
+    let groupId = file.fgsTarget ? file.fgsTarget.id : "";
 
-    if (!document.getElementById("enableDownloadLimit").checked) {
-        allowedDownloads = 0;
-    }
-    if (!document.getElementById("enableTimeLimit").checked) {
-        expiryDays = 0;
+    // null leaves a setting out. Into a group, none is sent: the group sets
+    // them. A page without the settings sends the server's defaults.
+    let allowedDownloads = null;
+    let expiryDays = null;
+    let password = null;
+    if (groupId === "") {
+        let setting = id => document.getElementById(id);
+        if (setting("allowedDownloads") !== null) {
+            allowedDownloads = setting("allowedDownloads").value;
+        }
+        if (setting("expiryDays") !== null) {
+            expiryDays = setting("expiryDays").value;
+        }
+        if (setting("password") !== null) {
+            password = setting("password").value;
+        }
+        if (setting("enableDownloadLimit") !== null && !setting("enableDownloadLimit").checked) {
+            allowedDownloads = 0;
+        }
+        if (setting("enableTimeLimit") !== null && !setting("enableTimeLimit").checked) {
+            expiryDays = 0;
+        }
     }
 
     if (isE2E) {
@@ -242,7 +301,7 @@ function sendChunkComplete(file, done) {
         contenttype = "";
     }
 
-    apiChunkComplete(uuid, filename, filesize, realsize, contenttype, allowedDownloads, expiryDays, password, isE2E, nonblocking)
+    apiChunkComplete(uuid, filename, filesize, realsize, contenttype, allowedDownloads, expiryDays, password, isE2E, nonblocking, groupId)
         .then(data => {
             done();
             let progressText = document.getElementById(`us-progress-info-${file.upload.uuid}`);
@@ -272,8 +331,19 @@ function dropzoneGetFile(uid) {
 }
 
 function requestFileInfo(fileId, uid) {
+    let uploaded = dropzoneGetFile(uid);
+    let target = uploaded !== null && uploaded.fgsTarget ? uploaded.fgsTarget : null;
+    if (target !== null && target.fixed && target.id !== "") {
+        // a group page: its board shows the item as the group has it
+        uploadTargetGroupItem(target, fileId, uid, 0);
+        return;
+    }
     apiFilesListById(fileId)
         .then(data => {
+            if (target !== null && target.id !== "") {
+                // its expiry, limit and password follow the group (D4)
+                data.GroupLock = target.name;
+            }
             // The list is only a view: an error drawing it must not mark an
             // upload that is stored as failed (and with it the auto-collection batch)
             try {
@@ -851,7 +921,7 @@ function removeFileStatus(chunkId) {
 // One file uploaded now (or restored, or edited) onto the upload page's list.
 // Without a preview the tile starts pending and the list polls for it.
 function addUploadedFile(item, preview) {
-    let browser = uploadBrowser();
+    let browser = uploadSinkBrowser();
     if (browser === null) {
         return null;
     }
@@ -1042,7 +1112,9 @@ function maybeCreateBatchCollection(batch) {
         return;
     }
     batch.finished = true;
-    let ids = batch.files.filter(f => !f.fgsBatchFailed).map(f => f.fgsBatchId);
+    // Files that went into a group are shared there: no link is made for them
+    let ids = batch.files.filter(f => !f.fgsBatchFailed && !(f.fgsTarget && f.fgsTarget.id !== ""))
+        .map(f => f.fgsBatchId);
     // A single file already has its own link, so there is nothing to combine.
     if (!isAutoLinkEnabled() || ids.length < 2) {
         return;

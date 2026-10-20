@@ -497,6 +497,12 @@ func apiChunkComplete(w http.ResponseWriter, r requestParser, user models.User, 
 	if !ok {
 		panic("invalid parameter passed")
 	}
+	group, refusal := resolveUploadGroup(request, user)
+	if refusal != nil {
+		_ = chunking.DeleteChunk(request.Uuid)
+		sendError(w, refusal.status, refusal.code, refusal.message)
+		return
+	}
 	uploadParams := fileupload.CreateUploadConfig(request.AllowedDownloads,
 		request.ExpiryDays,
 		request.Password,
@@ -505,15 +511,16 @@ func apiChunkComplete(w http.ResponseWriter, r requestParser, user models.User, 
 		request.IsE2E,
 		request.FileSize,
 		"")
+	applyGroupExpiry(&uploadParams, group)
 	if request.IsNonBlocking {
-		go doBlockingPartCompleteChunk(nil, request.Uuid, request.FileHeader, user, uploadParams)
+		go doBlockingPartCompleteChunk(nil, request.Uuid, request.FileHeader, user, uploadParams, group)
 		_, _ = io.WriteString(w, "{\"result\":\"OK\"}")
 		return
 	}
-	doBlockingPartCompleteChunk(w, request.Uuid, request.FileHeader, user, uploadParams)
+	doBlockingPartCompleteChunk(w, request.Uuid, request.FileHeader, user, uploadParams, group)
 }
 
-func doBlockingPartCompleteChunk(w http.ResponseWriter, uuid string, fileHeader chunking.FileHeader, user models.User, uploadParameters models.UploadParameters) {
+func doBlockingPartCompleteChunk(w http.ResponseWriter, uuid string, fileHeader chunking.FileHeader, user models.User, uploadParameters models.UploadParameters, group models.Group) {
 	file, err := fileupload.CompleteChunk(uuid, fileHeader, user.Id, uploadParameters)
 	if err != nil {
 		_ = chunking.DeleteChunk(uuid)
@@ -525,6 +532,9 @@ func doBlockingPartCompleteChunk(w http.ResponseWriter, uuid string, fileHeader 
 	}
 	fr, _ := filerequest.Get(uploadParameters.FileRequestId)
 	logging.LogUpload(file, user, fr)
+	if !attachToGroup(w, group, file, user) {
+		return // the copy already in the group stays; this one was deleted
+	}
 	preview.Enqueue(file)
 	outputFileJson(w, file)
 }
@@ -543,11 +553,11 @@ func apiChunkUploadRequestComplete(w http.ResponseWriter, r requestParser, user 
 		0, "", true, true,
 		false, request.FileSize, fileRequest.Id)
 	if request.IsNonBlocking {
-		go doBlockingPartCompleteChunk(nil, request.Uuid, request.FileHeader, user, uploadParams)
+		go doBlockingPartCompleteChunk(nil, request.Uuid, request.FileHeader, user, uploadParams, models.Group{})
 		_, _ = io.WriteString(w, "{\"result\":\"OK\"}")
 		return
 	}
-	doBlockingPartCompleteChunk(w, request.Uuid, request.FileHeader, user, uploadParams)
+	doBlockingPartCompleteChunk(w, request.Uuid, request.FileHeader, user, uploadParams, models.Group{})
 }
 
 func apiVersionInfo(w http.ResponseWriter, _ requestParser, _ models.User, _ models.ApiKey) {

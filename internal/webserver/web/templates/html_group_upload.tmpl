@@ -1,0 +1,16 @@
+{{ define "group_upload_area" }}
+{{/* Part 2, G7: the upload area of a group page. The argument is the group
+     id. Files dropped here go into that group and nowhere else; the page
+     starts it with FGS.initGroupUploadArea (admin_ui_groupupload.js). */}}
+<div class="fgs-group-upload">
+	<form action="./uploadChunk" class="dropzone upload-box text-center w-100" id="uploaddropzone" data-fgs-upload-target="{{ . }}">
+		<div class="dz-message">
+			<p id="uploadBoxTitle" class="mb-2 fs-5">Drag & drop files here</p>
+			<p id="uploadBoxSubtitle" class="mb-0 opacity-75">or paste or click to select.</p>
+		</div>
+	</form>
+	<p class="small text-muted mt-2 mb-0">Files uploaded to a group stay until the group closes and can be downloaded by its members.</p>
+	<div id="uploadstatus" class="container uploads-container mt-2">
+	</div>
+</div>
+{{ end }}

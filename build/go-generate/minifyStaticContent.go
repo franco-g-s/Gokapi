@@ -78,6 +78,18 @@ func getPaths() []converter {
 		Name:       "SSE Worker JS",
 	})
 	result = append(result, converter{
+		InputPath:  pathPrefix + "js/sha1.js",
+		OutputPath: pathPrefix + "js/min/sha1.min.js",
+		Type:       "text/javascript",
+		Name:       "SHA-1 JS",
+	})
+	result = append(result, converter{
+		InputPath:  pathPrefix + "js/sha1-worker.js",
+		OutputPath: pathPrefix + "js/min/sha1-worker.min.js",
+		Type:       "text/javascript",
+		Name:       "SHA-1 Worker JS",
+	})
+	result = append(result, converter{
 		InputPath:  pathPrefix + "js/wasm_exec.js",
 		OutputPath: pathPrefix + "js/min/wasm_exec.min.js",
 		Type:       "text/javascript",

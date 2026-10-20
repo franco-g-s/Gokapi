@@ -196,7 +196,9 @@ async function apiAuthCreate() {
 // /chunk
 
 
-async function apiChunkComplete(uuid, filename, filesize, realsize, contenttype, allowedDownloads, expiryDays, password, isE2E, nonblocking) {
+// allowedDownloads, expiryDays and password may be null to leave them out.
+// groupId (optional) uploads into that group, whose terms then apply (G7).
+async function apiChunkComplete(uuid, filename, filesize, realsize, contenttype, allowedDownloads, expiryDays, password, isE2E, nonblocking, groupId) {
     const apiUrl = './api/chunk/complete';
     const reqPerm = 'PERM_UPLOAD';
 
@@ -209,22 +211,32 @@ async function apiChunkComplete(uuid, filename, filesize, realsize, contenttype,
         throw error;
     }
 
+    const headers = {
+        'Content-Type': 'application/json',
+        'apikey': token,
+        'uuid': uuid,
+        'filename': 'base64:' + Base64.encode(filename),
+        'filesize': filesize,
+        'realsize': realsize,
+        'contenttype': contenttype,
+        'isE2E': isE2E,
+        'nonblocking': nonblocking
+    };
+    if (allowedDownloads !== null && allowedDownloads !== undefined) {
+        headers['allowedDownloads'] = allowedDownloads;
+    }
+    if (expiryDays !== null && expiryDays !== undefined) {
+        headers['expiryDays'] = expiryDays;
+    }
+    if (password !== null && password !== undefined) {
+        headers['password'] = password;
+    }
+    if (groupId) {
+        headers['groupId'] = groupId;
+    }
     const requestOptions = {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'apikey': token,
-            'uuid': uuid,
-            'filename': 'base64:' + Base64.encode(filename),
-            'filesize': filesize,
-            'realsize': realsize,
-            'contenttype': contenttype,
-            'allowedDownloads': allowedDownloads,
-            'expiryDays': expiryDays,
-            'password': password,
-            'isE2E': isE2E,
-            'nonblocking': nonblocking
-        },
+        headers: headers,
     };
 
     try {

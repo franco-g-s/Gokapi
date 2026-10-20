@@ -1065,6 +1065,16 @@ func (p *paramChunkComplete) ParseRequest(r *http.Request) error {
 		}
 	}
 
+	// RequestParser header value "groupId", required: false
+	exists, err = checkHeaderExists(r, "groupId", false, true)
+	if err != nil {
+		return err
+	}
+	p.foundHeaders["groupId"] = exists
+	if exists {
+		p.GroupId = r.Header.Get("groupId")
+	}
+
 	return p.ProcessParameter(r)
 }
 

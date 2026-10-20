@@ -688,6 +688,7 @@ type paramChunkComplete struct {
 	Password           string `header:"password"`
 	IsE2E              bool   `header:"isE2E" unpublished:"true"` // not published in API documentation
 	IsNonBlocking      bool   `header:"nonblocking"`
+	GroupId            string `header:"groupId"` // Part 2, G7: upload into this group
 	UnlimitedDownloads bool
 	UnlimitedTime      bool
 	FileHeader         chunking.FileHeader

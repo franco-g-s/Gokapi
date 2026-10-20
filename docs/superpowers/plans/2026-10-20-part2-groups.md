@@ -1833,3 +1833,37 @@ func NearCopies(files []models.File, userId int, kept map[string]bool) []NearCop
    7. Open the PR `feature/groups` → `feature/collections` and link it.
    8. Remove the preview: the container, its volumes, the tailscale serve entry, and `~/src/gokapi-grp-custom`.
 7. **Memory:** update `~/atlas/memory/gokapi-share-redesign.md` with what is live and what comes next.
+
+
+---
+
+## Rulings during execution (2026-10-20)
+
+Decisions the controller took while executing this plan; the ledger they came from is scratch and is deleted after go-live, so this is the durable record.
+
+- TestExtendPropagates sets the group's Expires to now+31d (saved) before "extend 30 → ErrGroupNotLater", so the refusal is deterministic — the plan's intent is the edge case, not timing — cost if wrong: none, test-only.
+- G3 updates the action-table test so HasMenu("edit") is true for ctxGroup too — follows the D4 revision Franco asked for — cost if wrong: none.
+- G4's anonymous case asserts no row for users 7 and 8 after a cookie-less /downloadFile, and a separate session-8 request records for 8 — removes the muddled wording, same intent — cost if wrong: none.
+- Redis RemoveFileFromGroups is a no-op, not a panic — CleanUp calls it on every deletion, a panic would break deletion on Redis — cost if wrong: none (Redis unused live).
+- SQLite RemoveFileFromGroups also clears that file's GroupNearKept rows — no dangling kept-marker — cost if wrong: none.
+- group "admin" = IsAdmin() && Id != 0 (zero User is UserLevelSuperAdmin) — stricter than D17, closes a real trap — cost if wrong: none.
+- GroupFromCollection on a dead collection returns ErrorCollectionNoFiles; AttachUploadToGroup leaves a refused upload private; names capped at 200 runes — all consistent with the brief's intent — cost if wrong: small, visible in G7/G8 tests.
+- parallel tasks also restore go-generate outputs ProtectedUrls.go and docs/setup.rst before committing; the controller regenerates them once after each merge — avoids merge conflicts on generated files — cost if wrong: one regenerate commit.
+- G3 group-locked save keeps sending originalPassword:true (only `password` omitted) — omitting it means "remove password" server-side and would 400 every rename of a protected group file — cost if wrong: none.
+- G4 recordDownload skips HEAD requests — a link-preview HEAD sends no bytes and must not tick "downloaded" — cost if wrong: none.
+- G3's GroupLock for live adds is an addItem input field `file.GroupLock` (string, group name); G7's /groups/item consumer and G10's endpoint supply it — keeps the lock in the component, cost if wrong: a later small wiring change.
+- G6 form POST /groups/join failures 303 to ../join?t= ("no longer valid") and 429 renders an asset-free page with a Try again link — a page under /groups/ can't load relative assets (D19) — cost if wrong: cosmetic.
+- G6 /groups/join JSON adds Url — lets JS navigate — cost: none.
+- G7 blocking chunk/complete duplicate answers 409 "Already in the group"; group uploads get ExpiryTimestamp = g.Expires exactly and UnlimitedTime false for closing groups; openapi.json documents groupId — all needed for correctness — cost: G11 must expect 409 in blocking mode.
+- G8 /groups/fromcollection returns Added only; ErrGroupsUnsupported → 501 — brief-compliant — cost: none.
+- G9 per-person heading uses displayName ("user's files" — names are stored lowercase) — cost: cosmetic.
+- G9 must not show two count columns: drop the new "Files" column, keep upstream "Uploads" as the file count, and compute Size over the same files Uploads counts; keep "Groups" — two adjacent near-identical counts confuse — cost if wrong: one column.
+- G10 person filter lists every uploader with items in the group (members in member order, then former members), not only current members — otherwise a leaver's photos can't be filtered to — cost if wrong: one extra option.
+- /groups/nearkeep owner-only (creator/admin 403) — "Keep both" is the uploader's choice per spec — cost: none.
+- G10's group.css and /gd,/gz using tagDownloadUser accepted.
+- near-copies are flagged only to the uploader of the NEWER item (later UploadDate; tie → larger id), per spec "the new item's … hash is compared … flagged to its uploader"; so "Keep both" by that uploader dismisses the pair for good — cost if wrong: the older uploader never sees the pair.
+- one final fix wave covers I1–I5, M1 (Upload-page group live add via /groups/item), M4 (fromcollection must not leave an empty group), and the Everything-view gap — spec says "their own files plus those in their groups" — cost if wrong: small scope growth.
+- Groups sidebar icon is bi-people-fill, not the plan's bi-people (Users already uses bi-people) — cost if wrong: cosmetic.
+- Final review fix wave (beyond the brief): `/collections/delete` is POST + JSON only; the `/groups/join` form path is refused when Origin is foreign (the live `ServerUrl` is `https://share.franco.international/`).
+- `/custom/` serves only the named branding files; no directory listing (found during the preview walkthrough; live had a public listing including `.bak` files).
+- Group upload area hint is "Up to 10 GB per file" via a branding CSS override (`.fgs-group-upload #fgs-uploadlimit::before`); the live branding needs the same rule at deploy.

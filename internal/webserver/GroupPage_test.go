@@ -3,11 +3,14 @@
 package webserver
 
 import (
+	"archive/zip"
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 
@@ -332,6 +335,21 @@ func TestGroupDownloads(t *testing.T) {
 		// D is not in the group: never resolved, never recorded
 		test.IsEqualInt(t, downloadRows(t, fx.member.Id, models.DownloadViaZip, fx.d.Id), 0)
 		test.IsEqualInt(t, downloadRows(t, fx.member.Id, models.DownloadViaZip, fx.a.Id), 0)
+	})
+
+	t.Run("/gz without files= is every live member (I3: select all)", func(t *testing.T) {
+		w := groupPageCall(downloadGroupZip, "GET", "/gz?id="+g.Id, fx.creator, "")
+		test.IsEqualInt(t, w.Code, http.StatusOK)
+		archive, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
+		test.IsNil(t, err)
+		names := make([]string, 0, len(archive.File))
+		for _, entry := range archive.File {
+			names = append(names, entry.Name)
+		}
+		sort.Strings(names)
+		test.IsEqualString(t, strings.Join(names, ","), fx.a.Name+","+fx.b.Name+","+fx.c.Name)
+		test.IsEqualInt(t, downloadRows(t, fx.creator.Id, models.DownloadViaZip, fx.a.Id, fx.b.Id, fx.c.Id), 3)
+		test.IsEqualInt(t, downloadRows(t, fx.creator.Id, models.DownloadViaZip, fx.d.Id), 0)
 	})
 
 	t.Run("/gz refuses strangers", func(t *testing.T) {

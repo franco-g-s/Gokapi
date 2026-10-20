@@ -584,6 +584,8 @@
     var tplRow = root.querySelector("template[data-fgs-tpl=row]");
     var infoUrl = root.getAttribute("data-info-url") || "";
     var zipUrl = root.getAttribute("data-zip-url") || "";
+    // The zip of every live member (no files=), where the page has one
+    var zipAllUrl = root.getAttribute("data-zip-all-url") || "";
     var manages = !!(tplTile && tplTile.content.querySelector("[data-menu=edit]"));
     // data-can-delete / data-can-remove are rendered without the rest of the
     // management data where the menu offers Delete or Remove from group
@@ -876,9 +878,22 @@
         }, usable.length * 600 + 100); // after downloadSequentially's own last message
       }
     }
+    // Everything is selected and nothing is filtered out: the whole list
+    function selectedIsEverything(tiles) {
+      return scope === "all" && !Object.keys(filters).length && tiles.length === Object.keys(tilesById).length;
+    }
+    // Cloudflare refuses URLs from about 16 KB; stay well below that
+    var ZIP_URL_MAX = 8000;
     function bulkZip(tiles) {
       if (!zipUrl) return;
-      window.location = zipUrl + tiles.map(function (t) { return encodeURIComponent(idOf(t)); }).join(",");
+      var url = zipAllUrl && selectedIsEverything(tiles) ? zipAllUrl
+        : zipUrl + tiles.map(function (t) { return encodeURIComponent(idOf(t)); }).join(",");
+      if (url.length > ZIP_URL_MAX) {
+        status.textContent = "Too many files for one .zip: select fewer" + (zipAllUrl ? ", or select all." : ".");
+        return;
+      }
+      window.location = url;
+      // Ticked only once the request has gone out
       if (groupTools) markDownloaded(tiles.map(idOf));
     }
 

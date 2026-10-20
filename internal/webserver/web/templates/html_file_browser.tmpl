@@ -12,7 +12,7 @@
 {{ define "file_browser" }}
 <div class="fgs-browser" id="{{ .Id }}" data-fgs-browser data-context="{{ .Context }}"
      data-default-view="{{ .DefaultView }}" data-current-view="{{ .DefaultView }}"
-     data-legacy-ids="{{ .LegacyIds }}" data-zip-url="{{ .ZipUrl }}" data-info-url="{{ .InfoUrl }}" data-collection-id="{{ .CollectionId }}"
+     data-legacy-ids="{{ .LegacyIds }}" data-zip-url="{{ .ZipUrl }}" data-zip-all-url="{{ .ZipAllUrl }}" data-info-url="{{ .InfoUrl }}" data-collection-id="{{ .CollectionId }}"
      data-count-label="{{ if eq .Context "upload" }}Uploaded now: {{ else }}Files: {{ end }}"
      data-user-id="{{ .ActiveUser.Id }}" data-user-name="{{ .ActiveUser.Name }}"
      data-perm-edit-others="{{ .Perm "edit-others" }}" data-perm-delete-others="{{ .Perm "delete-others" }}"

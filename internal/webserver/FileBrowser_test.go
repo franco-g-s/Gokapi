@@ -328,11 +328,14 @@ func TestFileBrowserWithCollection(t *testing.T) {
 	pub.WithCollection(c)
 	test.IsEqualString(t, pub.CollectionId, "colzip")
 	test.IsEqualString(t, pub.ZipUrl, "./cz?id=colzip&files=")
+	test.IsEqualString(t, pub.ZipAllUrl, "./cz?id=colzip")
 	test.IsEqualString(t, pub.InfoUrl(), "./p/info?c=colzip&id=")
 	adm := newFileBrowser("a", ctxCollectionAdmin, nil, models.User{Id: 7})
 	adm.WithCollection(c)
 	test.IsEqualString(t, adm.CollectionId, "colzip")
 	test.IsEqualString(t, adm.ZipUrl, "./files/zip?ids=")
+	// /files/zip has no "everything" form
+	test.IsEqualString(t, adm.ZipAllUrl, "")
 }
 
 // Files added live get the same type icon as rendered ones: media.js holds
@@ -358,6 +361,7 @@ func TestGroupBrowser(t *testing.T) {
 	b.WithGroup(models.Group{Id: "G1"}, people)
 	test.IsEqualString(t, b.GroupId, "G1")
 	test.IsEqualString(t, b.ZipUrl, "./gz?id=G1&files=")
+	test.IsEqualString(t, b.ZipAllUrl, "./gz?id=G1")
 	test.IsEqualString(t, b.DownloadBase, "./gd?id=G1&file=")
 	test.IsEqualString(t, b.InfoUrl(), "./p/info?id=")
 	test.IsEqualString(t, b.DefaultView, "board")

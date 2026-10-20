@@ -140,6 +140,11 @@ type fileBrowser struct {
 	// the comma-separated ids, e.g. "./files/zip?ids=" or
 	// "./cz?id=<c>&files=". Empty: no "Download as .zip" button.
 	ZipUrl string
+	// ZipAllUrl is the same zip without files=, which means every live
+	// member: used when everything is selected and nothing is filtered out,
+	// so a select-all of ~1,000 items never builds a 16 KB URL (I3). Only
+	// /cz and /gz have it.
+	ZipAllUrl string
 	// ZipByHandler shows the "Download as .zip" button although ZipUrl is
 	// empty: a handler registered for the context (FGS.registerFileActions)
 	// supplies the zip. File requests do this, because /files/zip refuses
@@ -220,6 +225,7 @@ func (b *fileBrowser) WithCollection(c models.Collection) {
 	b.CollectionId = c.Id
 	if b.Context == ctxCollectionPublic {
 		b.ZipUrl = "./cz?id=" + c.Id + "&files="
+		b.ZipAllUrl = "./cz?id=" + c.Id
 	}
 }
 
@@ -228,6 +234,7 @@ func (b *fileBrowser) WithCollection(c models.Collection) {
 func (b *fileBrowser) WithGroup(g models.Group, people []browserPerson) {
 	b.GroupId = g.Id
 	b.ZipUrl = "./gz?id=" + g.Id + "&files="
+	b.ZipAllUrl = "./gz?id=" + g.Id
 	b.DownloadBase = "./gd?id=" + g.Id + "&file="
 	b.SortTakenAsc = true
 	b.GroupTools = true

@@ -787,6 +787,7 @@ type AdminView struct {
 	Users                 []userInfo
 	FileRequests          []models.FileRequest
 	Collections           []collectionInfo
+	SharedWithMe          []sharedCollectionInfo
 	ActiveUser            models.User
 	UserMap               map[int]*models.User
 	ServerUrl             string

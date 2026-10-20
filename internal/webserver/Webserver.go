@@ -1207,6 +1207,10 @@ func requireLogin(next http.HandlerFunc, isUiCall, isPwChangeView bool) http.Han
 			_, _ = io.WriteString(w, "{\"Result\":\"error\",\"ErrorMessage\":\"Not authenticated\"}")
 			return
 		}
+		if r.URL.Path == "/g" {
+			// Part 2: a signed-out member comes back to the group (M8)
+			authentication.SetReturnTo(w, "g?id="+r.URL.Query().Get("id"))
+		}
 		redirect(w, r, "login")
 	}
 }

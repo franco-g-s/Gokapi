@@ -11,11 +11,12 @@ import (
 
 const cookieReturnTo = "fgs_return"
 
-// returnToPattern is the only target ever followed: the join page with a token
-var returnToPattern = regexp.MustCompile(`^join\?t=[A-Za-z0-9_-]{1,64}$`)
+// returnToPattern is the only targets ever followed: the join page with a
+// token, and a group page
+var returnToPattern = regexp.MustCompile(`^(join\?t=|g\?id=)[A-Za-z0-9_-]{1,64}$`)
 
-// SetReturnTo remembers where to go after signing in. Only the join page is
-// allowed, so this can never become an open redirect.
+// SetReturnTo remembers where to go after signing in. Only the join page and
+// group pages are allowed, so this can never become an open redirect.
 func SetReturnTo(w http.ResponseWriter, target string) {
 	if !returnToPattern.MatchString(target) {
 		return

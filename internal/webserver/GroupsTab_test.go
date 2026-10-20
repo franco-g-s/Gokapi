@@ -425,3 +425,18 @@ func TestGroupJoinFormOrigin(t *testing.T) {
 	_, member := storage.GroupRole(group, 62)
 	test.IsEqualBool(t, member, true)
 }
+
+// M8: a signed-out member opening a group page is sent back to it after
+// signing in
+func TestGroupPageRemembersReturn(t *testing.T) {
+	resp, _ := groupsTabDo(t, "GET", "/g?id=SomeGroup_1", "", "", "")
+	test.IsEqualBool(t, resp.StatusCode >= 300 && resp.StatusCode < 400, true)
+	found := false
+	for _, c := range resp.Cookies() {
+		if c.Name == "fgs_return" {
+			found = true
+			test.IsEqualString(t, c.Value, "g?id=SomeGroup_1")
+		}
+	}
+	test.IsEqualBool(t, found, true)
+}

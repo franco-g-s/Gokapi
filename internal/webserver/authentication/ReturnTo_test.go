@@ -49,7 +49,8 @@ func TestReturnToRoundTrip(t *testing.T) {
 }
 
 func TestReturnToRefusesOtherTargets(t *testing.T) {
-	for _, bad := range []string{"//evil.com", "https://evil.com", "admin", "join?t=a b", "join?t=abc&x=1", "join?t=", ""} {
+	for _, bad := range []string{"//evil.com", "https://evil.com", "admin", "join?t=a b", "join?t=abc&x=1", "join?t=", "",
+		"g?id=", "g?id=abc&x=1", "g?id=//evil.com", "gd?id=abc"} {
 		// SetReturnTo never stores them
 		w := httptest.NewRecorder()
 		SetReturnTo(w, bad)
@@ -90,4 +91,15 @@ func TestReturnToAfterOauth(t *testing.T) {
 	cleared := returnToCookie(w)
 	test.IsEqualBool(t, cleared != nil, true)
 	test.IsEqualInt(t, cleared.MaxAge, -1)
+}
+
+// M8: a group page is remembered as well, so a signed-out member lands on it
+func TestReturnToGroupPage(t *testing.T) {
+	w := httptest.NewRecorder()
+	SetReturnTo(w, "g?id=Abc_123-x")
+	c := returnToCookie(w)
+	test.IsEqualBool(t, c != nil, true)
+	r := httptest.NewRequest("GET", "/login", nil)
+	r.AddCookie(c)
+	test.IsEqualString(t, PopReturnTo(httptest.NewRecorder(), r), "g?id=Abc_123-x")
 }

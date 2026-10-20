@@ -401,6 +401,12 @@ function uploadTargetGroupItem(target, fileId, uid, attempt) {
                 throw new Error("Request failed with status: " + response.status);
             }
             return response.json().then(item => {
+                if (!target.fixed && item.Preview) {
+                    // The Upload page is the uploader's own list: its tile
+                    // downloads through the uncounted owner route, not the
+                    // group's counted ./gd (Ruling 18)
+                    item.Preview.Download = "";
+                }
                 try {
                     addUploadedFile(item, item.Preview);
                     notifyWorker({ type: "fileAdded", item: item });

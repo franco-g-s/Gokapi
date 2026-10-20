@@ -421,9 +421,12 @@ async function apiFilesModify(id, allowedDownloads, expiry, password, originalPw
         'Content-Type': 'application/json',
         'id': id,
         'apikey': token,
-        'password': password,
         'originalPassword': originalPw
     };
+    // null leaves the password header out (a file whose password follows its group)
+    if (password !== null) {
+        headers['password'] = password;
+    }
     if (allowedDownloads !== null) {
         headers['allowedDownloads'] = allowedDownloads;
     }

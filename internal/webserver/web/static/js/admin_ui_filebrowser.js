@@ -80,7 +80,8 @@
         var flag = function (k) { return menu.getAttribute("data-" + k) === "true"; };
         showEditModal(tile.getAttribute("data-name"), menu.getAttribute("data-id"),
             parseInt(menu.getAttribute("data-downloads"), 10), parseInt(menu.getAttribute("data-expire"), 10),
-            flag("password"), flag("unlimited-downloads"), flag("unlimited-time"), flag("e2e"), flag("can-replace"));
+            flag("password"), flag("unlimited-downloads"), flag("unlimited-time"), flag("e2e"), flag("can-replace"),
+            menu.getAttribute("data-group-lock") || "");
         if (!replace) return;
         // "Replace content" is the edit dialog's replace field, switched on
         var box = document.getElementById("mc_replace");
@@ -116,6 +117,10 @@
     function deleteOne(a) {
         var id = a.ids[0];
         var name = a.tiles[0].getAttribute("data-name") || "";
+        if (!fileData(a.tiles[0]).canDelete) {
+            a.status.textContent = "You may not delete " + name + ".";
+            return;
+        }
         var item = a.button;
         if (item) item.disabled = true;
         apiFilesDelete(id, UNDO_DELAY_S)
@@ -224,19 +229,23 @@
     // Bulk delete: asks first, then deletes each file in turn, at once (no
     // undo, unlike the single delete), taking each out of every list as it
     // goes. No reload: on the upload page the list exists only in this tab.
+    // Files the user may not delete (someone else's, on a group page) are
+    // skipped and counted, never sent.
     async function bulkDelete(a) {
-        var tiles = a.tiles;
-        if (!confirm("Delete " + plural(tiles.length, "file") + "? This cannot be undone.")) return;
+        var tiles = a.tiles.filter(function (t) { return fileData(t).canDelete; });
+        var skipped = a.tiles.length - tiles.length;
+        var skippedText = skipped ? " " + plural(skipped, "file") + " skipped: not yours to delete." : "";
+        if (!tiles.length) {
+            a.status.textContent = "Nothing deleted." + skippedText;
+            return;
+        }
+        if (!confirm("Delete " + plural(tiles.length, "file") + "? This cannot be undone." + skippedText)) return;
         a.button.disabled = true;
         var failures = [], deleted = 0;
         try {
             for (var i = 0; i < tiles.length; i++) {
                 var f = fileData(tiles[i]);
                 a.status.textContent = "Deleting " + (i + 1) + " of " + tiles.length + "…";
-                if (!f.canDelete) {
-                    failures.push(f.name + ": you may not delete this file");
-                    continue;
-                }
                 try {
                     await apiFilesDelete(f.id, 0);
                 } catch (error) {
@@ -255,7 +264,7 @@
         } finally {
             a.button.disabled = false;
         }
-        a.status.textContent = "Deleted " + plural(deleted, "file") + ".";
+        a.status.textContent = "Deleted " + plural(deleted, "file") + "." + skippedText;
         if (failures.length) {
             alert("Could not delete " + plural(failures.length, "file") + ":\n" + failures.join("\n"));
         }

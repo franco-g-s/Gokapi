@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strings"
+	"unicode"
 
 	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/helper"
@@ -22,6 +24,7 @@ const (
 	ctxCollectionAdmin  = "collection-admin"
 	ctxFileRequest      = "filerequest"
 	ctxCollectionPublic = "collection-public"
+	ctxGroup            = "group" // a group page (Part 2)
 )
 
 const (
@@ -39,8 +42,8 @@ type browserActions struct {
 }
 
 var (
-	manageMenu = []string{"open", "download", "copy", "hotlink", "share", "qr", "email", "edit", "replace", "add-to-collection", "delete"}
-	manageBulk = []string{"download", "zip", "photos", "link", "add-to-collection", "change-expiry", "delete"}
+	manageMenu = []string{"open", "download", "copy", "hotlink", "share", "qr", "email", "edit", "replace", "add-to-collection", "add-to-group", "delete"}
+	manageBulk = []string{"download", "zip", "photos", "link", "add-to-collection", "add-to-group", "change-expiry", "delete"}
 )
 
 // browserActionTable is binding (spec, "Per-page content and actions")
@@ -62,6 +65,13 @@ var browserActionTable = map[string]browserActions{
 		Bulk:        []string{"download", "zip", "photos"},
 		DefaultView: viewList,
 	},
+	// Edit is here (D4 revision): renaming and replacing content. Expiry,
+	// download limit and password follow the group (browserItem.GroupLock).
+	ctxGroup: {
+		Menu:        []string{"open", "download", "edit", "replace", "remove-from-group", "delete"},
+		Bulk:        []string{"download", "zip", "photos", "remove-from-group", "delete"},
+		DefaultView: viewBoard,
+	},
 }
 
 // browserItem is one file in a fileBrowser
@@ -81,6 +91,21 @@ type browserItem struct {
 	// presign flow in JS)
 	DownloadUrl string
 	Icon        string // Bootstrap icon for files without a thumbnail
+	// Group pages (Part 2)
+	UploaderId int
+	Downloaded bool   // a Downloads row exists for the viewer (G4); the caller fills it in
+	CanRemove  bool   // may take it out of this group (D4); the caller fills it in
+	Initials   string // of Uploader, for the tile's badge
+	// GroupLock is the name of the live group whose terms the file follows
+	// (storage.GroupLock), on every page with the edit dialog: its expiry,
+	// download limit and password cannot be edited there (D4)
+	GroupLock string
+}
+
+// browserPerson is one choice of a group page's person filter
+type browserPerson struct {
+	Id   int
+	Name string
 }
 
 // fileBrowser is everything html_file_browser.tmpl's "file_browser" needs
@@ -104,6 +129,19 @@ type fileBrowser struct {
 	// request uploads.
 	ZipByHandler bool
 	ActiveUser   models.User
+	// Group pages (Part 2, WithGroup)
+	GroupId string
+	// DownloadBase is a live add's download URL up to the file id; "" is the
+	// owner download where the list Manages
+	DownloadBase string
+	// SortTakenAsc puts Board, Grid and live adds in shooting order, and
+	// sorts List by Taken ascending (D13)
+	SortTakenAsc bool
+	// GroupTools: the person filter, "Hide what I've downloaded", "Select
+	// everything new to me" and the downloaded ticks
+	GroupTools bool
+	People     []browserPerson // the person filter's choices
+	UploadSink bool            // finished uploads on this page are added here (G7)
 }
 
 // newFileBrowser fills Menu, Bulk and DefaultView from the action table.
@@ -142,6 +180,10 @@ func (b fileBrowser) HasBulk(key string) bool { return slices.Contains(b.Bulk, k
 // (expiry, download count) and data for the admin actions are rendered.
 func (b fileBrowser) Manages() bool { return b.HasMenu("edit") }
 
+// ItemPerms is true where the menu carries data-can-delete and
+// data-can-remove, with or without the rest of the management data (Manages)
+func (b fileBrowser) ItemPerms() bool { return b.HasMenu("delete") || b.HasMenu("remove-from-group") }
+
 // LegacyIds is true where the page holds a single browser (Files, Upload):
 // only there are the upload page's element ids (row-, cell-name-,
 // cell-downloads-, url-button-) rendered. Pages with one browser per
@@ -158,11 +200,27 @@ func (b *fileBrowser) WithCollection(c models.Collection) {
 	}
 }
 
+// WithGroup scopes the browser to a group page: the group's counted
+// download and zip, shooting order, the group tools and its people
+func (b *fileBrowser) WithGroup(g models.Group, people []browserPerson) {
+	b.GroupId = g.Id
+	b.ZipUrl = "./gz?id=" + g.Id + "&files="
+	b.DownloadBase = "./gd?id=" + g.Id + "&file="
+	b.SortTakenAsc = true
+	b.GroupTools = true
+	b.ShowUploader = true
+	b.People = people
+}
+
 // InfoUrl is where a tile whose preview is pending polls for it, up to the
 // "id=" its file id is appended to
 func (b fileBrowser) InfoUrl() string {
 	if b.Context == ctxCollectionPublic {
 		return "./p/info?c=" + b.CollectionId + "&id="
+	}
+	if b.Context == ctxGroup {
+		// Members may not list each other's files; CanView admits them
+		return "./p/info?id="
 	}
 	return "./files/previewinfo?id="
 }
@@ -213,9 +271,10 @@ func (b fileBrowser) Perm(name string) bool {
 
 // browserItemFromFile builds one item for a context. The request decides,
 // through previewUrls, whether a video may stream for this viewer.
-// collectionId scopes preview access to a collection page (collection-public);
+// scopeId is the collection id on a collection page (collection-public),
+// where it also scopes preview access, and the group id on a group page;
 // uploaderNames maps user ids to names.
-func browserItemFromFile(r *http.Request, f models.File, user models.User, context, collectionId string, uploaderNames map[int]string) browserItem {
+func browserItemFromFile(r *http.Request, f models.File, user models.User, context, scopeId string, uploaderNames map[int]string) browserItem {
 	config := configuration.Get()
 	out, err := f.ToFileApiOutput(config.ServerUrl, config.IncludeFilename)
 	helper.Check(err)
@@ -223,8 +282,11 @@ func browserItemFromFile(r *http.Request, f models.File, user models.User, conte
 	previewCollection := ""
 	switch context {
 	case ctxCollectionPublic:
-		previewCollection = collectionId
-		item.DownloadUrl = "./cd?id=" + collectionId + "&file=" + f.Id
+		previewCollection = scopeId
+		item.DownloadUrl = "./cd?id=" + scopeId + "&file=" + f.Id
+	case ctxGroup:
+		// Previews stay unscoped: CanView admits the group's members
+		item.DownloadUrl = "./gd?id=" + scopeId + "&file=" + f.Id
 	case ctxFileRequest:
 		item.DownloadUrl = ""
 	default:
@@ -239,9 +301,32 @@ func browserItemFromFile(r *http.Request, f models.File, user models.User, conte
 		item.CanReplace = item.CanEdit && !out.IsEndToEndEncrypted &&
 			((own && user.HasPermissionReplace()) || user.HasPermissionReplaceOtherUploads())
 	}
+	if context == ctxGroup {
+		item.UploaderId = f.UserId
+		item.Initials = initialsOf(item.Uploader)
+	}
+	if slices.Contains(browserActionTable[context].Menu, "edit") {
+		item.GroupLock, _ = storage.GroupLock(f.Id)
+	}
 	item.Preview = previewUrls(r, f, previewCollection, item.DownloadUrl)
 	item.TakenAt = item.Preview.TakenAt
 	return item
+}
+
+// initialsOf is the avatar badge of a name: the first letters of its first
+// and last parts, upper case ("anna.mueller" -> "AM", "ben" -> "B").
+// media.js (initialsOf) holds the same rule for files added live.
+func initialsOf(name string) string {
+	parts := strings.FieldsFunc(name, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+	if len(parts) == 0 {
+		return ""
+	}
+	first := []rune(parts[0])[:1]
+	if len(parts) == 1 {
+		return strings.ToUpper(string(first))
+	}
+	last := []rune(parts[len(parts)-1])[:1]
+	return strings.ToUpper(string(first) + string(last))
 }
 
 // writePreviewInfo answers a tile polling for its preview. Never cached, so

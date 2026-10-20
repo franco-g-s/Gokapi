@@ -548,6 +548,16 @@
   function setData(el, name, value) {
     if (el) el.setAttribute("data-" + name, value === undefined || value === null ? "" : String(value));
   }
+  // The tile badge of a name: the first letters of its first and last parts,
+  // upper case ("anna.mueller" -> "AM"). Must equal initialsOf in
+  // FileBrowser.go.
+  function initialsOf(name) {
+    var parts = String(name || "").split(/[^\p{L}\p{Nd}]+/u).filter(Boolean);
+    if (!parts.length) return "";
+    var first = Array.from(parts[0])[0];
+    if (parts.length === 1) return first.toUpperCase();
+    return (first + Array.from(parts[parts.length - 1])[0]).toUpperCase();
+  }
   function formatTimes(scope) {
     Array.prototype.forEach.call(scope.querySelectorAll("[data-ts]"), function (el) {
       var ts = parseInt(el.getAttribute("data-ts"), 10);
@@ -575,6 +585,20 @@
     var infoUrl = root.getAttribute("data-info-url") || "";
     var zipUrl = root.getAttribute("data-zip-url") || "";
     var manages = !!(tplTile && tplTile.content.querySelector("[data-menu=edit]"));
+    // data-can-delete / data-can-remove are rendered without the rest of the
+    // management data where the menu offers Delete or Remove from group
+    var itemPerms = !!(tplTile && tplTile.content.querySelector("[data-menu=delete], [data-menu=remove-from-group]"));
+    // Group pages (Part 2): the group's own download for live adds, shooting
+    // order, and the person filter, "Hide what I've downloaded" and ticks
+    var downloadBase = root.getAttribute("data-download-base") || "";
+    var sortTakenAsc = root.getAttribute("data-sort") === "taken-asc";
+    var groupTools = root.getAttribute("data-group-tools") === "true";
+    var selectAllButton = bar.querySelector("[data-fgs-select-all]");
+    var selectNewButton = bar.querySelector("[data-fgs-select-new]");
+    var personSelect = root.querySelector("[data-fgs-person]");
+    var hideDownloaded = root.querySelector("[data-fgs-hide-downloaded]");
+    // Active filters: key -> predicate on a tile; a tile any of them rejects is hidden
+    var filters = {};
     // The upload page's element ids, only where the page holds one browser
     var legacyIds = root.getAttribute("data-legacy-ids") === "true";
     var selecting = false, view = null, scope = "all", dataTable = null, api = null;
@@ -640,6 +664,11 @@
       }).length;
       if (countEl) countEl.textContent = (root.getAttribute("data-count-label") || "Files: ") + shown;
       root.classList.toggle("fgs-is-empty", all === 0);
+      refreshSelectAll();
+    }
+    // "Select all (N)": N is what is visible now
+    function refreshSelectAll() {
+      if (selectAllButton) selectAllButton.textContent = "Select all (" + visibleTiles().length + ")";
     }
 
     function updateSelection() {
@@ -653,6 +682,7 @@
       var photos = bar.querySelector("[data-act=photos]");
       if (photos) FGS.resetSaveToPhotos(photos);
       if (linkResult) { linkResult.textContent = ""; linkResult.className = "fgs-linkresult"; }
+      refreshSelectAll();
     }
 
     function setChecked(id, on) {
@@ -679,6 +709,25 @@
       updateSelection();
       // The checkbox column appeared or went away
       if (dataTable && view === "list") dataTable.columns.adjust();
+    }
+
+    // The selection becomes exactly the visible files fn(tile) accepts,
+    // entering select mode if it is off. Returns how many that is.
+    function selectWhere(fn) {
+      if (!selecting) setSelecting(true);
+      var n = 0;
+      visibleTiles().forEach(function (t) {
+        var on = !!fn(t);
+        setChecked(idOf(t), on);
+        if (on) n++;
+      });
+      status.textContent = "";
+      updateSelection();
+      return n;
+    }
+    // New to me: neither downloaded nor my own upload (D12)
+    function isNewToMe(tile) {
+      return tile.getAttribute("data-downloaded") !== "true" && tile.getAttribute("data-mine") !== "true";
     }
 
     // The viewer, over everything visible, starting at this file
@@ -727,16 +776,30 @@
       updateSelection();
     }
 
-    // Only users with PERM_LIST get the switch, and only they are ever sent
-    // other users' files. Without the switch everything shown is their own.
-    function hideForScope(el) {
-      el.classList.toggle("d-none", scope === "mine" && el.getAttribute("data-mine") !== "true");
+    // A tile or list row is hidden when the scope switch says so, or any
+    // active filter rejects its tile; a row follows its tile. Only users with
+    // PERM_LIST get the switch, and only they are ever sent other users'
+    // files. Without the switch everything shown is their own. Returns
+    // whether the element was shown or hidden by this.
+    function applyVisibility(el) {
+      if (!el) return false;
+      var tile = el.hasAttribute("data-row-id") ? tilesById[el.getAttribute("data-row-id")] || el : el;
+      var hide = scope === "mine" && tile.getAttribute("data-mine") !== "true";
+      if (!hide) hide = Object.keys(filters).some(function (k) { return !filters[k](tile); });
+      var was = el.classList.contains("d-none");
+      el.classList.toggle("d-none", hide);
+      return was !== hide;
+    }
+    function applyAllVisibility() {
+      var changed = false;
+      Object.keys(tilesById).forEach(function (id) { if (applyVisibility(tilesById[id])) changed = true; });
+      Object.keys(rowsById).forEach(function (id) { if (applyVisibility(rowsById[id])) changed = true; });
+      return changed;
     }
     function applyScope(s) {
       if (!root.querySelector("button[data-scope]")) { scope = "all"; return; }
       scope = s === "all" ? "all" : "mine";
-      Object.keys(tilesById).forEach(function (id) { hideForScope(tilesById[id]); });
-      Object.keys(rowsById).forEach(function (id) { hideForScope(rowsById[id]); });
+      applyAllVisibility();
       setActive("data-scope", scope);
       store("scope", scope);
       refreshCount();
@@ -746,6 +809,30 @@
 
     // Square crops every thumbnail to fill its tile; True shape shows the
     // whole picture, letterboxed. Grid only: Board always keeps proportions.
+    // Sets (fn) or clears (null) the filter under key, then shows what passes
+    function setFilter(key, fn) {
+      if (typeof fn === "function") filters[key] = fn;
+      else delete filters[key];
+      applyAllVisibility();
+      refreshCount();
+      layoutBoard();
+      updateSelection();
+    }
+
+    // The viewer now has these files (group pages: the tick, and "Hide what
+    // I've downloaded"). keepVisible leaves them shown for now, so a
+    // selection being worked on (Save to Photos' prepared set) survives.
+    function markDownloaded(ids, keepVisible) {
+      (ids || []).forEach(function (id) {
+        setData(tilesById[id], "downloaded", "true");
+        setData(rowsById[id], "downloaded", "true");
+      });
+      if (keepVisible || !applyAllVisibility()) return;
+      refreshCount();
+      layoutBoard();
+      updateSelection();
+    }
+
     function applyShape(shape) {
       if (shape !== "true") shape = "square";
       grid.classList.toggle("fgs-shape-true", shape === "true");
@@ -778,6 +865,7 @@
       var usable = tiles.filter(function (t) { return t.getAttribute("data-download"); });
       var skipped = tiles.length - usable.length;
       if (usable.length) FGS.downloadSequentially(asItems(usable), { button: button, status: status });
+      if (usable.length && groupTools) markDownloaded(usable.map(idOf));
       if (skipped) {
         window.setTimeout(function () {
           status.textContent = manages
@@ -789,6 +877,7 @@
     function bulkZip(tiles) {
       if (!zipUrl) return;
       window.location = zipUrl + tiles.map(function (t) { return encodeURIComponent(idOf(t)); }).join(",");
+      if (groupTools) markDownloaded(tiles.map(idOf));
     }
 
     bar.addEventListener("click", function (e) {
@@ -801,8 +890,14 @@
       if (handler) { handler(actionArg(tiles, act, true, null)); return; }
       if (what === "download") bulkDownload(tiles, act);
       else if (what === "zip") bulkZip(tiles);
-      else if (what === "photos") FGS.saveToPhotos(asItems(tiles), act);
+      else if (what === "photos") {
+        FGS.saveToPhotos(asItems(tiles), act);
+        // Fetched now; hidden only later, or the prepared set would be dropped
+        if (groupTools) markDownloaded(tiles.filter(function (t) { return t.getAttribute("data-download"); }).map(idOf), true);
+      }
     });
+    if (selectAllButton) selectAllButton.addEventListener("click", function () { selectWhere(function () { return true; }); });
+    if (selectNewButton) selectNewButton.addEventListener("click", function () { selectWhere(isNewToMe); });
 
     var help = bar.querySelector("[data-fgs-help]");
     if (FGS.isIOS()) {
@@ -867,7 +962,10 @@
       var handler = fileAction(context, what);
       if (handler) handler(actionArg([tile], item, false, menu || menuOf(tile), trigger));
       else if (what === "open") openAt(tile);
-      else if (what === "download") FGS.downloadSequentially(asItems([tile]));
+      else if (what === "download") {
+        FGS.downloadSequentially(asItems([tile]));
+        if (groupTools && tile.getAttribute("data-download")) markDownloaded([idOf(tile)]);
+      }
     });
 
     // Live thumbnails: a tile whose preview is still being made asks for it
@@ -1009,8 +1107,11 @@
         setData(menu, "password", !!file.IsPasswordProtected);
         setData(menu, "e2e", !!file.IsEndToEndEncrypted);
         setData(menu, "can-edit", perms.edit);
-        setData(menu, "can-delete", perms.del);
         setData(menu, "can-replace", perms.replace);
+      }
+      if (manages || itemPerms) {
+        setData(menu, "can-delete", perms.del);
+        setData(menu, "can-remove", !!perms.remove);
       }
       var e2e = !!file.IsEndToEndEncrypted;
       menu.querySelectorAll("[data-menu]").forEach(function (b) {
@@ -1021,11 +1122,16 @@
           b.setAttribute("data-clipboard-text", file.UrlHotlink || "");
           if (b.parentNode) b.parentNode.classList.toggle("d-none", !file.UrlHotlink);
         }
-        if (k === "download" || k === "add-to-collection") b.disabled = e2e;
+        if (k === "download" || k === "add-to-collection" || k === "add-to-group") b.disabled = e2e;
+        if (k === "remove-from-group") b.disabled = !perms.remove;
         if (k === "edit") b.disabled = !perms.edit;
         if (k === "replace") b.disabled = !perms.replace;
         if (k === "delete") b.disabled = !perms.del;
       });
+    }
+
+    function shootingKey(tile) {
+      return parseInt(tile.getAttribute("data-taken"), 10) || parseInt(tile.getAttribute("data-uploaded"), 10) || 0;
     }
 
     function addItem(file, preview) {
@@ -1038,8 +1144,14 @@
       var flag = function (k) { return root.getAttribute("data-perm-" + k) === "true"; };
       var perms = { edit: mine || flag("edit-others"), del: mine || flag("delete-others") };
       perms.replace = perms.edit && !file.IsEndToEndEncrypted && ((mine && flag("replace")) || flag("replace-others"));
-      var download = preview.Download || (manages && !file.IsEndToEndEncrypted ? "./files/download?id=" + encodeURIComponent(id) : "");
-      var uploader = mine ? (root.getAttribute("data-user-name") || "") : "";
+      perms.remove = !!file.CanRemove;
+      var download = preview.Download || (downloadBase ? downloadBase + encodeURIComponent(id)
+        : (manages && !file.IsEndToEndEncrypted ? "./files/download?id=" + encodeURIComponent(id) : ""));
+      var uploader = file.UploaderName !== undefined && file.UploaderName !== null ? String(file.UploaderName)
+        : (mine ? (root.getAttribute("data-user-name") || "") : "");
+      var uploaderId = file.UploaderId !== undefined && file.UploaderId !== null ? file.UploaderId : (mine ? userId : 0);
+      // Shooting order: without a date taken, the upload date stands in (D13)
+      var takenOrder = preview.TakenAt || (sortTakenAsc ? file.UploadDate || 0 : 0);
       var name = file.Name || "";
 
       var tile = tplTile.content.firstElementChild.cloneNode(true);
@@ -1052,6 +1164,10 @@
       setData(tile, "size", file.Size);
       setData(tile, "bytes", file.SizeBytes);
       setData(tile, "taken", preview.TakenAt || 0);
+      setData(tile, "uploader-id", uploaderId);
+      setData(tile, "downloaded", !!file.Downloaded);
+      var initials = tile.querySelector(".fgs-initials");
+      if (initials) initials.textContent = initialsOf(uploader);
       tile.querySelector(".fgs-tile-open").setAttribute("aria-label", "Open " + name);
       tileCheck(tile).setAttribute("aria-label", "Select " + name);
       var small = tile.querySelector(".fgs-typeicon small");
@@ -1066,6 +1182,7 @@
       var row = tplRow.content.firstElementChild.cloneNode(true);
       setData(row, "mine", mine);
       setData(row, "row-id", id);
+      setData(row, "downloaded", !!file.Downloaded);
       if (legacyIds) row.id = "row-" + id;
       rowCheck(row).setAttribute("aria-label", "Select " + name);
       var nameCell = row.querySelector("td[data-col=name]");
@@ -1077,7 +1194,7 @@
       if (cell("uploader")) cell("uploader").textContent = uploader;
       cell("uploaded").setAttribute("data-order", String(file.UploadDate || 0));
       setData(cell("uploaded").querySelector("[data-ts]"), "ts", file.UploadDate || 0);
-      cell("taken").setAttribute("data-order", String(preview.TakenAt || 0));
+      cell("taken").setAttribute("data-order", String(takenOrder));
       cell("taken").textContent = preview.TakenAt ? fmt(preview.TakenAt) : "—";
       cell("size").setAttribute("data-order", String(file.SizeBytes || 0));
       cell("size").textContent = file.Size || "";
@@ -1104,12 +1221,24 @@
       formatTimes(tile);
       formatTimes(row);
 
-      grid.insertBefore(tile, grid.firstChild);
+      // Newest first, or in shooting order before the first file taken
+      // later (DataTables sorts the row itself)
+      var before = grid.firstChild;
+      if (sortTakenAsc) {
+        var key = shootingKey(tile);
+        before = Array.prototype.find.call(grid.children, function (t) {
+          return t.classList.contains("fgs-tile") && shootingKey(t) > key;
+        }) || null;
+      }
+      grid.insertBefore(tile, before);
       index(tile, row);
       if (dataTable) dataTable.row.add(row).draw(false);
-      else tbody.insertBefore(row, tbody.firstChild);
-      hideForScope(tile);
-      hideForScope(row);
+      else {
+        var beforeRow = sortTakenAsc ? (before && rowsById[idOf(before)]) || null : tbody.firstChild;
+        tbody.insertBefore(row, beforeRow && beforeRow.parentNode === tbody ? beforeRow : null);
+      }
+      applyVisibility(tile);
+      applyVisibility(row);
       if (preview.Status === "ready") applyPreview(id, preview);
       else if (!file.IsEndToEndEncrypted && (!preview.Status || preview.Status === "pending")) startPolling(id);
       refreshCount();
@@ -1127,11 +1256,12 @@
       if (!tile) return null;
       var menu = menuOf(tile);
       var was = function (k) {
-        if (manages) return menu.getAttribute("data-can-" + k) === "true";
-        var b = menu.querySelector("[data-menu=" + k + "]");
+        var rendered = menu.getAttribute("data-can-" + k);
+        if (rendered !== null) return rendered === "true";
+        var b = menu.querySelector("[data-menu=" + (k === "remove" ? "remove-from-group" : k) + "]");
         return !!b && !b.disabled;
       };
-      var perms = { edit: was("edit"), del: was("delete"), replace: was("replace") };
+      var perms = { edit: was("edit"), del: was("delete"), replace: was("replace"), remove: was("remove") };
       var name = file.Name || tile.getAttribute("data-name") || "";
       setData(tile, "name", name);
       if (file.Size !== undefined) setData(tile, "size", file.Size);
@@ -1197,7 +1327,10 @@
       visible: visibleTiles,
       setSelecting: setSelecting,
       view: function () { return view; },
-      relayout: layoutBoard
+      relayout: layoutBoard,
+      setFilter: setFilter,
+      markDownloaded: markDownloaded,
+      selectWhere: selectWhere
     };
     root.fgsBrowser = api;
 
@@ -1228,7 +1361,7 @@
       // No paging: the scope switch hides rows in the DOM, and the edit
       // dialog's "Replace content" list reads every row's name from it
       dataTable = jQuery(table).DataTable({
-        "order": sortAt >= 0 ? [[sortAt, "desc"]] : [],
+        "order": sortAt >= 0 ? [[sortAt, heads[sortAt].getAttribute("data-fgs-sort-dir") || "desc"]] : [],
         "columnDefs": [{ "targets": noSort, "orderable": false, "searchable": false }],
         "paging": false,
         "info": false,
@@ -1242,6 +1375,27 @@
     var savedView = load("view");
     applyView(VIEWS.indexOf(savedView) >= 0 ? savedView : root.getAttribute("data-default-view"));
     applyScope(load("scope") || "mine");
+    // Group pages: whose files (never remembered: each group has its own
+    // people), and "Hide what I've downloaded" (remembered)
+    if (personSelect) {
+      personSelect.value = ""; // a browser may restore the last choice
+      personSelect.addEventListener("change", function () {
+        var who = personSelect.value;
+        setFilter("person", who ? function (t) { return t.getAttribute("data-uploader-id") === who; } : null);
+      });
+    }
+    if (hideDownloaded) {
+      var applyHideDownloaded = function () {
+        // Your own uploads count as already had (D12)
+        setFilter("downloaded", hideDownloaded.checked ? isNewToMe : null);
+      };
+      hideDownloaded.checked = load("hideDownloaded") === "true";
+      hideDownloaded.addEventListener("change", function () {
+        store("hideDownloaded", hideDownloaded.checked ? "true" : "false");
+        applyHideDownloaded();
+      });
+      if (hideDownloaded.checked) applyHideDownloaded();
+    }
     refreshCount();
     return api;
   };

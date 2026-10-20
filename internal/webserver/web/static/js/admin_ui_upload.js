@@ -378,20 +378,29 @@ function editFile() {
     button.disabled = true;
     let id = button.getAttribute('data-fileid');
 
-    let allowedDownloads = document.getElementById('mi_edit_down').value;
-    let expiryTimestamp = document.getElementById('mi_edit_expiry').value;
-    let password = document.getElementById('mi_edit_pw').value;
-    let originalPassword = (password === '(unchanged)');
+    // D4: in a live group the expiry, download limit and password follow the
+    // group. None of them is sent (null leaves the header out); the server
+    // reads a missing originalPassword as "remove the password", so it says keep.
+    let allowedDownloads = null;
+    let expiryTimestamp = null;
+    let password = null;
+    let originalPassword = true;
+    if (!button.hasAttribute('data-group-lock')) {
+        allowedDownloads = document.getElementById('mi_edit_down').value;
+        expiryTimestamp = document.getElementById('mi_edit_expiry').value;
+        password = document.getElementById('mi_edit_pw').value;
+        originalPassword = (password === '(unchanged)');
 
-    if (!document.getElementById('mc_download').checked) {
-        allowedDownloads = 0;
-    }
-    if (!document.getElementById('mc_expiry').checked) {
-        expiryTimestamp = 0;
-    }
-    if (!document.getElementById('mc_password').checked) {
-        originalPassword = false;
-        password = "";
+        if (!document.getElementById('mc_download').checked) {
+            allowedDownloads = 0;
+        }
+        if (!document.getElementById('mc_expiry').checked) {
+            expiryTimestamp = 0;
+        }
+        if (!document.getElementById('mc_password').checked) {
+            originalPassword = false;
+            password = "";
+        }
     }
 
     let replaceFile = false;
@@ -471,7 +480,7 @@ function showEditedFile(fileInfo, replaced) {
     });
 }
 
-function showEditModal(filename, id, downloads, expiry, password, unlimitedown, unlimitedtime, isE2e, canReplace) {
+function showEditModal(filename, id, downloads, expiry, password, unlimitedown, unlimitedtime, isE2e, canReplace, groupLock) {
     // Cloning removes any previous values or form validation
     let originalModal = $('#modaledit').clone();
     $("#modaledit").on('hide.bs.modal', function() {
@@ -550,6 +559,18 @@ function showEditModal(filename, id, downloads, expiry, password, unlimitedown, 
         document.getElementById("replaceGroup").style.display = 'none';
     }
 
+    // D4: a file in a live group keeps the group's expiry, download limit
+    // and password; only its name and content can be changed here
+    if (groupLock) {
+        ["mc_download", "mc_expiry", "mc_password"].forEach(function(field) {
+            document.getElementById(field).closest(".input-group").classList.add("d-none");
+        });
+        let note = document.createElement("p");
+        note.className = "text-muted small";
+        note.textContent = "Expiry and download limit follow the group \u201c" + groupLock + "\u201d.";
+        nameInput.closest(".input-group").after(note);
+        document.getElementById("mb_save").setAttribute("data-group-lock", groupLock);
+    }
 
 
     new bootstrap.Modal('#modaledit', {}).show();

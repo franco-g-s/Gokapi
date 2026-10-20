@@ -26,6 +26,8 @@
                                 <th scope="col">Group</th>
             			<th scope="col">Last online</th>
             			<th scope="col">Uploads</th>
+            			<th scope="col">Size</th>
+            			<th scope="col">Groups</th>
             			<th scope="col">Permissions
                                     <button type="button"
                                         class="btn btn-sm btn-link text-white-50 p-0 ms-1 align-baseline"
@@ -64,7 +66,9 @@
                                 <td  id="userlevel_{{ .User.Id }}">{{ .User.GetReadableUserLevel }}</td>
             			<td><span id="cell-lastonline-{{ .User.Id }}"></span></td>
 				   <script>insertLastOnlineDate({{ .User.LastOnline }}, "cell-lastonline-{{ .User.Id }}");</script>
-                                <td>{{ .UploadCount }}</td>
+                                <td><span class="user-uploadcount">{{ .UploadCount }}</span> <a href="./files?user={{ .User.Id }}" class="link-light ms-1">View files</a></td>
+                                <td>{{ .TotalSize }}</td>
+                                <td>{{ if .Groups }}{{ range $i, $name := .Groups }}{{ if $i }} {{ end }}<span class="badge text-bg-secondary">{{ $name }}</span>{{ end }}{{ else }}—{{ end }}</td>
             			<td class="prevent-select">
             			
             			

@@ -361,23 +361,41 @@ function uploadTargetNotice(chunkId, message) {
     }
 }
 
-// On a group page, a finished upload is shown from /groups/item, which also
+// A finished upload into a group is shown from /groups/item, which also
 // carries the group's terms (GroupLock) and the uploader. The file is put
 // into the group a moment after the server reports it finished, so a 404 is
-// retried; three 404s mean the server found a copy already in the group and
-// deleted this one.
+// retried. After three, the file itself is asked about: a server-detected
+// duplicate is deleted (gone, or expired already), while a slow attach still
+// has a live file and is waited for a little longer (M2).
+const GROUP_ITEM_QUICK_TRIES = 2, GROUP_ITEM_MAX_TRIES = 12;
+
+function uploadTargetDuplicate(uid) {
+    uploadTargetNotice(uid, "Already in the group");
+    markBatchFileFailed(dropzoneGetFile(uid));
+}
+
 function uploadTargetGroupItem(target, fileId, uid, attempt) {
+    let retry = () => setTimeout(() => uploadTargetGroupItem(target, fileId, uid, attempt + 1), 1000);
     fetch("./groups/item?id=" + encodeURIComponent(target.id) + "&file=" + encodeURIComponent(fileId),
         { credentials: "same-origin", cache: "no-store" })
         .then(response => {
             if (response.status === 404) {
-                if (attempt < 2) {
-                    setTimeout(() => uploadTargetGroupItem(target, fileId, uid, attempt + 1), 1000);
+                if (attempt < GROUP_ITEM_QUICK_TRIES) {
+                    retry();
                     return;
                 }
-                uploadTargetNotice(uid, "Already in the group");
-                markBatchFileFailed(dropzoneGetFile(uid));
-                return;
+                if (attempt >= GROUP_ITEM_MAX_TRIES) {
+                    uploadTargetDuplicate(uid);
+                    return;
+                }
+                return apiFilesListById(fileId)
+                    .then(file => {
+                        let now = Math.floor(Date.now() / 1000);
+                        let alive = file && !file.IsPendingDeletion && (file.UnlimitedTime || file.ExpireAt > now);
+                        if (alive) retry();
+                        else uploadTargetDuplicate(uid);
+                    })
+                    .catch(() => uploadTargetDuplicate(uid));
             }
             if (!response.ok) {
                 throw new Error("Request failed with status: " + response.status);

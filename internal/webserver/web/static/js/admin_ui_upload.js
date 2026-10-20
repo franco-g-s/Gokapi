@@ -333,17 +333,16 @@ function dropzoneGetFile(uid) {
 function requestFileInfo(fileId, uid) {
     let uploaded = dropzoneGetFile(uid);
     let target = uploaded !== null && uploaded.fgsTarget ? uploaded.fgsTarget : null;
-    if (target !== null && target.fixed && target.id !== "") {
-        // a group page: its board shows the item as the group has it
+    if (target !== null && target.id !== "") {
+        // Into a group, from a group page or the Upload page's "Upload to":
+        // shown as the group has it (its terms, GroupLock). The server may
+        // still find it a duplicate and delete it; /groups/item then never
+        // finds it, and the row says "Already in the group" (M1)
         uploadTargetGroupItem(target, fileId, uid, 0);
         return;
     }
     apiFilesListById(fileId)
         .then(data => {
-            if (target !== null && target.id !== "") {
-                // its expiry, limit and password follow the group (D4)
-                data.GroupLock = target.name;
-            }
             // The list is only a view: an error drawing it must not mark an
             // upload that is stored as failed (and with it the auto-collection batch)
             try {

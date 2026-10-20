@@ -4,7 +4,7 @@
 // bundle with every other admin_*.js file, so everything here is either on
 // FGS or carries an upload-target prefix.
 
-(function () {
+;(function () {
     var FGS = window.FGS = window.FGS || {};
 
     var WORKER_URL = "./js/sha1-worker.js";

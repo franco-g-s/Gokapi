@@ -146,6 +146,9 @@ func Start() {
 	mux.HandleFunc("/p/info", publicPreviewInfo)
 	// Part 2, G7: uploading into a group
 	mux.HandleFunc("/groups/has", requireLogin(groupHas, false, false))
+	// Part 2, G8: adding files to a group
+	mux.HandleFunc("/groups/add", requireLogin(addToGroup, false, false))
+	mux.HandleFunc("/groups/fromcollection", requireLogin(groupFromCollection, false, false))
 	// Part 2, G2: groups (shared)
 	mux.HandleFunc("/groups/list", requireLogin(listGroups, false, false))
 	// Part 2, G6: groups tab, joining, managing

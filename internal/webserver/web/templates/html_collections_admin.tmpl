@@ -58,6 +58,12 @@
                             type="button" data-id="{{ .Id }}" data-name="{{ .Name }}" title="Rename">
                       <i class="bi bi-pencil"></i>
                     </button>
+                    {{ if or .IsOwn $.ActiveUser.IsAdmin }}
+                    <button class="btn btn-sm btn-outline-light collection-togroup"
+                            type="button" data-id="{{ .Id }}" data-name="{{ .Name }}" title="Turn into a group">
+                      <i class="bi bi-people"></i>
+                    </button>
+                    {{ end }}
                     <button class="btn btn-sm btn-outline-light collection-copy"
                             type="button" data-url="{{ .Url }}" title="Copy link">
                       <i class="bi bi-clipboard"></i> Copy link
@@ -170,6 +176,44 @@
           <span id="filePickerCount" class="text-muted small me-2"></span>
           <button type="button" class="btn btn-light" id="filePickerConfirm" disabled>Confirm</button>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="togroup-modal" tabindex="-1" aria-labelledby="togroup-title" aria-hidden="true">
+  <div class="modal-dialog gokapi-dialog">
+    <div class="modal-content gokapi-dialog text-start">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="togroup-title">Turn into a group</h1>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p id="togroup-what"></p>
+        <p class="text-muted small">
+          The collection&rsquo;s password does not carry over: people join the group by signing in.
+        </p>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="togroup-days" id="togroup-days-30" value="30">
+          <label class="form-check-label" for="togroup-days-30">30 days</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="togroup-days" id="togroup-days-60" value="60" checked>
+          <label class="form-check-label" for="togroup-days-60">60 days (suggested)</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="togroup-days" id="togroup-days-90" value="90">
+          <label class="form-check-label" for="togroup-days-90">90 days</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="togroup-days" id="togroup-days-0" value="0">
+          <label class="form-check-label" for="togroup-days-0">Never</label>
+        </div>
+        <div id="togroup-status" aria-live="polite"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-light" id="togroup-confirm">Turn into a group</button>
       </div>
     </div>
   </div>

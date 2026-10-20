@@ -26,6 +26,9 @@
                                 <th scope="col">Group</th>
             			<th scope="col">Last online</th>
             			<th scope="col">Uploads</th>
+            			<th scope="col">Files</th>
+            			<th scope="col">Size</th>
+            			<th scope="col">Groups</th>
             			<th scope="col">Permissions
                                     <button type="button"
                                         class="btn btn-sm btn-link text-white-50 p-0 ms-1 align-baseline"
@@ -65,6 +68,9 @@
             			<td><span id="cell-lastonline-{{ .User.Id }}"></span></td>
 				   <script>insertLastOnlineDate({{ .User.LastOnline }}, "cell-lastonline-{{ .User.Id }}");</script>
                                 <td>{{ .UploadCount }}</td>
+                                <td><span class="user-filecount">{{ .FileCount }}</span> <a href="./files?user={{ .User.Id }}" class="link-light ms-1">View files</a></td>
+                                <td>{{ .TotalSize }}</td>
+                                <td>{{ .GroupsText }}</td>
             			<td class="prevent-select">
             			
             			

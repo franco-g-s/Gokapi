@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,6 +54,24 @@ func fileTypeIcon(name string) string {
 type FilesView struct {
 	AdminView
 	Browser fileBrowser
+	// PersonName is set on the per-person view (/files?user=<id>): whose files
+	// the page lists. Empty on the ordinary Files tab.
+	PersonName string
+}
+
+// personFilter reads ?user=<id> for the per-person view. It applies only to
+// someone who may list other people's uploads, and only to a person who
+// exists; anything else is ignored and the ordinary Files tab shows.
+func personFilter(r *http.Request, viewer models.User) (models.User, bool) {
+	raw := r.URL.Query().Get("user")
+	if raw == "" || !viewer.HasPermissionListOtherUploads() {
+		return models.User{}, false
+	}
+	id, err := strconv.Atoi(raw)
+	if err != nil {
+		return models.User{}, false
+	}
+	return database.GetUser(id)
 }
 
 // isListedFile is the upload table's filter: no pending deletions, no file
@@ -115,6 +134,7 @@ func showFiles(w http.ResponseWriter, r *http.Request) {
 	view := FilesView{}
 	view.AdminView = *(&AdminView{}).convertGlobalConfig(ViewFiles, user)
 	seeEveryone := user.HasPermissionListOtherUploads()
+	person, onlyPerson := personFilter(r, user)
 	names := map[int]string{}
 	for _, u := range database.GetAllUsers() {
 		names[u.Id] = u.Name
@@ -123,6 +143,9 @@ func showFiles(w http.ResponseWriter, r *http.Request) {
 	items := make([]browserItem, 0)
 	for _, f := range database.GetAllMetadata() {
 		if f.UserId != user.Id && !seeEveryone {
+			continue
+		}
+		if onlyPerson && f.UserId != person.Id {
 			continue
 		}
 		out, err := f.ToFileApiOutput(config.ServerUrl, config.IncludeFilename)
@@ -139,6 +162,12 @@ func showFiles(w http.ResponseWriter, r *http.Request) {
 		return items[i].File.Id > items[j].File.Id
 	})
 	view.Browser = newFileBrowser("fgs-files", ctxFiles, items, user)
+	if onlyPerson {
+		// Everything on the page is one person's: the My files / Everything
+		// switch would have nothing to switch between
+		view.Browser.ShowScope = false
+		view.PersonName = displayName(person)
+	}
 	err = templateFolder.ExecuteTemplate(w, "files", &view)
 	helper.CheckIgnoreTimeout(err)
 }

@@ -576,6 +576,8 @@ Summaries are grouped by group and person:
 
 - the email switch above;
 - a display name, defaulting to the Google name, used on tiles and in emails.
+- a profile photo, taken from the Google sign-in, replacing the initials
+  that part 2 shows for members (Franco, 2026-10-20).
 
 ### Failure handling
 

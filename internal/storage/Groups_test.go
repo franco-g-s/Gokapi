@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -399,10 +400,17 @@ func TestAttachUploadDuplicate(t *testing.T) {
 	}
 	_, exists := database.GetMetaDataById(again.Id)
 	test.IsEqualBool(t, exists, false)
-	time.Sleep(200 * time.Millisecond) // let the recursive sweep finish
-	// The original and its blob survive: the blob is shared
+	// One more sweep, synchronously, so CleanUp has certainly run with the
+	// duplicate gone (I5)
+	CleanUp(false)
+	// The original survives, still in the group, and so does the blob it
+	// shared with the duplicate: the one data file named by their SHA1
 	_, exists = database.GetMetaDataById(first.Id)
 	test.IsEqualBool(t, exists, true)
+	test.IsEqualBool(t, slices.Contains(database.GetGroupFileIds(g.Id), first.Id), true)
+	blob, err := os.Stat(filepath.Join(configuration.Get().DataDir, first.SHA1))
+	test.IsNil(t, err)
+	test.IsEqualBool(t, blob.Mode().IsRegular(), true)
 
 	_, dup = AttachUploadToGroup(g, unique, uploader)
 	test.IsEqualBool(t, dup, false)

@@ -5,9 +5,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"testing"
+	"time"
 
+	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/models"
 	"github.com/forceu/gokapi/internal/storage"
@@ -117,14 +121,23 @@ func TestChunkCompleteGroup(t *testing.T) {
 	ids = database.GetGroupFileIds(g.Id)
 	test.IsEqualInt(t, len(ids), 1)
 	test.IsEqualString(t, ids[0], fileId)
-	for _, f := range groupUploadFilesNamed("g7-duplicate.txt") {
-		// CleanUp may already have removed it entirely
-		test.IsEqualInt64(t, f.ExpireAt, 0)
+	// The duplicate is deleted for good (DeleteFile's background CleanUp);
+	// wait for that, then sweep once more synchronously (I5)
+	deadline := time.Now().Add(5 * time.Second)
+	for len(groupUploadFilesNamed("g7-duplicate.txt")) > 0 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
 	}
-	// The original is untouched
+	test.IsEqualInt(t, len(groupUploadFilesNamed("g7-duplicate.txt")), 0)
+	storage.CleanUp(false)
+	// The original is untouched, still in the group, and the blob it shares
+	// with the duplicate (the data file named by their SHA1) is still there
 	file, ok = database.GetMetaDataById(fileId)
 	test.IsEqualBool(t, ok, true)
 	test.IsEqualInt64(t, file.ExpireAt, g.Expires)
+	test.IsEqualBool(t, slices.Contains(database.GetGroupFileIds(g.Id), fileId), true)
+	blob, err := os.Stat(filepath.Join(configuration.Get().DataDir, file.SHA1))
+	test.IsNil(t, err)
+	test.IsEqualInt64(t, blob.Size(), int64(len(content)))
 
 	// A group that never closes gives the upload no expiry
 	never, err := storage.CreateGroup("Never closes", 0, creator)

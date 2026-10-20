@@ -97,6 +97,26 @@ func TestFilesTabEverythingFromGroups(t *testing.T) {
 	test.IsEqualBool(t, strings.Contains(body, `data-scope="all"`), false)
 	test.IsEqualBool(t, strings.Contains(body, annas.Id), false)
 
+	// dora, in a live group holding only her own file: the switch, and
+	// nothing of anyone else's
+	dora := models.User{Id: 84, Name: "dora@example.com", UserLevel: models.UserLevelUser}
+	database.SaveUser(dora, false)
+	defer database.DeleteUser(dora.Id)
+	solo, err := storage.CreateGroup("Solo", 30, dora)
+	test.IsNil(t, err)
+	defer database.DeleteGroup(solo.Id)
+	doras := accessFile("filesgroupdora00001", func(f *models.File) { f.UserId = dora.Id; f.SHA1 = "filesgroupdorasha" })
+	defer func() {
+		database.RemoveFileFromGroups(doras.Id)
+		database.DeleteMetaData(doras.Id)
+	}()
+	_, err = storage.AddFilesToGroup(solo, []string{doras.Id}, dora)
+	test.IsNil(t, err)
+	body = groupPageCall(showFiles, "GET", "/files", dora, "").Body.String()
+	test.IsEqualBool(t, strings.Contains(body, `data-scope="all"`), true)
+	test.IsEqualBool(t, strings.Contains(body, `data-foreign="true"`), false)
+	test.IsEqualInt(t, strings.Count(body, `data-mine="true" data-id="`+doras.Id+`"`), 1)
+
 	// anna, whose groups hold only her own files and ben's: ben's file once
 	body = groupPageCall(showFiles, "GET", "/files", anna, "").Body.String()
 	test.IsEqualBool(t, strings.Contains(body, `data-scope="all"`), true)

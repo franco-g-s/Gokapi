@@ -157,11 +157,10 @@ func showFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	// Without PERM_LIST, Everything is their own files plus those in their
 	// groups (spec, "Files tab")
-	fromGroups := 0
+	inGroups := false
 	if !seeEveryone && !onlyPerson && database.SupportsGroups() {
-		groupItems := filesTabGroupItems(r, user)
-		fromGroups = len(groupItems)
-		items = append(items, groupItems...)
+		inGroups = len(storage.GroupsOfUser(user.Id)) > 0
+		items = append(items, filesTabGroupItems(r, user)...)
 	}
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].File.UploadDate != items[j].File.UploadDate {
@@ -170,7 +169,9 @@ func showFiles(w http.ResponseWriter, r *http.Request) {
 		return items[i].File.Id > items[j].File.Id
 	})
 	view.Browser = newFileBrowser("fgs-files", ctxFiles, items, user)
-	if fromGroups > 0 {
+	if inGroups {
+		// In at least one live group: the switch, even while the groups
+		// hold only their own files
 		view.Browser.ShowScope = true
 		view.Browser.ShowUploader = true
 	}

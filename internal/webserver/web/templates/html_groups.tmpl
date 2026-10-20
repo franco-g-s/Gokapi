@@ -1,0 +1,102 @@
+{{ define "groups_tab" }}{{ template "header" . }}
+<div class="row"><div class="col"><div id="container" class="card" style="width:100%">
+<div class="card-body" id="groupsPage">
+  <h3 class="card-title mb-3">Groups</h3>
+  {{ if not .Supported }}
+    <p class="text-muted my-4">Groups need the SQLite database.</p>
+  {{ else }}
+    <div class="d-flex justify-content-center gap-2 mb-3">
+      <button type="button" class="btn btn-light" data-bs-toggle="modal" data-bs-target="#groupCreateModal">
+        <i class="bi bi-plus-lg"></i> Create group
+      </button>
+      <button type="button" class="btn btn-outline-light" data-bs-toggle="modal" data-bs-target="#groupJoinModal">
+        <i class="bi bi-box-arrow-in-right"></i> Join with a code
+      </button>
+    </div>
+    {{ if .Groups }}
+      <div class="table-responsive text-start">
+        <table id="groupstable" class="table table-dark">
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">People</th>
+              <th scope="col">Files</th>
+              <th scope="col">Closes</th>
+              <th scope="col">Role</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ range .Groups }}
+            <tr>
+              <td><a href="{{ .Url }}">{{ .Name }}</a></td>
+              <td>{{ .People }}</td>
+              <td>{{ .Files }}</td>
+              <td>{{ .Closes }}</td>
+              <td>{{ if .IsMember }}{{ .Role }}{{ else }}<span class="badge bg-secondary">not a member</span>{{ end }}</td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+      </div>
+    {{ end }}
+  {{ end }}
+</div></div></div></div>
+
+{{ if .Supported }}
+<div class="modal fade" id="groupCreateModal" tabindex="-1" aria-labelledby="groupCreateTitle" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form id="groupCreateForm" novalidate>
+        <div class="modal-header">
+          <h5 class="modal-title" id="groupCreateTitle">Create group</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body text-start">
+          <label for="groupCreateName" class="form-label">Name</label>
+          <input type="text" id="groupCreateName" class="form-control mb-3" maxlength="200" autocomplete="off" required>
+          {{ range .ExpiryChoices }}
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="groupCreateDays" id="groupCreateDays{{ .Days }}"
+                   value="{{ .Days }}"{{ if .Checked }} checked{{ end }}>
+            <label class="form-check-label" for="groupCreateDays{{ .Days }}">{{ .Label }}</label>
+          </div>
+          {{ end }}
+          <div id="groupCreateError" class="text-danger mt-3" role="alert"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-light" id="groupCreateSubmit">Create group</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="groupJoinModal" tabindex="-1" aria-labelledby="groupJoinTitle" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form id="groupJoinForm" novalidate>
+        <div class="modal-header">
+          <h5 class="modal-title" id="groupJoinTitle">Join with a code</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body text-start">
+          <label for="groupJoinCode" class="form-label">Code</label>
+          <input type="text" id="groupJoinCode" class="form-control" placeholder="K7P-4QX"
+                 autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="20" required>
+          <div id="groupJoinError" class="text-danger mt-3" role="alert"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-light" id="groupJoinSubmit">Join</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{{ end }}
+
+<script src="./js/min/admin.min.{{ template "js_admin_version"}}.js"></script>
+{{ template "pagename" "Groups"}}
+{{ template "customjs" .}}
+{{ template "footer" true}}{{ end }}

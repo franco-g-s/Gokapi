@@ -146,6 +146,19 @@ func Start() {
 	mux.HandleFunc("/p/info", publicPreviewInfo)
 	// Part 2, G2: groups (shared)
 	mux.HandleFunc("/groups/list", requireLogin(listGroups, false, false))
+	// Part 2, G6: groups tab, joining, managing
+	mux.HandleFunc("/groups", requireLogin(showGroups, true, false))
+	mux.HandleFunc("/groups/create", requireLogin(createGroup, false, false))
+	mux.HandleFunc("/groups/join", requireLogin(joinGroup, false, false))
+	mux.HandleFunc("/groups/rename", requireLogin(renameGroup, false, false))
+	mux.HandleFunc("/groups/extend", requireLogin(extendGroup, false, false))
+	mux.HandleFunc("/groups/resetcode", requireLogin(resetGroupCode, false, false))
+	mux.HandleFunc("/groups/removemember", requireLogin(removeGroupMember, false, false))
+	mux.HandleFunc("/groups/leave", requireLogin(leaveGroup, false, false))
+	mux.HandleFunc("/groups/delete", requireLogin(deleteGroup, false, false))
+	mux.HandleFunc("/groups/removefiles", requireLogin(removeGroupFiles, false, false))
+	mux.HandleFunc("/join", showJoin)
+	mux.HandleFunc("/g/join", redirectGroupJoin)
 	mux.HandleFunc("/d/{id}/{filename}", redirectFromFilename)
 	mux.HandleFunc("/dh/{id}/{filename}", downloadFileWithNameInUrl)
 
@@ -505,7 +518,7 @@ func showLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if ok {
-		redirect(w, r, "admin")
+		redirect(w, r, authentication.PopReturnTo(w, r))
 		return
 	}
 	if configuration.Get().Authentication.Method == models.AuthenticationHeader {
@@ -540,7 +553,7 @@ func showLogin(w http.ResponseWriter, r *http.Request) {
 		if validCredentials {
 			logging.LogValidLogin(user)
 			sessionmanager.CreateSession(w, false, 0, retrievedUser.Id)
-			redirect(w, r, "admin")
+			redirect(w, r, authentication.PopReturnTo(w, r))
 			return
 		}
 		if validCsfr {
@@ -852,6 +865,8 @@ const (
 	ViewCollections
 	// ViewFiles is the identifier for the Files tab
 	ViewFiles = 6
+	// ViewGroups is the identifier for the Groups tab
+	ViewGroups = 7
 )
 
 // Converts the globalConfig variable to an AdminView struct to pass the infos to

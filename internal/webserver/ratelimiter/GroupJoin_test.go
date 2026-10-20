@@ -38,3 +38,13 @@ func TestGroupJoinUnitTestMode(t *testing.T) {
 		test.IsEqualBool(t, IsAllowedGroupJoin("10.0.0.9", 901), true)
 	}
 }
+
+// M9: IPv6 addresses share a limit per /64
+func TestJoinIpKey(t *testing.T) {
+	test.IsEqualString(t, joinIpKey("2001:db8:1:2:aaaa::1"), "2001:db8:1:2::/64")
+	test.IsEqualString(t, joinIpKey("2001:db8:1:2:ffff:ffff:ffff:ffff"), "2001:db8:1:2::/64")
+	test.IsEqualBool(t, joinIpKey("2001:db8:1:3::1") != joinIpKey("2001:db8:1:2::1"), true)
+	test.IsEqualString(t, joinIpKey("203.0.113.7"), "203.0.113.7")
+	test.IsEqualString(t, joinIpKey("::ffff:203.0.113.7"), "::ffff:203.0.113.7")
+	test.IsEqualString(t, joinIpKey("not an ip"), "not an ip")
+}

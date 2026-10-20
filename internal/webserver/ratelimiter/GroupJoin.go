@@ -4,6 +4,7 @@ package ratelimiter
 // a 30-letter alphabet, so guessing must be slow.
 
 import (
+	"net"
 	"strconv"
 	"time"
 
@@ -19,7 +20,18 @@ func IsAllowedGroupJoin(ip string, userId int) bool {
 	if isUnitTest {
 		return true
 	}
-	byIp := groupJoinLimiter.Get("ip:"+ip, rate.Every(6*time.Second), 10).Allow()
+	byIp := groupJoinLimiter.Get("ip:"+joinIpKey(ip), rate.Every(6*time.Second), 10).Allow()
 	byUser := groupJoinLimiter.Get("user:"+strconv.Itoa(userId), rate.Every(6*time.Second), 10).Allow()
 	return byIp && byUser
+}
+
+// joinIpKey is the limiter's key for an address: an IPv6 address counts as
+// its /64, since one host commonly holds a whole /64 (M9). IPv4 and anything
+// unparsable are used as they are.
+func joinIpKey(ip string) string {
+	parsed := net.ParseIP(ip)
+	if parsed == nil || parsed.To4() != nil {
+		return ip
+	}
+	return parsed.Mask(net.CIDRMask(64, 128)).String() + "/64"
 }

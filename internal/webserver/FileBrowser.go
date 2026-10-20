@@ -133,7 +133,7 @@ type fileBrowser struct {
 	DefaultView  string
 	Menu         []string
 	Bulk         []string
-	ShowScope    bool // the My files / Everything switch: files with PERM_LIST only
+	ShowScope    bool // the My files / Everything switch: files, with PERM_LIST or files from groups
 	ShowUploader bool
 	CollectionId string // collection-admin and collection-public
 	// ZipUrl is the zip endpoint up to and including the parameter that takes
@@ -372,7 +372,8 @@ func writePreviewInfo(w http.ResponseWriter, info previewInfo) {
 
 // Handling of /files/previewinfo
 // The preview of one file the user may list (their own, or anyone's with
-// PERM_LIST), for a tile whose preview was still pending when the page loaded.
+// PERM_LIST, or someone else's in one of their groups), for a tile whose
+// preview was still pending when the page loaded.
 func filePreviewInfo(w http.ResponseWriter, r *http.Request) {
 	user, err := authentication.GetUserFromRequest(r)
 	if err != nil {
@@ -381,9 +382,17 @@ func filePreviewInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	file, ok := storage.GetFile(r.URL.Query().Get("id"))
-	if !ok || (file.UserId != user.Id && !user.HasPermissionListOtherUploads()) || !access.CanView(r, file, "") {
+	listable := ok && (file.UserId == user.Id || user.HasPermissionListOtherUploads())
+	// The Files tab also lists other people's files in the viewer's groups
+	viaGroup := ok && !listable && storage.UserSharesGroupWithFile(user.Id, file.Id)
+	if !ok || (!listable && !viaGroup) || !access.CanView(r, file, "") {
 		addNoCacheHeader(w)
 		http.NotFound(w, r)
+		return
+	}
+	if viaGroup {
+		// Its download is the group's, which the page already has
+		writePreviewInfo(w, previewUrls(r, file, "", ""))
 		return
 	}
 	out, err := file.ToFileApiOutput(configuration.Get().ServerUrl, configuration.Get().IncludeFilename)

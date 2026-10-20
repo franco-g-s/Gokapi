@@ -779,9 +779,10 @@
     }
 
     // A tile or list row is hidden when the scope switch says so, or any
-    // active filter rejects its tile; a row follows its tile. Only users with
-    // PERM_LIST get the switch, and only they are ever sent other users'
-    // files. Without the switch everything shown is their own. Returns
+    // active filter rejects its tile; a row follows its tile. Users with
+    // PERM_LIST get the switch, and users whose groups hold other people's
+    // files (those are data-foreign). Without the switch everything shown is
+    // their own. Returns
     // whether the element was shown or hidden by this.
     function applyVisibility(el) {
       if (!el) return false;
@@ -903,6 +904,20 @@
       var tiles = selected();
       if (!tiles.length) return;
       var what = act.getAttribute("data-act");
+      // On the Files tab, other people's files from the viewer's groups
+      // (data-foreign) can be downloaded and saved, but nothing else: those
+      // actions, the uncounted owner zip included, are their uploader's or
+      // the group's. (Group pages mark them too, and act on them there.)
+      if (context === "files" && what !== "download" && what !== "photos") {
+        var own = tiles.filter(function (t) { return t.getAttribute("data-foreign") !== "true"; });
+        if (own.length < tiles.length) {
+          var left = tiles.length - own.length;
+          status.textContent = left + " file(s) from your groups left out: " +
+            (what === "zip" ? "zip them on their group's page." : "they are someone else's.");
+          if (!own.length) return;
+          tiles = own;
+        }
+      }
       var handler = fileAction(context, what);
       if (handler) { handler(actionArg(tiles, act, true, null)); return; }
       if (what === "download") bulkDownload(tiles, act);

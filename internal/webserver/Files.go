@@ -155,6 +155,14 @@ func showFiles(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, browserItemFromFile(r, f, user, ctxFiles, "", names))
 	}
+	// Without PERM_LIST, Everything is their own files plus those in their
+	// groups (spec, "Files tab")
+	fromGroups := 0
+	if !seeEveryone && !onlyPerson && database.SupportsGroups() {
+		groupItems := filesTabGroupItems(r, user)
+		fromGroups = len(groupItems)
+		items = append(items, groupItems...)
+	}
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].File.UploadDate != items[j].File.UploadDate {
 			return items[i].File.UploadDate > items[j].File.UploadDate
@@ -162,6 +170,10 @@ func showFiles(w http.ResponseWriter, r *http.Request) {
 		return items[i].File.Id > items[j].File.Id
 	})
 	view.Browser = newFileBrowser("fgs-files", ctxFiles, items, user)
+	if fromGroups > 0 {
+		view.Browser.ShowScope = true
+		view.Browser.ShowUploader = true
+	}
 	if onlyPerson {
 		// Everything on the page is one person's: the My files / Everything
 		// switch would have nothing to switch between
@@ -170,4 +182,31 @@ func showFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	err = templateFolder.ExecuteTemplate(w, "files", &view)
 	helper.CheckIgnoreTimeout(err)
+}
+
+// filesTabGroupItems is the Files tab's share of the viewer's live groups,
+// for someone without PERM_LIST: the other people's live files in them, each
+// once. They are someone else's, so nothing on them is editable and they
+// carry no management data (Foreign). Each is downloaded, counted and
+// recorded through the first of the viewer's groups that has it (./gd), and
+// shows its uploader's display name (D5).
+func filesTabGroupItems(r *http.Request, user models.User) []browserItem {
+	items := make([]browserItem, 0)
+	seen := make(map[string]bool)
+	for _, g := range storage.GroupsOfUser(user.Id) {
+		files := storage.GroupFiles(g)
+		names := memberNamesOf(g, files)
+		for _, f := range files {
+			if f.UserId == user.Id || seen[f.Id] || f.IsFileRequest() || f.Encryption.IsEndToEndEncrypted {
+				continue
+			}
+			seen[f.Id] = true
+			item := browserItemFromFile(r, f, user, ctxGroup, g.Id, names)
+			item.makeForeign()
+			item.Mine = false
+			item.CanEdit, item.CanDelete, item.CanReplace, item.CanRemove = false, false, false, false
+			items = append(items, item)
+		}
+	}
+	return items
 }

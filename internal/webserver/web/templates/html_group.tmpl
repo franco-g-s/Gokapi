@@ -101,6 +101,32 @@
   </div>
 </div>
 
+<div class="modal fade" id="groupRemoveMemberModal" tabindex="-1" aria-labelledby="groupRemoveMemberTitle" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form id="groupRemoveMemberForm" novalidate>
+        <div class="modal-header">
+          <h5 class="modal-title" id="groupRemoveMemberTitle">Remove member</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body text-start">
+          <p id="groupRemoveMemberText"></p>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="groupRemoveMemberReset" checked>
+            <label class="form-check-label" for="groupRemoveMemberReset">Also reset the invite code and link</label>
+          </div>
+          <p class="text-muted small mt-2 mb-0">They have seen the current ones: without a reset they can join again.</p>
+          <div id="groupRemoveMemberError" class="text-danger mt-3" role="alert"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger" id="groupRemoveMemberSubmit">Remove</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="groupExtendModal" tabindex="-1" aria-labelledby="groupExtendTitle" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">

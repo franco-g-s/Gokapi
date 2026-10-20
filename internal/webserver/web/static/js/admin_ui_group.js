@@ -232,44 +232,79 @@
             };
         });
 
-        // Reset code: the old code and link stop working
+        // Reset code: the old code and link stop working. The header shows
+        // the new ones in place.
+        function resetCode() {
+            return postJson("./groups/resetcode", { id: groupId }).then(function (data) {
+                document.getElementById("groupInviteUrl").value = data.InviteUrl;
+                document.getElementById("groupInviteCopy").setAttribute("data-clipboard-text", data.InviteUrl);
+                document.getElementById("groupCode").textContent = data.Code;
+                document.getElementById("groupCodeCopy").setAttribute("data-clipboard-text", data.Code);
+                return data;
+            });
+        }
         var reset = document.getElementById("groupResetCode");
         if (reset !== null) {
             reset.addEventListener("click", function () {
                 if (!confirm("Reset the code? The current code and invite link stop working.")) return;
                 reset.disabled = true;
-                postJson("./groups/resetcode", { id: groupId })
-                    .then(function (data) {
-                        document.getElementById("groupInviteUrl").value = data.InviteUrl;
-                        document.getElementById("groupInviteCopy").setAttribute("data-clipboard-text", data.InviteUrl);
-                        document.getElementById("groupCode").textContent = data.Code;
-                        document.getElementById("groupCodeCopy").setAttribute("data-clipboard-text", data.Code);
-                        say("New code and link made.");
-                    })
+                resetCode()
+                    .then(function () { say("New code and link made."); })
                     .catch(failed("Could not reset the code"))
                     .then(function () { reset.disabled = false; });
             });
         }
 
-        // Remove member: their files stay in the group
+        // Remove member: their files stay in the group. They have seen the
+        // invite code and link, so the dialog offers to reset both (I4),
+        // ticked by default; otherwise they could join again at once.
+        var removeModal = document.getElementById("groupRemoveMemberModal");
+        var removeForm = document.getElementById("groupRemoveMemberForm");
+        var removing = null; // the "x" button of the person being removed
         Array.prototype.forEach.call(page.querySelectorAll("[data-group-remove-member]"), function (button) {
             button.addEventListener("click", function () {
+                if (removeModal === null || removeForm === null || !window.bootstrap) return;
+                removing = button;
+                var name = button.getAttribute("data-name") || "this person";
+                document.getElementById("groupRemoveMemberText").textContent =
+                    "Remove " + name + " from the group? Their files stay in it.";
+                document.getElementById("groupRemoveMemberReset").checked = true;
+                document.getElementById("groupRemoveMemberError").textContent = "";
+                bootstrap.Modal.getOrCreateInstance(removeModal).show();
+            });
+        });
+        if (removeForm !== null) {
+            removeForm.addEventListener("submit", function (event) {
+                event.preventDefault();
+                var button = removing;
+                if (button === null) return;
+                var submit = document.getElementById("groupRemoveMemberSubmit");
+                var error = document.getElementById("groupRemoveMemberError");
+                var alsoReset = document.getElementById("groupRemoveMemberReset").checked;
                 var userId = parseInt(button.getAttribute("data-group-remove-member"), 10);
                 var name = button.getAttribute("data-name") || "this person";
-                if (!confirm("Remove " + name + " from the group? Their files stay in it.")) return;
-                button.disabled = true;
+                submit.disabled = true;
                 postJson("./groups/removemember", { id: groupId, userId: userId })
                     .then(function () {
                         var person = button.closest("[data-group-person]");
                         if (person !== null) person.parentNode.removeChild(person);
-                        say("Removed " + name + ".");
+                        removing = null;
+                        bootstrap.Modal.getOrCreateInstance(removeModal).hide();
+                        if (!alsoReset) {
+                            say("Removed " + name + ". The code and link still work.");
+                            return;
+                        }
+                        // The removal stands even if the reset fails: say so
+                        return resetCode()
+                            .then(function () { say("Removed " + name + ". New code and link made."); })
+                            .catch(function (err) {
+                                failed("Removed " + name + ", but the code was not reset")(err);
+                            });
                     })
-                    .catch(function (error) {
-                        button.disabled = false;
-                        failed("Could not remove " + name)(error);
-                    });
+                    .catch(function (err) { error.textContent = "Could not remove " + name + ": " + errorText(err); })
+                    .then(function () { submit.disabled = false; });
             });
-        });
+        }
 
         // Delete group and Leave group go back to the Groups tab
         function leaveWith(buttonId, url, question, what) {

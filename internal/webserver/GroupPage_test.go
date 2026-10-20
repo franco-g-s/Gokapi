@@ -176,6 +176,7 @@ func TestGroupPage(t *testing.T) {
 		// The creator's controls are not offered to a member
 		test.IsEqualBool(t, strings.Contains(body, "Reset code"), false)
 		test.IsEqualBool(t, strings.Contains(body, "Delete group"), false)
+		test.IsEqualBool(t, strings.Contains(body, "groupRemoveMemberModal"), false)
 		test.IsEqualBool(t, strings.Contains(body, "You are not a member of this group"), false)
 		// The page singletons are there once
 		test.IsEqualInt(t, strings.Count(body, `id="modaledit"`), 1)
@@ -203,7 +204,9 @@ func TestGroupPage(t *testing.T) {
 		body = groupPageCall(showGroup, "GET", page, fx.creator, "").Body.String()
 		test.IsEqualBool(t, strings.Contains(menuOf(t, body, fx.a.Id), `data-can-remove="true"`), true)
 		test.IsEqualBool(t, strings.Contains(menuOf(t, body, fx.a.Id), `data-can-delete="false"`), true)
-		for _, want := range []string{"Rename", "Extend", "Reset code", "Delete group", `data-group-remove-member="72"`} {
+		for _, want := range []string{"Rename", "Extend", "Reset code", "Delete group", `data-group-remove-member="72"`,
+			// I4: removing someone offers to reset the code, ticked
+			`id="groupRemoveMemberModal"`, `id="groupRemoveMemberReset" checked`, "Also reset the invite code and link"} {
 			if !strings.Contains(body, want) {
 				t.Errorf("the creator's page lacks %q", want)
 			}

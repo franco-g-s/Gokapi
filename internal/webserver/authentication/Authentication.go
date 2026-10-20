@@ -237,7 +237,7 @@ func CheckOauthUserAndRedirect(w http.ResponseWriter, r *http.Request, userInfo 
 		}
 		if ok {
 			sessionmanager.CreateSession(w, true, authSettings.OAuthRecheckInterval, user.Id)
-			http.Redirect(w, r, "admin", http.StatusTemporaryRedirect)
+			http.Redirect(w, r, PopReturnTo(w, r), http.StatusTemporaryRedirect)
 			return nil
 		}
 	}

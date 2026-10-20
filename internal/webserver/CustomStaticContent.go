@@ -54,8 +54,8 @@ func addMuxForCustomContent(mux *http.ServeMux) {
 		return
 	}
 	fmt.Println("Serving custom static content")
-	// Serve the user-created "custom" folder to /custom
-	mux.Handle("/custom/", http.StripPrefix("/custom/", http.FileServer(http.Dir(pathCustomFolder))))
+	// Serve the branding files of the user-created "custom" folder to /custom
+	mux.Handle("/custom/", newCustomFileServer(pathCustomFolder))
 	// Allow versioning to prevent caching old versions
 	if customStaticInfo.UseCustomCss {
 		mux.Handle("/custom/custom.v"+customStaticInfo.Version+".css", gziphandler.GzipHandler(http.HandlerFunc(serveCustomCss)))
@@ -66,6 +66,32 @@ func addMuxForCustomContent(mux *http.ServeMux) {
 	if customStaticInfo.UseCustomAdminJs {
 		mux.Handle("/custom/admin.v"+customStaticInfo.Version+".js", gziphandler.GzipHandler(http.HandlerFunc(serveCustomAdminJs)))
 	}
+}
+
+// customServedFiles are the only names served from /custom/ by name. The
+// versioned names (custom.v<N>.css, ...) have routes of their own.
+var customServedFiles = map[string]bool{
+	"custom.css":   true,
+	"public.js":    true,
+	"admin.js":     true,
+	"version.txt":  true,
+	"favicon.png":  true,
+	"landing.html": true,
+}
+
+// newCustomFileServer serves the branding files of dir below /custom/. The
+// folder has no listing and any other file in it, such as a backup copy,
+// answers 404.
+func newCustomFileServer(dir string) http.Handler {
+	files := http.StripPrefix("/custom/", http.FileServer(http.Dir(dir)))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/custom/")
+		if !customServedFiles[name] {
+			http.NotFound(w, r)
+			return
+		}
+		files.ServeHTTP(w, r)
+	})
 }
 
 func serveCustomCss(w http.ResponseWriter, r *http.Request) {

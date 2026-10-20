@@ -150,6 +150,7 @@ func insertVersionNumbers(input string) string {
 	result := strings.ReplaceAll(input, "%gokapiversion%", versionGokapi)
 	result = strings.ReplaceAll(result, "%gokapiversionInt%", parseVersionAsInt(versionGokapi))
 	result = strings.ReplaceAll(result, "%jsadmin%", hashedVersion)
+	result = strings.ReplaceAll(result, "%jsmedia%", hashedVersion)
 	result = strings.ReplaceAll(result, "%jsdropzone%", hashedVersion)
 	result = strings.ReplaceAll(result, "%jse2e%", hashedVersion)
 	result = strings.ReplaceAll(result, "%css_main%", hashedVersion)
@@ -251,6 +252,7 @@ const templateVersions = `// File contains auto-generated values. Do not change 
 // Specifies the version of JS files, so that the browser doesn't
 // use a cached version, if the file has been updated
 {{define "js_admin_version"}}%jsadmin%{{end}}
+{{define "js_media_version"}}%jsmedia%{{end}}
 {{define "js_dropzone_version"}}%jsdropzone%{{end}}
 {{define "js_e2eversion"}}%jse2e%{{end}}
 {{define "css_main"}}%css_main%{{end}}`
@@ -259,6 +261,7 @@ const autoGenComment = "// Auto-generated content below, do not modify"
 const templateMinify = `// Version codes can be changed in updateVersionNumbers.go
 
 const jsAdminVersion = "%jsadmin%"
+const jsMediaVersion = "%jsmedia%"
 const jsE2EVersion = "%jse2e%"
 const cssMainVersion = "%css_main%"
 `

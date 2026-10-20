@@ -401,7 +401,10 @@ async function apiFilesListDownloadZip(fileIds, filename) {
 }
 
 
-async function apiFilesModify(id, allowedDownloads, expiry, password, originalPw) {
+// newName is only sent when it is not null, i.e. when the name was changed.
+// Likewise allowedDownloads and expiry: null leaves that setting as it is on
+// the server (the Files tab's "Keep as it is"); 0 still means unlimited/never.
+async function apiFilesModify(id, allowedDownloads, expiry, password, originalPw, newName = null) {
     const apiUrl = './api/files/modify';
     const reqPerm = 'PERM_EDIT';
 
@@ -414,17 +417,25 @@ async function apiFilesModify(id, allowedDownloads, expiry, password, originalPw
         throw error;
     }
 
+    const headers = {
+        'Content-Type': 'application/json',
+        'id': id,
+        'apikey': token,
+        'password': password,
+        'originalPassword': originalPw
+    };
+    if (allowedDownloads !== null) {
+        headers['allowedDownloads'] = allowedDownloads;
+    }
+    if (expiry !== null) {
+        headers['expiryTimestamp'] = expiry;
+    }
+    if (newName !== null) {
+        headers['filename'] = 'base64:' + Base64.encode(newName);
+    }
     const requestOptions = {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'id': id,
-            'apikey': token,
-            'allowedDownloads': allowedDownloads,
-            'expiryTimestamp': expiry,
-            'password': password,
-            'originalPassword': originalPw
-        },
+        headers: headers,
     };
     try {
         const response = await fetch(apiUrl, requestOptions);

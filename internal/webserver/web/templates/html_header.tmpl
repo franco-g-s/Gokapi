@@ -15,6 +15,7 @@
         <link href="./css/min/gokapi.min.{{ template "css_main"}}.css" rel="stylesheet">
 	<link href="./assets/dist/icons/bootstrap-icons.min.css" rel="stylesheet">
 	<script src="./js/min/all_public.min.js"></script>
+	<script src="./js/min/media.min.{{ template "js_media_version"}}.js"></script>
 {{ if .IsAdminView }}
         <title>{{.PublicName}} Admin</title>
 	<script src="./assets/dist/js/dropzone.min.js?v={{ template "js_dropzone_version"}}"></script>
@@ -79,6 +80,7 @@
           <h1>{{.PublicName}}</h1>
           <nav class="nav nav-masthead justify-content-center">
             <a class="nav-link {{ if eq .ActiveView 0}}active{{ end }}" href="./admin">Upload</a>
+            <a class="nav-link {{ if eq .ActiveView 6}}active{{ end }}" href="./files">Files</a>
             {{ if .ActiveUser.HasPermissionCreateFileRequests }}
             <a class="nav-link {{ if eq .ActiveView 4 }}active{{ end }}" href="./filerequests">File Requests</a>
             {{ end }}

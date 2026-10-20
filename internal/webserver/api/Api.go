@@ -17,6 +17,7 @@ import (
 	"github.com/forceu/gokapi/internal/logging"
 	"github.com/forceu/gokapi/internal/logging/serverstats"
 	"github.com/forceu/gokapi/internal/models"
+	"github.com/forceu/gokapi/internal/preview"
 	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/storage/chunking"
 	"github.com/forceu/gokapi/internal/storage/chunking/chunkreservation"
@@ -116,6 +117,10 @@ func apiEditFile(w http.ResponseWriter, r requestParser, user models.User, _ mod
 	if !request.KeepPassword {
 		file.PasswordHash = configuration.HashPassword(request.Password, false, "")
 		downloadPasswordToken.DeleteAllForFile(file.Id)
+	}
+
+	if request.FileName != "" {
+		file.Name = request.FileName
 	}
 
 	if file.HotlinkId != "" && !storage.IsAbleHotlink(file) {
@@ -513,6 +518,7 @@ func doBlockingPartCompleteChunk(w http.ResponseWriter, uuid string, fileHeader 
 	}
 	fr, _ := filerequest.Get(uploadParameters.FileRequestId)
 	logging.LogUpload(file, user, fr)
+	preview.Enqueue(file)
 	outputFileJson(w, file)
 }
 

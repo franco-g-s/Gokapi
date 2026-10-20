@@ -421,6 +421,7 @@ type paramFilesModify struct {
 	ExpiryTimestamp    int64  `header:"expiryTimestamp"`
 	Password           string `header:"password"`
 	KeepPassword       bool   `header:"originalPassword"`
+	FileName           string `header:"filename" supportBase64:"true"`
 	UnlimitedDownloads bool
 	UnlimitedExpiry    bool
 	IsPasswordSet      bool
@@ -428,6 +429,12 @@ type paramFilesModify struct {
 }
 
 func (p *paramFilesModify) ProcessParameter(_ *http.Request) error {
+	if p.foundHeaders["filename"] {
+		p.FileName = helper.SanitiseFilename(p.FileName)
+		if p.FileName == "" {
+			return errors.New("invalid value in header filename supplied")
+		}
+	}
 	if p.foundHeaders["allowedDownloads"] && p.AllowedDownloads == 0 {
 		p.UnlimitedDownloads = true
 	}

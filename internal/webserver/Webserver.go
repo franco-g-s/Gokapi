@@ -35,6 +35,7 @@ import (
 	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/storage/filerequest"
 	"github.com/forceu/gokapi/internal/storage/presign"
+	"github.com/forceu/gokapi/internal/webserver/access"
 	"github.com/forceu/gokapi/internal/webserver/api"
 	"github.com/forceu/gokapi/internal/webserver/authentication"
 	"github.com/forceu/gokapi/internal/webserver/authentication/csrftoken"
@@ -131,8 +132,18 @@ func Start() {
 	mux.HandleFunc("/collections/modify", requireLogin(modifyCollection, false, false))
 	mux.HandleFunc("/collections/list", requireLogin(listCollections, false, false))
 	mux.HandleFunc("/collections/delete", requireLogin(deleteCollection, false, false))
+	mux.HandleFunc("/files", requireLogin(showFiles, true, false))
+	mux.HandleFunc("/files/download", requireLogin(downloadOwnFile, false, false))
+	mux.HandleFunc("/files/zip", requireLogin(downloadFilesZip, false, false))
+	mux.HandleFunc("/files/previewinfo", requireLogin(filePreviewInfo, false, false))
 	mux.HandleFunc("/c", showCollection)
 	mux.HandleFunc("/cd", downloadCollectionFile)
+	mux.HandleFunc("/cz", downloadCollectionZip)
+	mux.HandleFunc("/p/thumb", servePreviewFile("thumb"))
+	mux.HandleFunc("/p/view", servePreviewFile("view"))
+	mux.HandleFunc("/p/poster", servePreviewFile("poster"))
+	mux.HandleFunc("/p/video", streamVideo)
+	mux.HandleFunc("/p/info", publicPreviewInfo)
 	mux.HandleFunc("/d/{id}/{filename}", redirectFromFilename)
 	mux.HandleFunc("/dh/{id}/{filename}", downloadFileWithNameInUrl)
 
@@ -438,7 +449,8 @@ func showUploadRequest(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "admin")
 		return
 	}
-	err = templateFolder.ExecuteTemplate(w, "uploadreq", view)
+	pageView := newFileRequestsView(r, *view, view.ActiveUser)
+	err = templateFolder.ExecuteTemplate(w, "uploadreq", &pageView)
 	helper.CheckIgnoreTimeout(err)
 }
 
@@ -628,6 +640,9 @@ func showDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !file.Encryption.IsEndToEndEncrypted {
+		view.Preview = previewUrls(r, file, "", "./downloadFile?id="+file.Id)
+	}
 	err := templateFolder.ExecuteTemplate(w, "download", view)
 	helper.CheckIgnoreTimeout(err)
 }
@@ -680,15 +695,26 @@ func showAdminMenu(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	view := (&AdminView{}).convertGlobalConfig(ViewMain, user)
+	view := UploadView{}
+	view.AdminView = *(&AdminView{}).convertGlobalConfig(ViewMain, user)
 	if len(configuration.GetEnvironment().ActiveDeprecations) > 0 {
 		if user.IsSuperAdmin() {
 			view.ShowDeprecationNotice = true
 		}
 	}
+	// Starts empty: only what is uploaded now is added, live, by
+	// admin_ui_upload.js. Stored files are on the Files tab.
+	view.Browser = newFileBrowser("fgs-upload", ctxUpload, []browserItem{}, user)
 
-	err = templateFolder.ExecuteTemplate(w, "admin", view)
+	err = templateFolder.ExecuteTemplate(w, "admin", &view)
 	helper.CheckIgnoreTimeout(err)
+}
+
+// UploadView is the upload page: the admin view plus the shared file list of
+// the files uploaded now
+type UploadView struct {
+	AdminView
+	Browser fileBrowser
 }
 
 // Handling of /logs
@@ -741,6 +767,7 @@ type DownloadView struct {
 	EndToEndEncryption   bool
 	UsesHttps            bool
 	CustomContent        customStatic
+	Preview              previewInfo
 }
 
 type e2ESetupView struct {
@@ -820,6 +847,8 @@ const (
 	ViewFileRequests
 	// ViewCollections is the identifier for the collections menu
 	ViewCollections
+	// ViewFiles is the identifier for the Files tab
+	ViewFiles = 6
 )
 
 // Converts the globalConfig variable to an AdminView struct to pass the infos to
@@ -835,7 +864,7 @@ func (u *AdminView) convertGlobalConfig(view int, user models.User) *AdminView {
 	u.CustomContent = customStaticInfo
 	switch view {
 	// The collections page needs the same file list, for its file picker.
-	case ViewMain, ViewCollections:
+	case ViewMain, ViewCollections, ViewFiles:
 		for _, element := range database.GetAllMetadata() {
 			if element.UserId != user.Id && !user.HasPermissionListOtherUploads() {
 				continue
@@ -1166,11 +1195,7 @@ func writeFilePwCookie(w http.ResponseWriter, file models.File) {
 
 // Checks if a cookie contains the correct token for a password-protected file
 func isValidPwCookie(r *http.Request, file models.File) bool {
-	cookie, err := r.Cookie("p" + file.Id)
-	if err != nil {
-		return false
-	}
-	return downloadPasswordToken.IsValid(cookie.Value, file.Id)
+	return access.ValidFilePwCookie(r, file.Id)
 }
 
 // Adds a header to disable external caching

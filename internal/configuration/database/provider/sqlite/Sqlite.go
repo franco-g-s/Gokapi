@@ -200,10 +200,14 @@ func (p DatabaseProvider) init(dbConfig models.DbConnection) (DatabaseProvider, 
 		exists, err := helper.FileExists(dbConfig.HostUrl)
 		helper.Check(err)
 		if !exists {
-			return p, p.createNewDatabase()
+			err = p.createNewDatabase()
+		} else {
+			err = p.sqliteDb.Ping()
 		}
-		err = p.sqliteDb.Ping()
-		return p, err
+		if err != nil {
+			return p, err
+		}
+		return p, p.ensurePreviewsTable()
 	}
 	return p, nil
 }
@@ -326,6 +330,30 @@ func (p DatabaseProvider) createNewDatabase() error {
 	}
 	p.SetDbVersion(DatabaseSchemeVersion)
 	return nil
+}
+
+// ensurePreviewsTable creates the fork's preview table if it is missing. It
+// runs on every start, for new and existing databases alike, instead of an
+// Upgrade step: the fork keeps upstream's schema version (17), so the live
+// database can roll back to an older image without a version mismatch, and a
+// future upstream 17->18 migration cannot collide with ours (Ruling 20).
+// Upgrade itself cannot host this - it only runs when the stored version is
+// below DatabaseSchemeVersion, never on an up-to-date database.
+func (p DatabaseProvider) ensurePreviewsTable() error {
+	return p.rawSqlite(`CREATE TABLE IF NOT EXISTS "Previews" (
+			"Sha1"	TEXT NOT NULL UNIQUE,
+			"Status"	TEXT NOT NULL,
+			"Kind"	TEXT NOT NULL DEFAULT '',
+			"Width"	INTEGER NOT NULL DEFAULT 0,
+			"Height"	INTEGER NOT NULL DEFAULT 0,
+			"TakenAt"	INTEGER NOT NULL DEFAULT 0,
+			"DurationMs"	INTEGER NOT NULL DEFAULT 0,
+			"Color"	TEXT NOT NULL DEFAULT '',
+			"PHash"	INTEGER NOT NULL DEFAULT 0,
+			"Attempts"	INTEGER NOT NULL DEFAULT 0,
+			"Updated"	INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY("Sha1")
+		) WITHOUT ROWID;`)
 }
 
 // rawSqlite runs a raw SQL statement. Should only be used for upgrading

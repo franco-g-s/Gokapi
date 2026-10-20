@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
+	"sort"
 	"time"
 
 	"github.com/forceu/gokapi/internal/configuration"
@@ -12,11 +14,18 @@ import (
 	"github.com/forceu/gokapi/internal/logging"
 	"github.com/forceu/gokapi/internal/models"
 	"github.com/forceu/gokapi/internal/storage"
+	"github.com/forceu/gokapi/internal/webserver/access"
 	"github.com/forceu/gokapi/internal/webserver/authentication"
 	"github.com/forceu/gokapi/internal/webserver/authentication/downloadPasswordToken"
 	"github.com/forceu/gokapi/internal/webserver/errorHandling"
 	"github.com/forceu/gokapi/internal/webserver/ratelimiter"
 )
+
+// mediaButtons feeds the shared download-button partial
+type mediaButtons struct {
+	Count  int
+	ZipUrl string
+}
 
 // CollectionView is passed to the public collection template. The header
 // template only evaluates the admin fields when IsAdminView is true, so the
@@ -38,6 +47,10 @@ type CollectionView struct {
 	FileCount      int
 	ExpiryString   string
 	NeverExpires   bool
+	Buttons        mediaButtons
+	// Browser is the shared file list (context collection-public): no
+	// management actions, downloads through /cd, previews scoped with &c=
+	Browser fileBrowser
 }
 
 // showCollection serves the public page for a collection. No login required -
@@ -96,7 +109,17 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 		Collection:     collection,
 		FileCount:      len(collection.Files),
 		TotalSize:      helper.ByteCountSI(collection.TotalSizeBytes),
+		Buttons:        mediaButtons{Count: len(collection.Files), ZipUrl: "./cz?id=" + collection.Id},
 	}
+	// Visitors are not users: the zero User gives no uploader, ownership or
+	// permissions, and the context keeps every management action out
+	items := make([]browserItem, 0, len(collection.Files))
+	for _, f := range collection.Files {
+		items = append(items, browserItemFromFile(r, f, models.User{}, ctxCollectionPublic, collection.Id, nil))
+	}
+	view.Browser = newFileBrowser("fgs-collection", ctxCollectionPublic, items, models.User{})
+	view.Browser.CollectionId = collection.Id
+	view.Browser.ZipUrl = "./cz?id=" + collection.Id + "&files="
 	// Expiry is derived from the longest-lived member, not stored.
 	latest, never := collection.LatestExpiry()
 	view.NeverExpires = never
@@ -109,9 +132,10 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 
 // downloadCollectionFile serves one member of a collection.
 //
-// Membership plus the collection's own limits are what authorise this, so the
-// member file's individual expiry is not re-checked - otherwise a file whose
-// own link had lapsed would vanish from an otherwise valid share.
+// Membership (and the collection's password, if any) authorises the request;
+// a collection has no expiry or download budget of its own. The member's own
+// limits still apply: GetCollectionFile only resolves live members, and
+// ServeFile re-checks expiry and counts the download against the file.
 func downloadCollectionFile(w http.ResponseWriter, r *http.Request) {
 	addNoCacheHeader(w)
 	collection, ok := storage.GetCollection(r.URL.Query().Get("id"))
@@ -223,16 +247,11 @@ func deleteCollection(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.WriteString(w, `{"Result":"OK"}`)
 }
 
-// collectionMember is one file inside a collection, for the management page
-type collectionMember struct {
-	Id   string
-	Name string
-	Size string
-}
-
 // collectionInfo is one row in the admin collections list
 type collectionInfo struct {
-	Files        []collectionMember
+	// Browser lists the members in the shared file list (context
+	// collection-admin), one per collection
+	Browser      fileBrowser
 	Id           string
 	Name         string
 	Url          string
@@ -244,6 +263,17 @@ type collectionInfo struct {
 	OwnerName    string
 	IsOwn        bool
 	HasPassword  bool
+}
+
+// collectionExpiry is the "Available until" text of a collection: the expiry
+// of its longest-lived member, empty when one never expires (the caller says
+// "Unlimited" then)
+func collectionExpiry(collection *models.Collection) (text string, never bool) {
+	latest, never := collection.LatestExpiry()
+	if never {
+		return "", true
+	}
+	return time.Unix(latest, 0).Format("2006-01-02 15:04"), false
 }
 
 // showCollectionsAdmin renders the management list of collections
@@ -266,17 +296,21 @@ func showCollectionsAdmin(w http.ResponseWriter, r *http.Request) {
 		if collection.UserId != user.Id && !seeAll {
 			continue
 		}
-		latest, never := collection.LatestExpiry()
-		expiry := ""
-		if !never {
-			expiry = time.Unix(latest, 0).Format("2006-01-02 15:04")
-		}
-		members := make([]collectionMember, 0, len(collection.Files))
+		expiry, never := collectionExpiry(&collection)
+		items := make([]browserItem, 0, len(collection.Files))
 		for _, f := range collection.Files {
-			members = append(members, collectionMember{Id: f.Id, Name: f.Name, Size: f.Size})
+			items = append(items, browserItemFromFile(r, f, user, ctxCollectionAdmin, "", userNames))
 		}
+		sort.SliceStable(items, func(i, j int) bool {
+			if items[i].File.UploadDate != items[j].File.UploadDate {
+				return items[i].File.UploadDate > items[j].File.UploadDate
+			}
+			return items[i].File.Id > items[j].File.Id
+		})
+		browser := newFileBrowser("col-"+collection.Id, ctxCollectionAdmin, items, user)
+		browser.WithCollection(collection)
 		rows = append(rows, collectionInfo{
-			Files:        members,
+			Browser:      browser,
 			Id:           collection.Id,
 			Name:         collection.Name,
 			Url:          config.ServerUrl + "c?id=" + collection.Id,
@@ -297,13 +331,17 @@ func showCollectionsAdmin(w http.ResponseWriter, r *http.Request) {
 	helper.CheckIgnoreTimeout(err)
 }
 
-// writeCollectionPwCookie stores a short-lived token proving the password was
-// entered for this collection
+// collectionUnlockLifetime is how long entering a collection's password keeps
+// it open. Long enough that a board of many previews keeps loading.
+const collectionUnlockLifetime = 12 * time.Hour
+
+// writeCollectionPwCookie stores a token proving the password was entered for
+// this collection
 func writeCollectionPwCookie(w http.ResponseWriter, collection models.Collection) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "pc" + collection.Id,
-		Value:    downloadPasswordToken.Generate(collection.Id),
-		Expires:  time.Now().Add(5 * time.Minute),
+		Value:    downloadPasswordToken.GenerateWithTtl(collection.Id, collectionUnlockLifetime),
+		Expires:  time.Now().Add(collectionUnlockLifetime),
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 	})
@@ -311,11 +349,7 @@ func writeCollectionPwCookie(w http.ResponseWriter, collection models.Collection
 
 // isValidCollectionPwCookie returns true if the request carries a valid token
 func isValidCollectionPwCookie(r *http.Request, collection models.Collection) bool {
-	cookie, err := r.Cookie("pc" + collection.Id)
-	if err != nil {
-		return false
-	}
-	return downloadPasswordToken.IsValid(cookie.Value, collection.Id)
+	return access.ValidCollectionPwCookie(r, collection.Id)
 }
 
 // collectionModifyRequest renames a collection and/or replaces its members
@@ -326,6 +360,10 @@ type collectionModifyRequest struct {
 	// AddFileIds appends to the existing members, so a caller adding files does
 	// not need to know (or round-trip) the current member list.
 	AddFileIds []string `json:"addFileIds"`
+	// RemoveFileIds drops these members and keeps the rest, for the same
+	// reason: a page showing a stale member list must not, by replacing the
+	// list, silently remove files someone added since.
+	RemoveFileIds []string `json:"removeFileIds"`
 	// Password: nil leaves it untouched, "" removes it, anything else sets it.
 	// Stored hashed, so an existing password can be replaced but never read back.
 	Password *string `json:"password"`
@@ -377,6 +415,43 @@ func modifyCollection(w http.ResponseWriter, r *http.Request) {
 	if len(request.AddFileIds) > 0 {
 		request.FileIds = append(append([]string{}, collection.FileIds...), request.AddFileIds...)
 	}
+	if len(request.RemoveFileIds) > 0 {
+		// Removal applies to the final list: after an add or a replacement
+		// in the same request, otherwise to the stored members
+		base := collection.FileIds
+		if request.FileIds != nil {
+			base = request.FileIds
+		}
+		kept := make([]string, 0, len(base))
+		for _, id := range base {
+			if !slices.Contains(request.RemoveFileIds, id) {
+				kept = append(kept, id)
+			}
+		}
+		if request.FileIds != nil {
+			// The check below refuses a list with no live member
+			request.FileIds = kept
+		} else {
+			// Stored members only: dropped files may still be listed, so
+			// "at least one file" means at least one that is still alive,
+			// or the collection would answer 404 while the request said OK.
+			// Nothing else is re-validated, so a member this user may not
+			// list stays untouched.
+			live := false
+			for _, id := range kept {
+				if _, ok := storage.GetFile(id); ok {
+					live = true
+					break
+				}
+			}
+			if !live {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = io.WriteString(w, `{"Result":"error","ErrorMessage":"A collection needs at least one file"}`)
+				return
+			}
+			collection.FileIds = kept
+		}
+	}
 	if request.FileIds != nil {
 		permitted := make([]string, 0, len(request.FileIds))
 		seen := make(map[string]bool)
@@ -409,12 +484,29 @@ func modifyCollection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	database.SaveCollection(collection)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"Result": "OK", "Id": collection.Id, "Files": len(collection.FileIds)})
+	// Unlock tokens are keyed by collection id and live for 12 h, so a set,
+	// changed or removed password has to revoke them - otherwise anyone who
+	// knew the old password keeps the collection open. Done after the save,
+	// so the old password cannot mint a fresh token in between.
+	if request.Password != nil {
+		downloadPasswordToken.DeleteAllForFile(collection.Id)
+	}
+	response := map[string]any{"Result": "OK", "Id": collection.Id, "Files": len(collection.FileIds)}
+	// What the management list shows for the row, so a page that changed the
+	// members can refresh it in place. Left out when nothing live remains.
+	if live, ok := storage.GetCollection(collection.Id); ok {
+		expiry, never := collectionExpiry(&live)
+		response["FileCount"] = len(live.Files)
+		response["TotalSize"] = helper.ByteCountSI(live.TotalSizeBytes)
+		response["Expiry"] = expiry
+		response["NeverExpires"] = never
+	}
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // listCollections returns the caller's collections as JSON, for the
-// "add to existing collection" picker on the upload page.
+// "add to existing collection" picker on the upload page. ?mine=1 limits it
+// to collections the caller owns.
 func listCollections(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	user, err := authentication.GetUserFromRequest(r)
@@ -427,13 +519,23 @@ func listCollections(w http.ResponseWriter, r *http.Request) {
 		Id    string `json:"id"`
 		Name  string `json:"name"`
 		Files int    `json:"files"`
+		// What the management list shows for the row, so a page can refresh
+		// it after files were deleted or added from elsewhere
+		TotalSize    string `json:"totalSize"`
+		Expiry       string `json:"expiry"`
+		NeverExpires bool   `json:"neverExpires"`
 	}
+	// ?mine=1 (the Files tab's picker): only the caller's own collections,
+	// even for a PERM_LIST admin, so a file is never added to someone else's
+	mineOnly := r.URL.Query().Get("mine") == "1"
 	result := make([]entry, 0)
 	for _, collection := range storage.GetAllCollectionsResolved() {
-		if collection.UserId != user.Id && !user.HasPermission(models.UserPermListOtherUploads) {
+		if collection.UserId != user.Id && (mineOnly || !user.HasPermission(models.UserPermListOtherUploads)) {
 			continue
 		}
-		result = append(result, entry{collection.Id, collection.Name, len(collection.Files)})
+		expiry, never := collectionExpiry(&collection)
+		result = append(result, entry{collection.Id, collection.Name, len(collection.Files),
+			helper.ByteCountSI(collection.TotalSizeBytes), expiry, never})
 	}
 	_ = json.NewEncoder(w).Encode(result)
 }

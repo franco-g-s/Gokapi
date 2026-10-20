@@ -11,6 +11,7 @@ import (
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/logging"
 	"github.com/forceu/gokapi/internal/models"
+	"github.com/forceu/gokapi/internal/preview"
 	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/storage/chunking"
 	"github.com/forceu/gokapi/internal/storage/chunking/chunkreservation"
@@ -46,6 +47,7 @@ func ProcessCompleteFile(w http.ResponseWriter, r *http.Request, userId, maxMemo
 	}
 	user, _ := database.GetUser(userId)
 	logging.LogUpload(result, user, models.FileRequest{})
+	preview.Enqueue(result)
 	_, _ = io.WriteString(w, result.ToJsonResult(config.ExternalUrl, configuration.Get().IncludeFilename))
 	return nil
 }

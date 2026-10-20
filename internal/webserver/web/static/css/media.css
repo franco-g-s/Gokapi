@@ -1,0 +1,71 @@
+.fgs-sheet{position:fixed;inset:0;display:none;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.55);z-index:10060}
+.fgs-sheet.open{display:flex}
+.fgs-sheet-card{background:#1c1c1a;color:#f2f1ee;border:1px solid #2e2e2b;border-radius:14px 14px 0 0;max-width:32rem;width:100%;padding:1.5rem}
+.fgs-sheet-card ol{padding-left:1.2rem}
+.fgs-download-preview{display:block;margin:0 auto 1rem;max-width:100%;height:auto;max-height:60vh;border-radius:10px}
+/* A tile never gets wider than half the row, so a phone always shows at least two columns */
+.fgs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(var(--fgs-tile,160px),calc(50% - .4rem)),1fr));gap:.75rem}
+.fgs-tile{position:relative;margin:0}
+.fgs-tile-open{display:block;width:100%;aspect-ratio:1;padding:0;border:0;border-radius:10px;overflow:hidden;background:#232321}
+.fgs-tile-open img{width:100%;height:100%;object-fit:cover;display:block}
+.fgs-tile-check{position:absolute;top:.4rem;left:.4rem}
+/* Select mode: checkboxes only while selecting, in both views; the slider and shape toggle only in the grid */
+.fgs-browser:not(.fgs-selecting) .fgs-tile-check,.fgs-browser:not(.fgs-selecting) .fgs-col-check{display:none}
+.fgs-browser:not([data-current-view=grid]) .fgs-grid-only{display:none!important}
+/* Empty: the message instead of the views */
+.fgs-browser .fgs-empty{display:none}.fgs-browser.fgs-is-empty .fgs-empty{display:block}.fgs-browser.fgs-is-empty .fgs-views{display:none}
+.fgs-selecting .fgs-tile:has(.fgs-tile-check:checked) .fgs-tile-open{outline:3px solid #f2f1ee;outline-offset:-3px}
+.fgs-table .fgs-col-check{width:2rem}
+.fgs-list-name{display:flex;align-items:center;gap:.6rem}
+.fgs-table{width:100%!important}
+.fgs-name-open{padding:0;border:0;text-align:left;color:inherit;text-decoration:none;overflow-wrap:anywhere;min-width:8rem}
+.fgs-name-open:hover,.fgs-name-open:focus-visible{color:inherit;text-decoration:underline}
+/* List thumbnails */
+.fgs-list-thumb{width:40px;height:40px;flex:none;object-fit:cover;border-radius:6px;background:#232321}
+.fgs-list-thumb{cursor:pointer}
+.fgs-list-icon{display:inline-flex;align-items:center;justify-content:center;font-size:1.3rem;color:#9a9992}
+.fgs-list-actions{display:inline-flex;gap:.25rem;align-items:center}
+/* True shape: the whole picture, letterboxed in its square (beats the inline average colour) */
+[data-current-view=grid]>.fgs-views>.fgs-grid.fgs-shape-true .fgs-tile-open img{object-fit:contain;background:#1c1c1a!important}
+/* Board: the same tiles in masonry (media.js places them), true proportions, no captions */
+.fgs-grid.fgs-board-mode{display:block;position:relative}
+.fgs-board-mode .fgs-tile-open{aspect-ratio:auto;height:100%;border-radius:8px}
+.fgs-board-mode .fgs-tile figcaption{display:none}
+.fgs-board-mode .fgs-play{bottom:.4rem}
+/* The "⋯" menu: on a tile's corner, shown on hover/focus with a mouse, always on touch screens */
+.fgs-menu-btn{color:#f2f1ee;border:1px solid #6c757d;line-height:1}
+.fgs-menu-btn:hover,.fgs-menu-btn:focus-visible,.fgs-menu-btn.show{color:#fff;border-color:#f2f1ee}
+.fgs-tile>.fgs-menu{position:absolute;top:.4rem;right:.4rem;z-index:2}
+.fgs-tile .fgs-menu-btn{background:rgba(0,0,0,.6);border:0;border-radius:50%;width:2rem;height:2rem;padding:0;opacity:0;transition:opacity .15s}
+.fgs-tile:hover .fgs-menu-btn,.fgs-tile:focus-within .fgs-menu-btn,.fgs-tile .fgs-menu-btn.show{opacity:1}
+@media (hover:none){.fgs-tile .fgs-menu-btn{opacity:1}}
+.fgs-play{position:absolute;right:.4rem;bottom:2.6rem;background:rgba(0,0,0,.55);border-radius:50%;padding:.15rem .4rem}
+.fgs-typeicon{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;font-size:2.4rem;color:#9a9992}
+.fgs-typeicon small{font-size:.7rem;padding:0 .4rem;word-break:break-all}
+.fgs-tile figcaption{font-size:.8rem;line-height:1.3;margin-top:.35rem}
+.fgs-name{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fgs-meta{color:#9a9992}
+/* Sticks below the fixed user badge (top .5rem, about 1.5rem tall) and wraps instead of running under it */
+.fgs-selectbar{position:sticky;top:2.5rem;z-index:5;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;padding:.5rem;background:#1c1c1a;border:1px solid #2e2e2b;border-radius:10px;margin-bottom:.75rem}
+.fgs-selcount{white-space:nowrap}
+.fgs-none-selected [data-act]{opacity:.5;pointer-events:none}
+.fgs-collect-list{max-height:40vh;overflow-y:auto}
+/* By id: showAutoLinkResult replaces the class */
+.fgs-selectbar>[id$="-linkresult"]{flex-basis:100%;margin:0!important}.fgs-selectbar>[id$="-linkresult"]:empty{display:none}.fgs-selectbar>[id$="-linkresult"] .form-control{min-width:0}
+.fgs-viewer{overscroll-behavior:contain;position:fixed;inset:0;z-index:10050;background:rgba(10,10,9,.96);display:flex;align-items:center;justify-content:center}
+.fgs-viewer[hidden]{display:none}
+.fgs-v-stage{max-width:100vw;max-height:calc(100vh - 7rem);max-height:calc(100dvh - 7rem);display:flex;flex-direction:column;align-items:center}
+.fgs-v-stage img,.fgs-v-stage video{max-width:100vw;max-height:calc(100vh - 7rem);max-height:calc(100dvh - 7rem);object-fit:contain}
+.fgs-v-close,.fgs-v-prev,.fgs-v-next{position:absolute;background:none;border:0;color:#f2f1ee;font-size:1.6rem;padding:1rem}
+.fgs-v-close{top:0;right:0}.fgs-v-prev{left:0}.fgs-v-next{right:0}
+.fgs-viewer,.fgs-v-stage img,.fgs-v-stage video{-webkit-user-select:none;user-select:none}
+.fgs-v-info{-webkit-user-select:text;user-select:text}
+.fgs-v-prev:disabled,.fgs-v-next:disabled{opacity:.2}
+.fgs-v-info{position:absolute;bottom:0;left:0;right:0;padding:.75rem 1rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap;background:linear-gradient(transparent,rgba(0,0,0,.7))}
+.fgs-v-name{font-weight:600}.fgs-v-meta{color:#9a9992;margin-right:auto}
+.fgs-v-lowres{color:#9a9992;font-size:.85rem}.fgs-v-lowres[hidden]{display:none}
+.fgs-v-download[hidden]{display:none}
+.fgs-v-note{color:#9a9992;margin-top:1rem}
+.collection-name-link{color:inherit;text-decoration:none;word-break:break-word}
+.collection-name-link:hover{text-decoration:underline}
+@media (min-width:992px){.file-card.fgs-collection-wide{max-width:min(1280px,100% - 2rem)}}

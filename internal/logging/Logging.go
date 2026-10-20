@@ -300,6 +300,11 @@ func LogUpload(file models.File, user models.User, fr models.FileRequest) {
 	}
 }
 
+// LogInfo adds an informational log entry. Non-Blocking
+func LogInfo(text string) {
+	createLogEntry(categoryInfo, text, false)
+}
+
 // LogCollectionCreate adds a log entry when a collection was created. Non-Blocking
 func LogCollectionCreate(collection models.Collection, user models.User) {
 	createLogEntry(categoryEdit, fmt.Sprintf("Collection %s (%s) with %d file(s) created by %s (user #%d)",

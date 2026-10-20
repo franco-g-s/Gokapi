@@ -16,3 +16,5 @@ custom/
 *.secret
 gokapi-cli
 gokapi-cli.json
+build/e2e/screens-part1/
+build/e2e/fixtures/

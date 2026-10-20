@@ -120,6 +120,15 @@ type Database interface {
 	// RemoveFileFromCollections drops a file from every collection it belongs to
 	RemoveFileFromCollections(fileId string)
 
+	// GetPreview returns the preview metadata for a blob hash, or false if not found
+	GetPreview(sha1 string) (models.Preview, bool)
+	// SavePreview inserts or replaces preview metadata
+	SavePreview(p models.Preview)
+	// DeletePreview removes preview metadata
+	DeletePreview(sha1 string)
+	// GetAllPreviewSha1s maps every known blob hash to its preview status
+	GetAllPreviewSha1s() map[string]string
+
 	// GetStatTraffic returns the total traffic from statistics
 	GetStatTraffic() uint64
 	// SaveStatTraffic stores the total traffic

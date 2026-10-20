@@ -12,7 +12,7 @@ RUN cd /compile && go generate ./... && CGO_ENABLED=0 go build -ldflags="-s -w -
 FROM alpine:3.23
 
 RUN addgroup -S gokapi && adduser -S gokapi -G gokapi
-RUN apk update && apk add --no-cache su-exec tini ca-certificates curl tzdata && \
+RUN apk update && apk add --no-cache su-exec tini ca-certificates curl tzdata vips-tools vips-heif ffmpeg && \
 	 mkdir /app && touch /app/.isdocker
 COPY dockerentry.sh /app/run.sh
 

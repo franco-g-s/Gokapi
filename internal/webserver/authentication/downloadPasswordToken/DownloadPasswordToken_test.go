@@ -338,3 +338,22 @@ func TestCleanup_PeriodicRunsAfterOneHour(t *testing.T) {
 		}
 	})
 }
+
+// TestGenerateWithTtl checks that the lifetime is the caller's, not the default.
+func TestGenerateWithTtl(t *testing.T) {
+	resetStateBlockCleanup()
+	long := GenerateWithTtl("file123", 12*time.Hour)
+	lapsed := GenerateWithTtl("file123", -time.Minute)
+	if !IsValid(long, "file123") {
+		t.Error("12h token should be valid")
+	}
+	if IsValid(lapsed, "file123") {
+		t.Error("token with negative lifetime should be invalid")
+	}
+	mutex.Lock()
+	expiry := tokens[long].Expiry
+	mutex.Unlock()
+	if expiry < time.Now().Add(11*time.Hour).Unix() {
+		t.Errorf("expected expiry about 12h out, got %d", expiry)
+	}
+}

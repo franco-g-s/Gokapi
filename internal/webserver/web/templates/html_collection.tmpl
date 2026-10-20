@@ -1,7 +1,7 @@
 {{define "collection"}}{{template "header" .}}
 
 <div class="container-fluid download-wrapper p-4">
-    <div class="file-card card">
+    <div class="file-card card{{ if not .IsPasswordView }} fgs-collection-wide{{ end }}">
 {{ if .IsPasswordView }}
         <div class="card-body p-5 text-center">
             <h3 class="card-title mb-3">{{ .Collection.Name }}</h3>
@@ -18,90 +18,36 @@
 {{ else }}
         <div class="card-body p-4">
 
+            {{/* Hidden until media.js finds a same-origin referrer other than this page (FGS.initBackButton); the margin is on the button so a hidden one leaves no gap */}}
+            <button type="button" class="btn btn-sm btn-outline-light d-none mb-2" data-fgs-back>
+                <i class="bi bi-arrow-left"></i> Back
+            </button>
+
             <div class="text-center mb-4">
                 <h3 class="card-title mb-1">{{ .Collection.Name }}</h3>
                 <p class="text-muted mb-0">
-                    {{ .FileCount }} file{{ if ne .FileCount 1 }}s{{ end }} &middot; {{ .TotalSize }}
-                    {{ if not .NeverExpires }} &middot; available until {{ .ExpiryString }}{{ end }}
+                    {{/* The file count is the list's own ("Files: n"), which follows what is shown */}}
+                    {{ .TotalSize }}{{ if not .NeverExpires }} &middot; available until {{ .ExpiryString }}{{ end }}
                 </p>
             </div>
 
-            <div class="table-responsive">
-                <table class="table table-dark align-middle" id="collectiontable">
-                    <thead>
-                        <tr>
-                            <th scope="col">Filename</th>
-                            <th scope="col">Size</th>
-                            <th scope="col" class="text-end">Download</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {{ range .Collection.Files }}
-                        <tr>
-                            <td class="collection-filename">{{ .Name }}</td>
-                            <td>{{ .Size }}</td>
-                            <td class="text-end">
-                                <a class="btn btn-sm btn-outline-light"
-                                   href="./cd?id={{ $.Collection.Id }}&amp;file={{ .Id }}"
-                                   data-fileid="{{ .Id }}"
-                                   data-filename="{{ .Name }}">
-                                    <i class="bi bi-download"></i>
-                                </a>
-                            </td>
-                        </tr>
-                        {{ end }}
-                    </tbody>
-                </table>
-            </div>
+            {{ template "file_browser" .Browser }}
 
-            <div class="text-center mt-4">
-                <button id="downloadAllButton" class="btn btn-light" type="button">
-                    Download all {{ .FileCount }} files
-                </button>
-                <p id="downloadAllStatus" class="text-muted small mt-2 mb-0"></p>
-            </div>
+            {{ template "media_download_buttons" .Buttons }}
+            {{ template "media_help_sheet" }}
+            {{ template "media_viewer" }}
+
+            <script>
+            // Download all, Save to Photos and the zip link act on every file in the list;
+            // the selection bar inside it acts on the selected ones
+            FGS.initDownloadButtons(document.querySelector("[data-fgs-downloads]"));
+            FGS.initBackButton(document.querySelector("[data-fgs-back]"));
+            </script>
 
         </div>
 {{ end }}
     </div>
 </div>
-
-<script>
-// Download all: fetch each file in turn rather than zipping. No archive to
-// unpack, no in-browser memory ceiling, and the recipient gets the original
-// files. Browsers ask once to allow multiple downloads, then queue them.
-(function () {
-    var button = document.getElementById("downloadAllButton");
-    var status = document.getElementById("downloadAllStatus");
-    if (!button || !status) return;
-    var links = Array.prototype.slice.call(
-        document.querySelectorAll("#collectiontable a[data-fileid]"));
-    if (!links.length) { button.style.display = "none"; return; }
-
-    button.addEventListener("click", function () {
-        button.disabled = true;
-        var index = 0;
-        (function next() {
-            if (index >= links.length) {
-                status.textContent = "Started " + links.length + " downloads.";
-                button.disabled = false;
-                return;
-            }
-            var source = links[index];
-            var a = document.createElement("a");
-            a.href = source.getAttribute("href");
-            a.download = source.getAttribute("data-filename") || "";
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            index++;
-            status.textContent = "Starting download " + index + " of " + links.length + "...";
-            // Spacing the clicks keeps the browser from dropping queued downloads.
-            window.setTimeout(next, 600);
-        })();
-    });
-})();
-</script>
 
 {{ template "pagename" "PublicCollection"}}
 {{ template "customjs" .}}

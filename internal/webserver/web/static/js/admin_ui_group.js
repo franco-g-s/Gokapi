@@ -4,7 +4,7 @@
 // admin bundle with every other admin_*.js file, so everything is inside
 // this function and does nothing unless #groupPage is on the page. Names
 // only ever reach the DOM through textContent and attribute setters.
-(function () {
+;(function () {
     "use strict";
 
     // Storage errors are lowercase sentences; the page shows them capitalised

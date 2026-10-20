@@ -1147,8 +1147,11 @@
       perms.remove = !!file.CanRemove;
       var download = preview.Download || (downloadBase ? downloadBase + encodeURIComponent(id)
         : (manages && !file.IsEndToEndEncrypted ? "./files/download?id=" + encodeURIComponent(id) : ""));
+      var ownName = root.getAttribute("data-user-name") || "";
+      // Members see the part before "@" of the Google email (displayName, D5)
+      if (groupTools && ownName.indexOf("@") > 0) ownName = ownName.slice(0, ownName.indexOf("@"));
       var uploader = file.UploaderName !== undefined && file.UploaderName !== null ? String(file.UploaderName)
-        : (mine ? (root.getAttribute("data-user-name") || "") : "");
+        : (mine ? ownName : "");
       var uploaderId = file.UploaderId !== undefined && file.UploaderId !== null ? file.UploaderId : (mine ? userId : 0);
       // Shooting order: without a date taken, the upload date stands in (D13)
       var takenOrder = preview.TakenAt || (sortTakenAsc ? file.UploadDate || 0 : 0);

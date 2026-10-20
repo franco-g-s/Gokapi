@@ -28,6 +28,7 @@ var (
 	ErrCreatorCannotLeave  = errors.New("the creator cannot leave; delete the group instead")
 	ErrCannotRemoveCreator = errors.New("the creator cannot be removed")
 	ErrInvalidJoin         = errors.New("no group with that code or link")
+	ErrGroupNothingAdded   = errors.New("None of these files could go into a group")
 )
 
 // GroupExpiryDays are the choices on every create, extend and turn-into form; 0 = never
@@ -667,6 +668,13 @@ func GroupFromCollection(collectionId string, days int, actor models.User) (mode
 		ids = append(ids, f.Id)
 	}
 	result, err := AddFilesToGroup(g, ids, actor)
+	if err == nil && len(result.Added) == 0 {
+		// Every file was refused (end-to-end encrypted, a file request
+		// upload, someone else's, no longer live): no empty group is left
+		// behind for the user to land in (M4)
+		database.DeleteGroup(g.Id)
+		return models.Group{}, result, ErrGroupNothingAdded
+	}
 	return g, result, err
 }
 

@@ -197,6 +197,22 @@ func TestGroupFromCollection(t *testing.T) {
 	test.IsEqualInt(t, len(again.Files), 2)
 	test.IsEqualString(t, again.Name, "Summer 2026")
 
+	// M4: a collection none of whose files can go into a group (here: all
+	// someone else's) leaves no empty group behind
+	theirs := accessFile("groupfromcolthr0001", func(f *models.File) { f.UserId = stranger.Id; f.SHA1 = "groupfromcolthrsha" })
+	defer database.DeleteMetaData(theirs.Id)
+	foreign, err := storage.CreateCollection(storage.CollectionParameters{Name: "Not mine", FileIds: []string{theirs.Id}}, owner)
+	test.IsNil(t, err)
+	defer database.DeleteCollection(foreign.Id)
+	before := len(storage.GroupsOfUser(owner.Id))
+	w, answer = call("POST", owner, foreign.Id, 60)
+	test.IsEqualInt(t, w.Code, http.StatusBadRequest)
+	test.IsEqualString(t, answer.ErrorMessage, "None of these files could go into a group")
+	test.IsEqualInt(t, len(storage.GroupsOfUser(owner.Id)), before)
+	for _, g := range storage.GetAllGroups() {
+		test.IsEqualBool(t, g.Name == "Not mine", false)
+	}
+
 	// The admin may turn anyone's collection into a group of their own
 	w, answer = call("POST", admin, collection.Id, 0)
 	test.IsEqualInt(t, w.Code, 200)

@@ -788,6 +788,8 @@
       if (!hide) hide = Object.keys(filters).some(function (k) { return !filters[k](tile); });
       var was = el.classList.contains("d-none");
       el.classList.toggle("d-none", hide);
+      // A hidden file leaves the selection, rather than coming back selected
+      if (hide && el.classList.contains("fgs-tile") && tileCheck(el).checked) setChecked(idOf(el), false);
       return was !== hide;
     }
     function applyAllVisibility() {
@@ -1032,7 +1034,12 @@
       setData(tile, "kind", info.Kind);
       setData(tile, "w", info.Width || 0);
       setData(tile, "h", info.Height || 0);
+      var oldKey = shootingKey(tile);
       if (info.TakenAt) setData(tile, "taken", info.TakenAt);
+      // Shooting order (D13): a date taken that arrives with the preview
+      // moves the file to its place
+      var moved = sortTakenAsc && shootingKey(tile) !== oldKey;
+      if (moved) placeInShootingOrder(tile, row);
       var open = tile.querySelector(".fgs-tile-open");
       if (info.Thumb) {
         open.textContent = "";
@@ -1079,7 +1086,10 @@
       if (taken && info.TakenAt) {
         taken.setAttribute("data-order", String(info.TakenAt));
         taken.textContent = fmt(info.TakenAt);
-        if (dataTable) dataTable.row(row).invalidate("dom");
+        if (dataTable) {
+          dataTable.row(row).invalidate("dom");
+          if (moved) dataTable.draw(false); // re-sorts by the new date taken
+        }
       }
       // A replaced file's new preview is still being made (or its row does
       // not exist yet): ask for it
@@ -1113,6 +1123,12 @@
         setData(menu, "can-delete", perms.del);
         setData(menu, "can-remove", !!perms.remove);
       }
+      // D4: the name of the live group whose terms the file follows, as the
+      // template renders it; absent leaves the menu's lock as it is
+      if (file.GroupLock !== undefined && file.GroupLock !== null) {
+        if (file.GroupLock) menu.setAttribute("data-group-lock", String(file.GroupLock));
+        else menu.removeAttribute("data-group-lock");
+      }
       var e2e = !!file.IsEndToEndEncrypted;
       menu.querySelectorAll("[data-menu]").forEach(function (b) {
         var k = b.getAttribute("data-menu");
@@ -1133,6 +1149,18 @@
     function shootingKey(tile) {
       return parseInt(tile.getAttribute("data-taken"), 10) || parseInt(tile.getAttribute("data-uploaded"), 10) || 0;
     }
+    // Puts a tile (and, without DataTables, its row) before the first other
+    // file taken later: shooting order, the upload date standing in (D13)
+    function placeInShootingOrder(tile, row) {
+      var key = shootingKey(tile);
+      var before = Array.prototype.find.call(grid.children, function (t) {
+        return t !== tile && t.classList.contains("fgs-tile") && shootingKey(t) > key;
+      }) || null;
+      grid.insertBefore(tile, before);
+      if (dataTable || !row) return;
+      var beforeRow = before && rowsById[idOf(before)];
+      tbody.insertBefore(row, beforeRow && beforeRow.parentNode === tbody ? beforeRow : null);
+    }
 
     function addItem(file, preview) {
       if (!file || !file.Id || !tplTile || !tplRow) return null;
@@ -1152,7 +1180,8 @@
       if (groupTools && ownName.indexOf("@") > 0) ownName = ownName.slice(0, ownName.indexOf("@"));
       var uploader = file.UploaderName !== undefined && file.UploaderName !== null ? String(file.UploaderName)
         : (mine ? ownName : "");
-      var uploaderId = file.UploaderId !== undefined && file.UploaderId !== null ? file.UploaderId : (mine ? userId : 0);
+      // As rendered: only group pages carry the uploader's id
+      var uploaderId = !groupTools ? 0 : file.UploaderId !== undefined && file.UploaderId !== null ? file.UploaderId : (mine ? userId : 0);
       // Shooting order: without a date taken, the upload date stands in (D13)
       var takenOrder = preview.TakenAt || (sortTakenAsc ? file.UploadDate || 0 : 0);
       var name = file.Name || "";
@@ -1224,22 +1253,15 @@
       formatTimes(tile);
       formatTimes(row);
 
-      // Newest first, or in shooting order before the first file taken
-      // later (DataTables sorts the row itself)
-      var before = grid.firstChild;
-      if (sortTakenAsc) {
-        var key = shootingKey(tile);
-        before = Array.prototype.find.call(grid.children, function (t) {
-          return t.classList.contains("fgs-tile") && shootingKey(t) > key;
-        }) || null;
-      }
-      grid.insertBefore(tile, before);
+      // Newest first, or in shooting order (DataTables sorts the row itself)
       index(tile, row);
-      if (dataTable) dataTable.row.add(row).draw(false);
+      if (dataTable) dataTable.row.add(row);
+      if (sortTakenAsc) placeInShootingOrder(tile, row);
       else {
-        var beforeRow = sortTakenAsc ? (before && rowsById[idOf(before)]) || null : tbody.firstChild;
-        tbody.insertBefore(row, beforeRow && beforeRow.parentNode === tbody ? beforeRow : null);
+        grid.insertBefore(tile, grid.firstChild);
+        if (!dataTable) tbody.insertBefore(row, tbody.firstChild);
       }
+      if (dataTable) dataTable.draw(false);
       applyVisibility(tile);
       applyVisibility(row);
       if (preview.Status === "ready") applyPreview(id, preview);

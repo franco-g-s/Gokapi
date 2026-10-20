@@ -485,3 +485,42 @@ func TestVideoStreamingRespectsDownloadCap(t *testing.T) {
 	test.IsEqualInt(t, stream("validsession", encrypted.Id), http.StatusNotFound)
 	test.IsEqualBool(t, offered("validsession", encrypted), false)
 }
+
+// A member of a live group sees the files in it, whatever their password;
+// nobody else gains anything from the group (spec, "Access")
+func TestCanViewGroupMembers(t *testing.T) {
+	database.SaveUser(models.User{Id: 8, Name: "Stranger", Permissions: models.UserPermissionNone, UserLevel: models.UserLevelUser}, false)
+	database.SaveUser(models.User{Id: 10, Name: "member@example.com", Permissions: models.UserPermissionNone, UserLevel: models.UserLevelUser}, false)
+	database.SaveSession("accessstranger", models.Session{RenewAt: 2147483645, ValidUntil: 2147483646, UserId: 8})
+	database.SaveSession("accessgroupmember", models.Session{RenewAt: 2147483645, ValidUntil: 2147483646, UserId: 10})
+	defer database.DeleteSession("accessgroupmember")
+
+	f := accessFile("accessgroup00000001", func(f *models.File) { f.SHA1 = "accessgroupsha"; f.PasswordHash = "x" })
+	owner := models.User{Id: 7, UserLevel: models.UserLevelUser}
+	g, err := storage.CreateGroup("Access", 30, owner)
+	test.IsNil(t, err)
+	defer database.DeleteGroup(g.Id)
+	_, err = storage.JoinGroupByToken(g.InviteToken, models.User{Id: 10, UserLevel: models.UserLevelUser})
+	test.IsNil(t, err)
+	res, err := storage.AddFilesToGroup(g, []string{f.Id}, owner)
+	test.IsNil(t, err)
+	test.IsEqualInt(t, len(res.Added), 1)
+
+	member := sessionRequest("accessgroupmember")
+	test.IsEqualBool(t, access.CanView(member, f, ""), true)
+	test.IsEqualBool(t, access.CanView(sessionRequest("accessstranger"), f, ""), false)
+	test.IsEqualBool(t, access.CanView(sessionRequest(""), f, ""), false)
+
+	// The group closed: membership grants nothing any more
+	live := g
+	g.Expires = time.Now().Unix() - 1
+	database.SaveGroup(g)
+	test.IsEqualBool(t, access.CanView(member, f, ""), false)
+	// Open again, so the next check fails for its own reason
+	database.SaveGroup(live)
+	test.IsEqualBool(t, access.CanView(member, f, ""), true)
+
+	// The file left the group
+	database.RemoveFileFromGroups(f.Id)
+	test.IsEqualBool(t, access.CanView(member, f, ""), false)
+}

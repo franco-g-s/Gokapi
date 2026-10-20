@@ -262,6 +262,7 @@ This disables all of Gokapi's internal authentication except for API calls. The 
 - ``/files/download``
 - ``/files/previewinfo``
 - ``/files/zip``
+- ``/groups/list``
 - ``/logs``
 - ``/uploadChunk``
 - ``/uploadStatus``

@@ -844,6 +844,8 @@ func CleanUp(periodic bool) {
 				database.DeleteHotlink(element.HotlinkId)
 			}
 			database.RemoveFileFromCollections(element.Id)
+			database.RemoveFileFromGroups(element.Id)
+			database.DeleteDownloadsOfFile(element.Id)
 			database.DeleteMetaData(key)
 			wasItemDeleted = true
 		}
@@ -853,6 +855,7 @@ func CleanUp(periodic bool) {
 	}
 	cleanOldTempFiles()
 	cleanUpCollections(timeNow)
+	cleanUpGroups(timeNow)
 	cleanHotlinks()
 	cleanInvalidApiKeys()
 	cleanInvalidFileRequests()

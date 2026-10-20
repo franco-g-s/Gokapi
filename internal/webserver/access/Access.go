@@ -32,6 +32,10 @@ func CanView(r *http.Request, file models.File, collectionId string) bool {
 	if current.UploadRequestId != "" {
 		return false
 	}
+	// A member of a live group the file is in (spec, "Access")
+	if user, loggedIn := authentication.SessionIdentity(r); loggedIn && storage.UserSharesGroupWithFile(user.Id, current.Id) {
+		return true
+	}
 	if collectionId != "" {
 		collection, ok := storage.GetCollection(collectionId)
 		if ok {

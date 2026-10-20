@@ -97,6 +97,12 @@ func apiEditFile(w http.ResponseWriter, r requestParser, user models.User, _ mod
 		sendError(w, http.StatusUnauthorized, errorcodes.NoPermission, "No permission to edit file.")
 		return
 	}
+	// D4: in a live group, expiry, download limit and password follow the group
+	if groupName, locked := storage.GroupLock(file.Id); locked && changesGroupTerms(request, file) {
+		sendError(w, http.StatusBadRequest, errorcodes.ResourceCanNotBeEdited,
+			`Expiry and download limit follow the group "`+groupName+`"`)
+		return
+	}
 	if request.UnlimitedDownloads {
 		file.UnlimitedDownloads = true
 	} else {

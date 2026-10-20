@@ -129,6 +129,54 @@ type Database interface {
 	// GetAllPreviewSha1s maps every known blob hash to its preview status
 	GetAllPreviewSha1s() map[string]string
 
+	// SupportsGroups is false on providers without group tables (Redis)
+	SupportsGroups() bool
+	// GetGroup returns the group or false if not found
+	GetGroup(id string) (models.Group, bool)
+	// GetGroupByToken returns the group with this invite token
+	GetGroupByToken(token string) (models.Group, bool)
+	// GetGroupByCode returns the group with this join code (as normalised by storage)
+	GetGroupByCode(code string) (models.Group, bool)
+	// GetAllGroups returns all groups, newest first
+	GetAllGroups() []models.Group
+	// SaveGroup inserts or replaces a group
+	SaveGroup(g models.Group)
+	// DeleteGroup removes the group, its members, its file links and its kept
+	// near-copies. Files are never touched.
+	DeleteGroup(id string)
+	// GetGroupMembers returns the members of a group, by Joined ascending
+	GetGroupMembers(groupId string) []models.GroupMember
+	// GetMembershipsOfUser returns every group membership of a user
+	GetMembershipsOfUser(userId int) []models.GroupMember
+	// SaveGroupMember inserts or replaces a membership
+	SaveGroupMember(m models.GroupMember)
+	// DeleteGroupMember removes one membership
+	DeleteGroupMember(groupId string, userId int)
+	// GetGroupFileIds returns the ids of all files in a group
+	GetGroupFileIds(groupId string) []string
+	// GetGroupIdsOfFile returns the ids of all groups a file is in
+	GetGroupIdsOfFile(fileId string) []string
+	// AddGroupFile puts a file into a group (idempotent)
+	AddGroupFile(groupId, fileId string)
+	// RemoveGroupFile takes a file out of one group
+	RemoveGroupFile(groupId, fileId string)
+	// RemoveFileFromGroups drops a file from every group
+	RemoveFileFromGroups(fileId string)
+	// SaveNearCopyKept remembers "Keep both" for a file in a group (idempotent)
+	SaveNearCopyKept(groupId, fileId string)
+	// GetNearCopiesKept returns the file ids kept in a group despite looking like another's
+	GetNearCopiesKept(groupId string) map[string]bool
+	// SaveDownload records one original file served to someone
+	SaveDownload(d models.Download)
+	// GetDownloadedFileIds is every file id the user has downloaded, by any route
+	GetDownloadedFileIds(userId int) map[string]bool
+	// DeleteDownloadsOfFile removes the download rows of a file
+	DeleteDownloadsOfFile(fileId string)
+	// SaveCollectionSeen records the first time a user opened a collection; keeps the first FirstOpened
+	SaveCollectionSeen(s models.CollectionSeen)
+	// GetCollectionsSeen returns the collections a user has opened, newest first
+	GetCollectionsSeen(userId int) []models.CollectionSeen
+
 	// GetStatTraffic returns the total traffic from statistics
 	GetStatTraffic() uint64
 	// SaveStatTraffic stores the total traffic

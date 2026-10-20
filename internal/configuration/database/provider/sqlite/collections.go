@@ -97,6 +97,8 @@ func (p DatabaseProvider) DeleteCollection(id string) {
 	}
 	_, err := p.sqliteDb.Exec("DELETE FROM CollectionFiles WHERE CollectionId = ?", id)
 	helper.Check(err)
+	_, err = p.sqliteDb.Exec("DELETE FROM CollectionsSeen WHERE CollectionId = ?", id)
+	helper.Check(err)
 	_, err = p.sqliteDb.Exec("DELETE FROM Collections WHERE Id = ?", id)
 	helper.Check(err)
 }

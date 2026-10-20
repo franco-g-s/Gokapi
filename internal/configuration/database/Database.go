@@ -397,6 +397,76 @@ func DeletePreview(sha1 string) { db.DeletePreview(sha1) }
 // GetAllPreviewSha1s maps blob hashes to preview status
 func GetAllPreviewSha1s() map[string]string { return db.GetAllPreviewSha1s() }
 
+// SupportsGroups is false on providers without group tables (Redis)
+func SupportsGroups() bool { return db.SupportsGroups() }
+
+// GetGroup returns the group or false if not found
+func GetGroup(id string) (models.Group, bool) { return db.GetGroup(id) }
+
+// GetGroupByToken returns the group with this invite token
+func GetGroupByToken(token string) (models.Group, bool) { return db.GetGroupByToken(token) }
+
+// GetGroupByCode returns the group with this join code (as normalised by storage)
+func GetGroupByCode(code string) (models.Group, bool) { return db.GetGroupByCode(code) }
+
+// GetAllGroups returns all groups, newest first
+func GetAllGroups() []models.Group { return db.GetAllGroups() }
+
+// SaveGroup inserts or replaces a group
+func SaveGroup(g models.Group) { db.SaveGroup(g) }
+
+// DeleteGroup removes the group, its members, its file links and its kept
+// near-copies. Files are never touched.
+func DeleteGroup(id string) { db.DeleteGroup(id) }
+
+// GetGroupMembers returns the members of a group, by Joined ascending
+func GetGroupMembers(groupId string) []models.GroupMember { return db.GetGroupMembers(groupId) }
+
+// GetMembershipsOfUser returns every group membership of a user
+func GetMembershipsOfUser(userId int) []models.GroupMember { return db.GetMembershipsOfUser(userId) }
+
+// SaveGroupMember inserts or replaces a membership
+func SaveGroupMember(m models.GroupMember) { db.SaveGroupMember(m) }
+
+// DeleteGroupMember removes one membership
+func DeleteGroupMember(groupId string, userId int) { db.DeleteGroupMember(groupId, userId) }
+
+// GetGroupFileIds returns the ids of all files in a group
+func GetGroupFileIds(groupId string) []string { return db.GetGroupFileIds(groupId) }
+
+// GetGroupIdsOfFile returns the ids of all groups a file is in
+func GetGroupIdsOfFile(fileId string) []string { return db.GetGroupIdsOfFile(fileId) }
+
+// AddGroupFile puts a file into a group (idempotent)
+func AddGroupFile(groupId, fileId string) { db.AddGroupFile(groupId, fileId) }
+
+// RemoveGroupFile takes a file out of one group
+func RemoveGroupFile(groupId, fileId string) { db.RemoveGroupFile(groupId, fileId) }
+
+// RemoveFileFromGroups drops a file from every group
+func RemoveFileFromGroups(fileId string) { db.RemoveFileFromGroups(fileId) }
+
+// SaveNearCopyKept remembers "Keep both" for a file in a group (idempotent)
+func SaveNearCopyKept(groupId, fileId string) { db.SaveNearCopyKept(groupId, fileId) }
+
+// GetNearCopiesKept returns the file ids kept in a group despite looking like another's
+func GetNearCopiesKept(groupId string) map[string]bool { return db.GetNearCopiesKept(groupId) }
+
+// SaveDownload records one original file served to someone
+func SaveDownload(d models.Download) { db.SaveDownload(d) }
+
+// GetDownloadedFileIds is every file id the user has downloaded, by any route
+func GetDownloadedFileIds(userId int) map[string]bool { return db.GetDownloadedFileIds(userId) }
+
+// DeleteDownloadsOfFile removes the download rows of a file
+func DeleteDownloadsOfFile(fileId string) { db.DeleteDownloadsOfFile(fileId) }
+
+// SaveCollectionSeen records the first time a user opened a collection; keeps the first FirstOpened
+func SaveCollectionSeen(s models.CollectionSeen) { db.SaveCollectionSeen(s) }
+
+// GetCollectionsSeen returns the collections a user has opened, newest first
+func GetCollectionsSeen(userId int) []models.CollectionSeen { return db.GetCollectionsSeen(userId) }
+
 // Statistics
 
 // GetStatTraffic returns the total traffic from statistics

@@ -74,7 +74,7 @@
           <th data-fgs-sort data-fgs-sort-dir="asc">Taken</th>{{ else }}<th data-fgs-sort>Uploaded</th>
           <th>Taken</th>{{ end }}
           <th>Size</th>
-          {{ if .Manages }}<th>Expires</th><th>Downloads</th>{{ end }}
+          {{ if .ManagesColumns }}<th>Expires</th><th>Downloads</th>{{ end }}
           <th class="text-end" data-fgs-nosort>Actions</th>
         </tr></thead>
         <tbody>
@@ -110,7 +110,7 @@
 {{/* One file in Grid and Board. Dot is a browserTile. The data-* attributes
      feed FGS.itemFromEl (the viewer) and the selection bar. */}}
 {{ define "file_browser_tile" }}{{ $it := .Item }}{{ $f := $it.File }}
-<figure class="fgs-tile" data-mine="{{ $it.Mine }}" data-id="{{ $f.Id }}" data-name="{{ $f.Name }}"
+<figure class="fgs-tile" data-mine="{{ $it.Mine }}" data-id="{{ $f.Id }}" data-name="{{ $f.Name }}"{{ if $it.Foreign }} data-foreign="true"{{ end }}
         data-uploader-id="{{ $it.UploaderId }}" data-downloaded="{{ $it.Downloaded }}"
         data-download="{{ $it.DownloadUrl }}" data-view="{{ $it.Preview.View }}" data-video="{{ $it.Preview.Video }}"
         data-kind="{{ $it.Preview.Kind }}" data-preview-status="{{ $it.Preview.Status }}"
@@ -138,25 +138,28 @@
      cell-downloads-, url-button-) are the ones the upload page's helpers
      look up. They are only rendered where a page holds one browser (files,
      upload, LegacyIds), so a file listed twice never repeats an id. */}}
-{{ define "file_browser_row" }}{{ $b := .B }}{{ $it := .Item }}{{ $f := $it.File }}
-<tr data-mine="{{ $it.Mine }}" data-row-id="{{ $f.Id }}" data-downloaded="{{ $it.Downloaded }}"{{ if and $b.LegacyIds $f.Id }} id="row-{{ $f.Id }}"{{ end }}>
+{{ define "file_browser_row" }}{{ $b := .B }}{{ $it := .Item }}{{ $f := $it.File }}{{ $ids := and $b.LegacyIds $f.Id (not $it.Foreign) }}
+<tr data-mine="{{ $it.Mine }}" data-row-id="{{ $f.Id }}" data-downloaded="{{ $it.Downloaded }}"{{ if $ids }} id="row-{{ $f.Id }}"{{ end }}>
   <td class="fgs-col-check"><input type="checkbox" class="form-check-input fgs-row-check" aria-label="Select {{ $f.Name }}"></td>
   <td data-col="name" data-order="{{ $f.Name }}"><div class="fgs-list-name">
     {{- if $it.Preview.Thumb }}<img class="fgs-list-thumb" loading="lazy" decoding="async" src="{{ $it.Preview.Thumb }}" alt="" style="background:{{ $it.Preview.Color }}">{{ else }}<span class="fgs-list-thumb fgs-list-icon" aria-hidden="true"><i class="bi {{ or $it.Icon "bi-file-earmark" }}"></i></span>{{ end }}
-    <button type="button" class="btn btn-link fgs-name-open" title="Open"><span class="fgs-row-name"{{ if and $b.LegacyIds $f.Id }} id="cell-name-{{ $f.Id }}"{{ end }}>{{ $f.Name }}</span></button>
+    <button type="button" class="btn btn-link fgs-name-open" title="Open"><span class="fgs-row-name"{{ if $ids }} id="cell-name-{{ $f.Id }}"{{ end }}>{{ $f.Name }}</span></button>
     {{- if $b.GroupTools }}<span class="fgs-row-tick" aria-label="Downloaded" title="Downloaded"><i class="bi bi-check-circle-fill"></i></span>{{ end }}
   </div></td>
   {{ if $b.ShowUploader }}<td data-col="uploader">{{ $it.Uploader }}</td>{{ end }}
   <td data-col="uploaded" data-order="{{ $f.UploadDate }}"><span data-ts="{{ $f.UploadDate }}"></span></td>
   <td data-col="taken" data-order="{{ if or $it.TakenAt (not $b.SortTakenAsc) }}{{ $it.TakenAt }}{{ else }}{{ $f.UploadDate }}{{ end }}">{{ if $it.TakenAt }}<span data-ts="{{ $it.TakenAt }}"></span>{{ else }}—{{ end }}</td>
   <td data-col="size" data-order="{{ $it.Bytes }}">{{ $f.Size }}</td>
-  {{ if $b.Manages }}
+  {{ if $b.ManagesColumns }}
+  {{ if $it.Foreign }}<td data-col="expires" data-order="0">—</td>
+  <td data-col="downloads" data-order="0">—</td>
+  {{ else }}
   {{ if $f.UnlimitedTime }}<td data-col="expires" data-order="9223372036854775807">Never</td>{{ else }}<td data-col="expires" data-order="{{ $f.ExpireAt }}"><span data-ts="{{ $f.ExpireAt }}"></span></td>{{ end }}
-  <td data-col="downloads"{{ if and $b.LegacyIds $f.Id }} id="cell-downloads-{{ $f.Id }}"{{ end }}>{{ $f.DownloadCount }}</td>
-  {{ end }}
+  <td data-col="downloads"{{ if $ids }} id="cell-downloads-{{ $f.Id }}"{{ end }}>{{ $f.DownloadCount }}</td>
+  {{ end }}{{ end }}
   <td class="text-end"><div class="fgs-list-actions">
-    {{- if $b.HasMenu "copy" }}
-    <button{{ if and $b.LegacyIds $f.Id }} id="url-button-{{ $f.Id }}"{{ end }} type="button" class="copyurl btn btn-outline-light btn-sm" onclick="showToast(1000)"
+    {{- if and ($b.HasMenu "copy") (not $it.Foreign) }}
+    <button{{ if $ids }} id="url-button-{{ $f.Id }}"{{ end }} type="button" class="copyurl btn btn-outline-light btn-sm" onclick="showToast(1000)"
       data-clipboard-text="{{ $f.UrlDownload }}" title="Copy link" aria-label="Copy link"><i class="bi bi-copy"></i></button>
     {{- else if $b.HasMenu "download" }}
     <button type="button" class="btn btn-outline-light btn-sm" data-menu="download" title="Download" aria-label="Download"><i class="bi bi-download"></i></button>
@@ -168,10 +171,11 @@
 
 {{/* The "⋯" menu, the same in every view: only the context's actions. Dot
      is a browserTile. The management data feeds the edit dialog and the
-     bulk "Change expiry & limits". */}}
+     bulk "Change expiry & limits"; a Foreign item (someone else's file,
+     reached through a group) never carries it (I2). */}}
 {{ define "file_browser_menu" }}{{ $b := .B }}{{ $it := .Item }}{{ $f := $it.File }}
 <div class="dropdown fgs-menu" data-fgs-file-menu data-id="{{ $f.Id }}"
-  {{- if $b.Manages }} data-url="{{ $f.UrlDownload }}"
+  {{- if and $b.Manages (not $it.Foreign) }} data-url="{{ $f.UrlDownload }}"
      data-downloads="{{ $f.DownloadsRemaining }}" data-unlimited-downloads="{{ $f.UnlimitedDownloads }}"
      data-expire="{{ $f.ExpireAt }}" data-unlimited-time="{{ $f.UnlimitedTime }}"
      data-password="{{ $f.IsPasswordProtected }}" data-e2e="{{ $f.IsEndToEndEncrypted }}"
@@ -186,17 +190,17 @@
     {{- if $b.HasMenu "download" }}
     <li><button type="button" class="dropdown-item" data-menu="download"{{ if $f.IsEndToEndEncrypted }} disabled{{ end }}><i class="bi bi-download"></i> {{ if $b.Manages }}Download original{{ else }}Download{{ end }}</button></li>{{ end }}
     {{- if $b.HasMenu "copy" }}
-    <li><button type="button" class="dropdown-item copyurl" data-menu="copy" data-clipboard-text="{{ $f.UrlDownload }}"><i class="bi bi-copy"></i> Copy link</button></li>{{ end }}
+    <li><button type="button" class="dropdown-item copyurl" data-menu="copy" data-clipboard-text="{{ $f.UrlDownload }}"{{ if $it.Foreign }} disabled{{ end }}><i class="bi bi-copy"></i> Copy link</button></li>{{ end }}
     {{- if $b.HasMenu "hotlink" }}
     {{/* Always rendered where it can apply: a file added live may have one. media.js (fillMenu) shows it. */}}
     <li{{ if not $f.UrlHotlink }} class="d-none"{{ end }}><button type="button" class="dropdown-item copyurl" data-menu="hotlink" data-clipboard-text="{{ $f.UrlHotlink }}"><i class="bi bi-image"></i> Copy hotlink</button></li>{{ end }}
     {{- if $b.HasMenu "share" }}
-    <li><button type="button" class="dropdown-item" data-menu="share"><i class="bi bi-box-arrow-up"></i> Share…</button></li>{{ end }}
+    <li><button type="button" class="dropdown-item" data-menu="share"{{ if $it.Foreign }} disabled{{ end }}><i class="bi bi-box-arrow-up"></i> Share…</button></li>{{ end }}
     {{- if $b.HasMenu "qr" }}
-    <li><button type="button" class="dropdown-item" data-menu="qr"><i class="bi bi-qr-code"></i> QR code</button></li>{{ end }}
+    <li><button type="button" class="dropdown-item" data-menu="qr"{{ if $it.Foreign }} disabled{{ end }}><i class="bi bi-qr-code"></i> QR code</button></li>{{ end }}
     {{- if $b.HasMenu "email" }}
     {{/* The link is made from data-url when clicked (admin_ui_filebrowser.js), so end-to-end encrypted files carry their #key */}}
-    <li><a class="dropdown-item" data-menu="email" href="mailto:?body={{ $f.UrlDownload | urlquery }}" target="_blank" rel="noopener" title="Share via email"><i class="bi bi-envelope"></i> Email</a></li>{{ end }}
+    <li><a class="dropdown-item{{ if $it.Foreign }} disabled{{ end }}"{{ if $it.Foreign }} aria-disabled="true"{{ end }} data-menu="email" href="mailto:?body={{ $f.UrlDownload | urlquery }}" target="_blank" rel="noopener" title="Share via email"><i class="bi bi-envelope"></i> Email</a></li>{{ end }}
     {{- if or ($b.HasMenu "edit") ($b.HasMenu "replace") ($b.HasMenu "add-to-collection") ($b.HasMenu "add-to-group") }}
     <li><hr class="dropdown-divider"></li>{{ end }}
     {{- if $b.HasMenu "edit" }}
@@ -204,9 +208,9 @@
     {{- if $b.HasMenu "replace" }}
     <li><button type="button" class="dropdown-item" data-menu="replace"{{ if not $it.CanReplace }} disabled{{ end }}><i class="bi bi-arrow-repeat"></i> Replace content</button></li>{{ end }}
     {{- if $b.HasMenu "add-to-collection" }}
-    <li><button type="button" class="dropdown-item" data-menu="add-to-collection"{{ if $f.IsEndToEndEncrypted }} disabled{{ end }}><i class="bi bi-collection"></i> Add to collection…</button></li>{{ end }}
+    <li><button type="button" class="dropdown-item" data-menu="add-to-collection"{{ if or $f.IsEndToEndEncrypted $it.Foreign }} disabled{{ end }}><i class="bi bi-collection"></i> Add to collection…</button></li>{{ end }}
     {{- if $b.HasMenu "add-to-group" }}
-    <li><button type="button" class="dropdown-item" data-menu="add-to-group"{{ if $f.IsEndToEndEncrypted }} disabled{{ end }}><i class="bi bi-people"></i> Add to group…</button></li>{{ end }}
+    <li><button type="button" class="dropdown-item" data-menu="add-to-group"{{ if or $f.IsEndToEndEncrypted $it.Foreign }} disabled{{ end }}><i class="bi bi-people"></i> Add to group…</button></li>{{ end }}
     {{- if or ($b.HasMenu "delete") ($b.HasMenu "remove-from-collection") ($b.HasMenu "remove-from-group") }}
     <li><hr class="dropdown-divider"></li>{{ end }}
     {{- if $b.HasMenu "remove-from-collection" }}

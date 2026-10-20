@@ -100,6 +100,23 @@ type browserItem struct {
 	// (storage.GroupLock), on every page with the edit dialog: its expiry,
 	// download limit and password cannot be edited there (D4)
 	GroupLock string
+	// Foreign: the viewer reaches the file only as a member of a group it is
+	// in, and may not edit it. Its management data (the uploader's own /d
+	// and hotlink, download counts and terms) is neither sent nor rendered
+	// (I2): a group file has unlimited downloads, so its /d link would be a
+	// sign-in-free link the uploader never handed out.
+	Foreign bool
+}
+
+// makeForeign marks an item as reached only through a group and blanks its
+// management data, so no page or JSON answer can carry it
+func (item *browserItem) makeForeign() {
+	item.Foreign = true
+	f := &item.File
+	f.UrlDownload, f.UrlHotlink, f.HotlinkId = "", "", ""
+	f.ExpireAt, f.ExpireAtString = 0, ""
+	f.DownloadsRemaining, f.DownloadCount = 0, 0
+	f.UnlimitedDownloads, f.UnlimitedTime, f.IsPasswordProtected = false, false, false
 }
 
 // browserPerson is one choice of a group page's person filter
@@ -178,7 +195,13 @@ func (b fileBrowser) HasBulk(key string) bool { return slices.Contains(b.Bulk, k
 
 // Manages is true where the list belongs to its owner: management columns
 // (expiry, download count) and data for the admin actions are rendered.
+// Items marked Foreign never carry the data, whatever the list.
 func (b fileBrowser) Manages() bool { return b.HasMenu("edit") }
+
+// ManagesColumns is true where the List view shows the Expires and Downloads
+// columns: a managed list, but not a group page, where most files are other
+// people's and their terms follow the group anyway (I2)
+func (b fileBrowser) ManagesColumns() bool { return b.Manages() && b.Context != ctxGroup }
 
 // ItemPerms is true where the menu carries data-can-delete and
 // data-can-remove, with or without the rest of the management data (Manages)
@@ -304,6 +327,9 @@ func browserItemFromFile(r *http.Request, f models.File, user models.User, conte
 	if context == ctxGroup {
 		item.UploaderId = f.UserId
 		item.Initials = initialsOf(item.Uploader)
+		if !item.CanEdit {
+			item.makeForeign()
+		}
 	}
 	if slices.Contains(browserActionTable[context].Menu, "edit") {
 		item.GroupLock, _ = storage.GroupLock(f.Id)

@@ -210,6 +210,33 @@ func TestGroupPage(t *testing.T) {
 		test.IsEqualBool(t, strings.Contains(body, `data-group-remove-member="71"`), false)
 	})
 
+	t.Run("management data only for the files the viewer may edit (I2)", func(t *testing.T) {
+		// anna (member) views carla's B: no /d link, no data-url, no counts
+		body := groupPageCall(showGroup, "GET", page, fx.member, "").Body.String()
+		menuB := menuOf(t, body, fx.b.Id)
+		for _, leak := range []string{"data-url", "data-downloads", "data-expire", "data-password", "data-can-edit"} {
+			test.IsEqualBool(t, strings.Contains(menuB, leak), false)
+		}
+		test.IsEqualBool(t, strings.Contains(body, "/d?id="+fx.b.Id), false)
+		test.IsEqualBool(t, strings.Contains(body, "/d?id="+fx.c.Id), false)
+		// Her own A keeps them, so Edit and Replace still work
+		menuA := menuOf(t, body, fx.a.Id)
+		test.IsEqualBool(t, strings.Contains(menuA, `data-url="`), true)
+		test.IsEqualBool(t, strings.Contains(menuA, `data-can-edit="true"`), true)
+		test.IsEqualBool(t, strings.Contains(body, "/d?id="+fx.a.Id), true)
+		// No Expires or Downloads columns on a group page
+		test.IsEqualBool(t, strings.Contains(body, "<th>Expires</th>"), false)
+		test.IsEqualBool(t, strings.Contains(body, "<th>Downloads</th>"), false)
+		test.IsEqualBool(t, strings.Contains(body, `data-col="downloads"`), false)
+
+		// carla's own view of the same page: B and C carry theirs, A does not
+		body = groupPageCall(showGroup, "GET", page, fx.creator, "").Body.String()
+		test.IsEqualBool(t, strings.Contains(menuOf(t, body, fx.b.Id), `data-url="`), true)
+		test.IsEqualBool(t, strings.Contains(body, "/d?id="+fx.b.Id), true)
+		test.IsEqualBool(t, strings.Contains(menuOf(t, body, fx.a.Id), "data-url"), false)
+		test.IsEqualBool(t, strings.Contains(body, "/d?id="+fx.a.Id), false)
+	})
+
 	t.Run("a stranger gets 404, the admin a banner", func(t *testing.T) {
 		w := groupPageCall(showGroup, "GET", page, fx.outside, "")
 		test.IsEqualInt(t, w.Code, http.StatusNotFound)
@@ -336,7 +363,11 @@ func TestGroupItem(t *testing.T) {
 	test.IsEqualString(t, got["GroupLock"].(string), "Iceland trip")
 	test.IsEqualBool(t, got["Downloaded"].(bool), false)
 	test.IsEqualBool(t, got["CanRemove"].(bool), false)
-	test.IsEqualBool(t, got["UnlimitedDownloads"].(bool), true)
+	// Someone else's file carries none of its management data (I2)
+	test.IsEqualString(t, got["UrlDownload"].(string), "")
+	test.IsEqualString(t, got["UrlHotlink"].(string), "")
+	test.IsEqualInt(t, int(got["DownloadCount"].(float64)), 0)
+	test.IsEqualInt(t, int(got["ExpireAt"].(float64)), 0)
 	preview := got["Preview"].(map[string]any)
 	test.IsEqualString(t, preview["Status"].(string), models.PreviewReady)
 	test.IsEqualInt(t, int(preview["TakenAt"].(float64)), 1000)
@@ -345,6 +376,9 @@ func TestGroupItem(t *testing.T) {
 	// Own items may be removed; the creator may remove any
 	_, got = item(fx.member, fx.a.Id)
 	test.IsEqualBool(t, got["CanRemove"].(bool), true)
+	// and keep their management data
+	test.IsEqualBool(t, strings.Contains(got["UrlDownload"].(string), "/d?id="+fx.a.Id), true)
+	test.IsEqualBool(t, got["UnlimitedDownloads"].(bool), true)
 	_, got = item(fx.creator, fx.a.Id)
 	test.IsEqualBool(t, got["CanRemove"].(bool), true)
 

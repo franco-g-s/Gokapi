@@ -1108,7 +1108,9 @@
       setData(menu, "id", file.Id);
       var trigger = menu.querySelector(".fgs-menu-btn");
       if (trigger) trigger.setAttribute("aria-label", "Actions for " + (file.Name || ""));
-      if (manages) {
+      // A group page carries the management data only for the files the
+      // viewer may edit, as the template renders it (I2)
+      if (manages && (context !== "group" || perms.edit)) {
         setData(menu, "url", file.UrlDownload);
         setData(menu, "downloads", file.DownloadsRemaining);
         setData(menu, "unlimited-downloads", !!file.UnlimitedDownloads);

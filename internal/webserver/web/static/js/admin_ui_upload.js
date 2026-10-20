@@ -675,6 +675,11 @@ function getAllAvailableFiles() {
         if (ids.includes(id)) {
             continue;
         }
+        // Someone else's file reached through a group (a group page, the
+        // Files tab's Everything): the server refuses it (M10)
+        if (tile.getAttribute("data-foreign") === "true") {
+            continue;
+        }
         let menu = tile.querySelector("[data-fgs-file-menu]");
         if (menu !== null && menu.getAttribute("data-e2e") === "true") {
             continue;

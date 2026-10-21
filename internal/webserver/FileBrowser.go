@@ -42,11 +42,13 @@ type browserActions struct {
 }
 
 var (
-	manageMenu = []string{"open", "download", "copy", "hotlink", "share", "qr", "email", "edit", "replace", "add-to-collection", "add-to-group", "delete"}
+	manageMenu = []string{"open", "download", "photos", "copy", "hotlink", "share", "qr", "email", "edit", "replace", "add-to-collection", "add-to-group", "delete"}
 	manageBulk = []string{"download", "zip", "photos", "link", "add-to-collection", "add-to-group", "change-expiry", "delete"}
 )
 
-// browserActionTable is binding (spec, "Per-page content and actions")
+// browserActionTable is binding (spec, "Per-page content and actions").
+// "photos" (Save to Photos) is in every menu that has "download" (R3);
+// media.js shows it only on iOS with navigator.canShare, for photos and videos.
 var browserActionTable = map[string]browserActions{
 	ctxFiles:  {Menu: manageMenu, Bulk: manageBulk, DefaultView: viewGrid},
 	ctxUpload: {Menu: manageMenu, Bulk: manageBulk, DefaultView: viewGrid},
@@ -56,19 +58,19 @@ var browserActionTable = map[string]browserActions{
 		DefaultView: viewList,
 	},
 	ctxFileRequest: {
-		Menu:        []string{"open", "download", "delete"},
+		Menu:        []string{"open", "download", "photos", "delete"},
 		Bulk:        []string{"download", "zip", "photos", "delete"},
 		DefaultView: viewList,
 	},
 	ctxCollectionPublic: {
-		Menu:        []string{"open", "download"},
+		Menu:        []string{"open", "download", "photos"},
 		Bulk:        []string{"download", "zip", "photos"},
 		DefaultView: viewList,
 	},
 	// Edit is here (D4 revision): renaming and replacing content. Expiry,
 	// download limit and password follow the group (browserItem.GroupLock).
 	ctxGroup: {
-		Menu:        []string{"open", "download", "edit", "replace", "remove-from-group", "delete"},
+		Menu:        []string{"open", "download", "photos", "edit", "replace", "remove-from-group", "delete"},
 		Bulk:        []string{"download", "zip", "photos", "remove-from-group", "delete"},
 		DefaultView: viewBoard,
 	},

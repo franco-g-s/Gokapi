@@ -24,7 +24,7 @@ import (
 // every context gets exactly these "⋯" entries and selection-bar actions, in
 // this order, and its default view.
 func TestFileBrowserActionTable(t *testing.T) {
-	manageMenu := []string{"open", "download", "copy", "hotlink", "share", "qr", "email", "edit", "replace", "add-to-collection", "add-to-group", "delete"}
+	manageMenu := []string{"open", "download", "photos", "copy", "hotlink", "share", "qr", "email", "edit", "replace", "add-to-collection", "add-to-group", "delete"}
 	manageBulk := []string{"download", "zip", "photos", "link", "add-to-collection", "add-to-group", "change-expiry", "delete"}
 	want := map[string]struct {
 		menu, bulk []string
@@ -33,9 +33,9 @@ func TestFileBrowserActionTable(t *testing.T) {
 		ctxFiles:            {manageMenu, manageBulk, "grid"},
 		ctxUpload:           {manageMenu, manageBulk, "grid"},
 		ctxCollectionAdmin:  {append(append([]string{}, manageMenu...), "remove-from-collection"), append(append([]string{}, manageBulk...), "remove-from-collection"), "list"},
-		ctxFileRequest:      {[]string{"open", "download", "delete"}, []string{"download", "zip", "photos", "delete"}, "list"},
-		ctxCollectionPublic: {[]string{"open", "download"}, []string{"download", "zip", "photos"}, "list"},
-		ctxGroup:            {[]string{"open", "download", "edit", "replace", "remove-from-group", "delete"}, []string{"download", "zip", "photos", "remove-from-group", "delete"}, "board"},
+		ctxFileRequest:      {[]string{"open", "download", "photos", "delete"}, []string{"download", "zip", "photos", "delete"}, "list"},
+		ctxCollectionPublic: {[]string{"open", "download", "photos"}, []string{"download", "zip", "photos"}, "list"},
+		ctxGroup:            {[]string{"open", "download", "photos", "edit", "replace", "remove-from-group", "delete"}, []string{"download", "zip", "photos", "remove-from-group", "delete"}, "board"},
 	}
 	test.IsEqualInt(t, len(want), 6)
 	for context, w := range want {
@@ -48,6 +48,8 @@ func TestFileBrowserActionTable(t *testing.T) {
 		test.IsEqualBool(t, b.HasMenu("open"), true)
 		test.IsEqualBool(t, b.HasMenu("edit"), context == ctxFiles || context == ctxUpload || context == ctxCollectionAdmin || context == ctxGroup)
 		test.IsEqualBool(t, b.HasBulk("remove-from-collection"), context == ctxCollectionAdmin)
+		// Save to Photos is in the "⋯" menu wherever Download is (R3)
+		test.IsEqualBool(t, b.HasMenu("photos"), b.HasMenu("download"))
 	}
 	// The scope switch is only for the Files tab, and only with PERM_LIST
 	admin := models.User{Id: 5, Permissions: models.UserPermissionAll}
@@ -222,7 +224,7 @@ func renderBrowser(t *testing.T, b fileBrowser) string {
 func TestFileBrowserRendersOnlyItsActions(t *testing.T) {
 	f := accessFile("browserrender0001", func(f *models.File) { f.SHA1 = "browserrendersha"; f.Name = "render.pdf" })
 	user := models.User{Id: 7}
-	allMenu := []string{"open", "download", "copy", "hotlink", "share", "qr", "email", "edit", "replace", "add-to-collection", "add-to-group", "delete", "remove-from-collection", "remove-from-group"}
+	allMenu := []string{"open", "download", "photos", "copy", "hotlink", "share", "qr", "email", "edit", "replace", "add-to-collection", "add-to-group", "delete", "remove-from-collection", "remove-from-group"}
 	allBulk := []string{"download", "zip", "photos", "link", "add-to-collection", "add-to-group", "change-expiry", "delete", "remove-from-collection", "remove-from-group"}
 	collection := models.Collection{Id: "colrender"}
 	for _, context := range []string{ctxFiles, ctxUpload, ctxCollectionAdmin, ctxFileRequest, ctxCollectionPublic, ctxGroup} {
@@ -245,6 +247,10 @@ func TestFileBrowserRendersOnlyItsActions(t *testing.T) {
 				want := b.HasBulk(key) && (key != "zip" || b.ZipUrl != "" || b.ZipByHandler)
 				test.IsEqualBool(t, strings.Contains(html, `data-act="`+key+`"`), want)
 			}
+			// Save to Photos starts hidden: media.js shows it on iOS, for photos and videos (R3)
+			photosEntry := `<li class="d-none"><button type="button" class="dropdown-item" data-menu="photos"><i class="bi bi-box-arrow-down"></i> Save to Photos</button></li>`
+			test.IsEqualBool(t, strings.Contains(html, photosEntry), b.HasMenu("photos"))
+			test.IsEqualBool(t, strings.Count(html, `data-menu="photos"`) == strings.Count(html, photosEntry), true)
 			// Copy link only where a share link exists
 			test.IsEqualBool(t, strings.Contains(html, "copyurl"), b.HasMenu("copy"))
 			legacy := context == ctxFiles || context == ctxUpload
@@ -482,4 +488,49 @@ func TestGroupBrowserMarkup(t *testing.T) {
 			t.Errorf("files browser has %s", unwanted)
 		}
 	}
+}
+
+// R3: Save to Photos in one tap where the tap's activation survives the
+// downloads, an explicit "Ready" step where it does not, the date taken as
+// the file's date, and a viewer button. There is no browser harness, so the
+// script's load-bearing parts are checked as text.
+func TestSaveToPhotosScript(t *testing.T) {
+	js, err := staticFolderEmbedded.ReadFile("web/static/js/media.js")
+	test.IsNil(t, err)
+	for _, want := range []string{
+		"navigator.userActivation", ".isActive",
+		"opts.lastModified = date", "s * 1000", `getAttribute("data-taken")`, `getAttribute("data-uploaded")`,
+		`"Ready — tap to save"`, `" photos"`, "fgs-photos-ready",
+		`"NotAllowedError"`, `"AbortError"`,
+		"hide.bs.dropdown", "show.bs.dropdown", "clickEvent",
+		".fgs-v-photos", `what === "photos"`,
+	} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("media.js lacks %s", want)
+		}
+	}
+	// The old second-tap label is gone
+	test.IsEqualBool(t, strings.Contains(string(js), `button.textContent = "Save to Photos"`), false)
+
+	css, err := staticFolderEmbedded.ReadFile("web/static/css/media.css")
+	test.IsNil(t, err)
+	for _, want := range []string{
+		".fgs-menu .dropdown-menu{", "backdrop-filter:blur(", "-webkit-backdrop-filter:blur(",
+		"var(--fgs-radius,14px)", "var(--fgs-line,#2e2e2b)", ".fgs-menu .dropdown-item:focus-visible",
+		".btn.fgs-photos-ready", ".dropdown-item.fgs-photos-ready", "@keyframes fgs-pulse",
+		"prefers-reduced-motion", ".fgs-v-photos[hidden]{display:none}",
+	} {
+		if !strings.Contains(string(css), want) {
+			t.Errorf("media.css lacks %s", want)
+		}
+	}
+
+	var out bytes.Buffer
+	test.IsNil(t, templateFolder.ExecuteTemplate(&out, "media_viewer", nil))
+	viewer := out.String()
+	download := strings.Index(viewer, "fgs-v-download")
+	photos := strings.Index(viewer, `<button type="button" class="btn btn-sm btn-outline-light fgs-v-photos" hidden>Save to Photos</button>`)
+	test.IsEqualBool(t, download > 0, true)
+	// next to "Download original", hidden until media.js decides it applies
+	test.IsEqualBool(t, photos > download, true)
 }

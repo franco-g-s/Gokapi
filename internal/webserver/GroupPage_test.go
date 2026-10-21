@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -554,4 +555,150 @@ func TestGroupPageNearKeep(t *testing.T) {
 		body := groupPageCall(showGroup, "GET", "/g?id="+g.Id, u, "").Body.String()
 		test.IsEqualBool(t, strings.Contains(body, "data-near-file="), false)
 	}
+}
+
+// addBurst puts two more of the member's photos in the group, a few bits
+// apart from each other and far from A and B: a burst by one uploader, which
+// the banner never flags
+func addBurst(t *testing.T, fx groupPageFixture) (first, second models.File) {
+	t.Helper()
+	const hash = uint64(0x0F0F0F0F0F0F0F0F)
+	file := func(id string, uploaded int64, phash uint64) models.File {
+		f := accessFile(id, func(f *models.File) {
+			f.SHA1 = "sha-" + id
+			f.UserId = fx.member.Id
+			f.UploadDate = uploaded
+			f.Name = id + ".jpg"
+		})
+		database.SavePreview(models.Preview{Sha1: f.SHA1, Status: models.PreviewReady, Kind: models.PreviewKindImage,
+			Width: 4, Height: 3, Color: "#3060d0", TakenAt: uploaded, PHash: phash, Updated: 1})
+		return f
+	}
+	first = file("grouppagee000000001", 400, hash)
+	second = file("grouppagef000000001", 410, hash^0b11)
+	_, err := storage.AddFilesToGroup(fx.group, []string{first.Id, second.Id}, fx.admin)
+	test.IsNil(t, err)
+	t.Cleanup(func() {
+		for _, f := range []models.File{first, second} {
+			database.DeletePreview(f.SHA1)
+			database.RemoveFileFromGroups(f.Id)
+			database.DeleteMetaData(f.Id)
+		}
+	})
+	return first, second
+}
+
+func TestGroupNearDupesCheck(t *testing.T) {
+	fx := newGroupPageFixture(t)
+	g := fx.group
+	first, second := addBurst(t, fx)
+	check := func(user models.User) (int, []groupNearCopy) {
+		w := groupPageCall(nearCopyCheck, "GET", "/groups/neardupes?id="+g.Id, user, "")
+		var answer struct{ Pairs []groupNearCopy }
+		if w.Code == http.StatusOK {
+			test.IsNil(t, json.Unmarshal(w.Body.Bytes(), &answer))
+		}
+		return w.Code, answer.Pairs
+	}
+	pairOf := func(pairs []groupNearCopy, newerId string) *groupNearCopy {
+		for i := range pairs {
+			if pairs[i].Newer.Id == newerId {
+				return &pairs[i]
+			}
+		}
+		return nil
+	}
+
+	// Only the group's creator and the admin; a member is refused, a stranger told it does not exist
+	code, _ := check(fx.member)
+	test.IsEqualInt(t, code, http.StatusForbidden)
+	code, _ = check(fx.outside)
+	test.IsEqualInt(t, code, http.StatusNotFound)
+	test.IsEqualInt(t, groupPageCall(nearCopyCheck, "GET", "/groups/neardupes?id=nope", fx.creator, "").Code, http.StatusNotFound)
+
+	// The creator sees the other uploaders' pair and the same-uploader one
+	for _, viewer := range []models.User{fx.creator, fx.admin} {
+		code, pairs := check(viewer)
+		test.IsEqualInt(t, code, http.StatusOK)
+		test.IsEqualInt(t, len(pairs), 2)
+		ab := pairOf(pairs, fx.b.Id)
+		test.IsEqualBool(t, ab != nil && ab.Older.Id == fx.a.Id && !ab.Kept, true)
+		burst := pairOf(pairs, second.Id)
+		test.IsEqualBool(t, burst != nil && burst.Older.Id == first.Id && !burst.Kept, true)
+		test.IsEqualString(t, burst.NewerUser, burst.MatchUser) // one uploader
+	}
+	// The banner still leaves the burst alone (D11)
+	page := groupPageCall(showGroup, "GET", "/g?id="+g.Id, fx.creator, "").Body.String()
+	test.IsEqualBool(t, strings.Contains(page, `data-near-file="`+fx.b.Id+`"`), true)
+	test.IsEqualBool(t, strings.Contains(page, `data-near-file="`+second.Id+`"`), false)
+	test.IsEqualBool(t, strings.Contains(page, "Check for duplicates"), true)
+	page = groupPageCall(showGroup, "GET", "/g?id="+g.Id, fx.member, "").Body.String()
+	test.IsEqualBool(t, strings.Contains(page, "Check for duplicates"), false)
+
+	// A kept pair stays in the list, marked, and leaves the banner
+	database.SaveNearCopyKept(g.Id, fx.b.Id)
+	_, pairs := check(fx.creator)
+	test.IsEqualInt(t, len(pairs), 2)
+	ab := pairOf(pairs, fx.b.Id)
+	test.IsEqualBool(t, ab != nil && ab.Kept, true)
+	burst := pairOf(pairs, second.Id)
+	test.IsEqualBool(t, burst != nil && !burst.Kept, true)
+	page = groupPageCall(showGroup, "GET", "/g?id="+g.Id, fx.creator, "").Body.String()
+	test.IsEqualBool(t, strings.Contains(page, `data-near-file="`+fx.b.Id+`"`), false)
+}
+
+func TestGroupRemoveNearCopyKeepsDownloaded(t *testing.T) {
+	remove := func(user models.User, g models.Group, body map[string]any) *httptest.ResponseRecorder {
+		body["id"] = g.Id
+		raw, err := json.Marshal(body)
+		test.IsNil(t, err)
+		return groupPageCall(removeGroupFiles, "POST", "/groups/removefiles", user, string(raw))
+	}
+
+	t.Run("the downloaded state moves to the kept copy", func(t *testing.T) {
+		fx := newGroupPageFixture(t)
+		// Anna downloaded B, the newer copy; the creator never saw A's original
+		database.SaveDownload(models.Download{FileId: fx.b.Id, UserId: fx.member.Id, At: 50, Via: models.DownloadViaGroup})
+		test.IsEqualBool(t, database.GetDownloadedFileIds(fx.member.Id)[fx.a.Id], false)
+		w := remove(fx.creator, fx.group, map[string]any{"fileIds": []string{fx.b.Id}, "keptId": fx.a.Id})
+		test.IsEqualInt(t, w.Code, http.StatusOK)
+		test.IsEqualBool(t, strings.Contains(w.Body.String(), `"Removed":1`), true)
+		test.IsEqualBool(t, database.GetDownloadedFileIds(fx.member.Id)[fx.a.Id], true)
+		test.IsEqualBool(t, database.GetDownloadedFileIds(fx.creator.Id)[fx.a.Id], false)
+		ids := database.GetGroupFileIds(fx.group.Id)
+		test.IsEqualBool(t, slices.Contains(ids, fx.b.Id), false)
+		test.IsEqualBool(t, slices.Contains(ids, fx.a.Id), true)
+	})
+
+	t.Run("without keptId nothing is copied", func(t *testing.T) {
+		fx := newGroupPageFixture(t)
+		database.SaveDownload(models.Download{FileId: fx.b.Id, UserId: fx.member.Id, At: 50, Via: models.DownloadViaGroup})
+		w := remove(fx.creator, fx.group, map[string]any{"fileIds": []string{fx.b.Id}})
+		test.IsEqualInt(t, w.Code, http.StatusOK)
+		test.IsEqualBool(t, slices.Contains(database.GetGroupFileIds(fx.group.Id), fx.b.Id), false)
+		test.IsEqualBool(t, database.GetDownloadedFileIds(fx.member.Id)[fx.a.Id], false)
+	})
+
+	t.Run("a keptId outside the group, or no near-copy, is a 400 and removes nothing", func(t *testing.T) {
+		fx := newGroupPageFixture(t)
+		database.SaveDownload(models.Download{FileId: fx.b.Id, UserId: fx.member.Id, At: 50, Via: models.DownloadViaGroup})
+		// D is anna's but not in the group; C is in it but no near-copy of B
+		for _, kept := range []string{fx.d.Id, fx.c.Id, fx.b.Id, "nosuchfile"} {
+			w := remove(fx.creator, fx.group, map[string]any{"fileIds": []string{fx.b.Id}, "keptId": kept})
+			test.IsEqualInt(t, w.Code, http.StatusBadRequest)
+		}
+		test.IsEqualBool(t, slices.Contains(database.GetGroupFileIds(fx.group.Id), fx.b.Id), true)
+		test.IsEqualBool(t, database.GetDownloadedFileIds(fx.member.Id)[fx.d.Id], false)
+		test.IsEqualBool(t, database.GetDownloadedFileIds(fx.member.Id)[fx.c.Id], false)
+	})
+
+	t.Run("a member can remove only their own, with the same copying", func(t *testing.T) {
+		fx := newGroupPageFixture(t)
+		database.SaveDownload(models.Download{FileId: fx.b.Id, UserId: fx.outside.Id, At: 50, Via: models.DownloadViaGroup})
+		// Anna may not remove carla's B: skipped, and nothing is copied
+		w := remove(fx.member, fx.group, map[string]any{"fileIds": []string{fx.b.Id}, "keptId": fx.a.Id})
+		test.IsEqualInt(t, w.Code, http.StatusOK)
+		test.IsEqualBool(t, strings.Contains(w.Body.String(), `"Removed":0`), true)
+		test.IsEqualBool(t, database.GetDownloadedFileIds(fx.outside.Id)[fx.a.Id], false)
+	})
 }

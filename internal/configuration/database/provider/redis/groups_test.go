@@ -17,6 +17,7 @@ func TestGroupsUnsupported(t *testing.T) {
 	instance.SaveDownload(models.Download{FileId: "d1", UserId: 7, At: 1, Via: models.DownloadViaFile})
 	instance.SaveCollectionSeen(models.CollectionSeen{UserId: 7, CollectionId: "c1", FirstOpened: 1})
 	instance.DeleteDownloadsOfFile("d1")
+	instance.CopyDownloads("d1", "d2")
 	test.IsEqualInt(t, len(instance.GetDownloadedFileIds(7)), 0)
 	test.IsEqualInt(t, len(instance.GetCollectionsSeen(7)), 0)
 	_, ok := instance.GetGroup("g1")

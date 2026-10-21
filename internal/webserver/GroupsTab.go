@@ -552,11 +552,15 @@ func deleteGroup(w http.ResponseWriter, r *http.Request) {
 	writeJson(w, answerOK)
 }
 
-// removeGroupFiles answers POST /groups/removefiles {id, fileIds} (D4)
+// removeGroupFiles answers POST /groups/removefiles {id, fileIds, keptId?} (D4).
+// keptId is sent by the duplicate view only: the near-copy that stays in the
+// group, which then also counts as downloaded by everyone who had downloaded
+// a file removed here. Without it nothing is copied.
 func removeGroupFiles(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		groupIdRequest
 		FileIds []string `json:"fileIds"`
+		KeptId  string   `json:"keptId"`
 	}
 	user, ok := groupRequest(w, r, &req)
 	if !ok {
@@ -566,7 +570,13 @@ func removeGroupFiles(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	removed, err := storage.RemoveFilesFromGroup(g, req.FileIds, user)
+	var removed int
+	var err error
+	if req.KeptId != "" {
+		removed, err = storage.RemoveNearCopies(g, req.FileIds, req.KeptId, user)
+	} else {
+		removed, err = storage.RemoveFilesFromGroup(g, req.FileIds, user)
+	}
 	if err != nil {
 		writeGroupError(w, err)
 		return

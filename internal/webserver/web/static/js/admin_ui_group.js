@@ -55,6 +55,9 @@
         return document.querySelectorAll("[" + name + '="' + escaped + '"]');
     }
 
+    // Set by init: the duplicate check recounts itself when entries go
+    var nearChanged = function () {};
+
     // A file that left the group takes its near-copy entries with it, on
     // either side of the pair
     function dropNearCopies(ids) {
@@ -67,6 +70,7 @@
         });
         var list = document.getElementById("groupNearCopies");
         if (list !== null && list.children.length === 0) list.parentNode.removeChild(list);
+        nearChanged();
     }
 
     // --- Remove from group (board menu and selection bar) -----------------
@@ -409,7 +413,7 @@
         // Near-copies. Compare opens the viewer on the pair, older first, so a
         // swipe goes between the two at full preview size. The board's own
         // tile is used when it is on the page; a tile that is filtered out
-        // is rebuilt from the banner's data-*.
+        // is rebuilt from the entry's data-*.
         function itemFromBanner(button) {
             var d = function (k) { return button.getAttribute("data-" + k) || ""; };
             return { id: d("id"), name: d("name"), view: d("view"), video: "", kind: "", download: d("download"),
@@ -430,51 +434,185 @@
             if (older === null || newer === null) return;
             FGS.openViewer([pairItem(older), pairItem(newer)], startAtNewer ? 1 : 0);
         }
-        Array.prototype.forEach.call(page.querySelectorAll("[data-near-open]"), function (button) {
-            button.addEventListener("click", function () {
-                compare(button.closest("[data-near-file]"), button.getAttribute("data-near-open") === "1");
-            });
-        });
-        Array.prototype.forEach.call(page.querySelectorAll("[data-near-compare]"), function (button) {
-            button.addEventListener("click", function () {
-                compare(button.closest("[data-near-file]"), false);
-            });
-        });
 
-        // Keep both hides the entry for good, for everyone; Remove takes the
-        // newer item out of the group (it stays in its uploader's files)
-        Array.prototype.forEach.call(page.querySelectorAll("[data-near-keep]"), function (button) {
-            button.addEventListener("click", function () {
-                var fileId = button.getAttribute("data-near-keep");
-                button.disabled = true;
-                postJson("./groups/nearkeep", { id: groupId, fileId: fileId })
-                    .then(function () {
-                        var entry = button.closest("[data-near-file]");
-                        if (entry !== null) entry.parentNode.removeChild(entry);
-                        dropNearCopies([]);
-                    })
-                    .catch(function (error) {
-                        button.disabled = false;
-                        failed("Could not keep both")(error);
-                    });
+        // Keep both settles the pair for good, for everyone: its banner entry
+        // goes, and in the duplicate check the pair stays, marked Kept
+        function markKept(entry) {
+            entry.setAttribute("data-near-kept", "true");
+            var keep = entry.querySelector("[data-near-keep]");
+            if (keep !== null) keep.parentNode.removeChild(keep);
+            if (entry.querySelector(".fgs-near-kept") === null) {
+                var badge = document.createElement("span");
+                badge.className = "badge text-bg-secondary fgs-near-kept";
+                badge.textContent = "Kept";
+                entry.insertBefore(badge, entry.querySelector("[data-near-compare]"));
+            }
+        }
+        function settleKept(fileId) {
+            Array.prototype.forEach.call(byAttr("data-near-file", fileId), function (entry) {
+                if (entry.parentNode.id === "groupDupesList") {
+                    markKept(entry);
+                } else {
+                    entry.parentNode.removeChild(entry);
+                }
             });
-        });
-        Array.prototype.forEach.call(page.querySelectorAll("[data-near-remove]"), function (button) {
-            button.addEventListener("click", function () {
-                var fileId = button.getAttribute("data-near-remove");
-                button.disabled = true;
-                postJson("./groups/removefiles", { id: groupId, fileIds: [fileId] })
-                    .then(function () {
-                        var browser = groupBrowser();
-                        if (browser !== null) browser.removeItem(fileId);
-                        dropNearCopies([fileId]);
-                    })
-                    .catch(function (error) {
-                        button.disabled = false;
-                        failed("Could not remove it")(error);
-                    });
+            dropNearCopies([]);
+        }
+
+        // Remove takes the newer item out of the group (it stays in its
+        // uploader's files). The server is told which copy stays, so the
+        // downloaded state follows it.
+        function bindNearEntry(entry) {
+            var newerId = entry.getAttribute("data-near-file");
+            var keptId = entry.getAttribute("data-near-match");
+            Array.prototype.forEach.call(entry.querySelectorAll("[data-near-open]"), function (button) {
+                button.addEventListener("click", function () {
+                    compare(entry, button.getAttribute("data-near-open") === "1");
+                });
             });
-        });
+            var compareButton = entry.querySelector("[data-near-compare]");
+            if (compareButton !== null) {
+                compareButton.addEventListener("click", function () { compare(entry, false); });
+            }
+            var keep = entry.querySelector("[data-near-keep]");
+            if (keep !== null) {
+                keep.addEventListener("click", function () {
+                    keep.disabled = true;
+                    postJson("./groups/nearkeep", { id: groupId, fileId: newerId })
+                        .then(function () { settleKept(newerId); })
+                        .catch(function (error) {
+                            keep.disabled = false;
+                            failed("Could not keep both")(error);
+                        });
+                });
+            }
+            var remove = entry.querySelector("[data-near-remove]");
+            if (remove !== null) {
+                remove.addEventListener("click", function () {
+                    remove.disabled = true;
+                    postJson("./groups/removefiles", { id: groupId, fileIds: [newerId], keptId: keptId })
+                        .then(function () {
+                            var browser = groupBrowser();
+                            if (browser !== null) browser.removeItem(newerId);
+                            dropNearCopies([newerId]);
+                        })
+                        .catch(function (error) {
+                            remove.disabled = false;
+                            failed("Could not remove it")(error);
+                        });
+                });
+            }
+        }
+        Array.prototype.forEach.call(page.querySelectorAll("[data-near-file]"), bindNearEntry);
+
+        // --- Check for duplicates (creator and admin) ----------------------
+        // Every pair in the group, as the server lists it: bursts by one
+        // uploader too, and pairs already kept.
+        var dupes = document.getElementById("groupDupes");
+        var dupesList = document.getElementById("groupDupesList");
+        var dupesTitle = document.getElementById("groupDupesTitle");
+
+        function dupesCount() {
+            if (dupesList === null) return;
+            var n = dupesList.children.length;
+            dupesTitle.textContent = n === 0 ? "No duplicates found" :
+                n + (n === 1 ? " possible duplicate" : " possible duplicates");
+        }
+        nearChanged = dupesCount;
+
+        function clock(ts) {
+            var d = new Date(ts * 1000);
+            return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+        }
+        function thumbButton(side, which) {
+            var button = document.createElement("button");
+            button.type = "button";
+            button.className = "fgs-near-open";
+            button.setAttribute("data-near-open", which);
+            button.setAttribute("data-id", side.Id);
+            button.setAttribute("data-name", side.Name);
+            button.setAttribute("data-view", side.View);
+            button.setAttribute("data-download", side.Download);
+            button.setAttribute("data-uploader", side.Uploader);
+            button.setAttribute("data-w", String(side.Width));
+            button.setAttribute("data-h", String(side.Height));
+            button.setAttribute("aria-label", "Compare " + side.Name + " with the other photo");
+            button.title = side.Name;
+            var img = document.createElement("img");
+            img.className = "fgs-near-thumb";
+            img.src = side.Thumb;
+            img.alt = "";
+            img.loading = "lazy";
+            img.decoding = "async";
+            button.appendChild(img);
+            return button;
+        }
+        function actionButton(attr, value, style, text) {
+            var button = document.createElement("button");
+            button.type = "button";
+            button.className = "btn btn-sm " + style;
+            button.setAttribute(attr, value);
+            button.textContent = text;
+            return button;
+        }
+        function dupeEntry(pair) {
+            var entry = document.createElement("div");
+            entry.className = "d-flex flex-wrap align-items-center gap-2 border border-secondary rounded p-2 mb-2";
+            entry.setAttribute("data-near-file", pair.Newer.Id);
+            entry.setAttribute("data-near-match", pair.Older.Id);
+            entry.appendChild(thumbButton(pair.Newer, "1"));
+            entry.appendChild(thumbButton(pair.Older, "0"));
+            var text = document.createElement("span");
+            text.className = "me-auto";
+            if (pair.NewerUser === pair.MatchUser) {
+                text.textContent = pair.NewerUser + "'s two photos look alike";
+            } else {
+                text.textContent = "Looks like " + pair.MatchUser + "'s photo from " + clock(pair.MatchAt) +
+                    (pair.Mine ? "" : " (uploaded by " + pair.NewerUser + ")");
+            }
+            entry.appendChild(text);
+            entry.appendChild(actionButton("data-near-compare", pair.Newer.Id, "btn-outline-light", "Compare"));
+            if (!pair.Kept) entry.appendChild(actionButton("data-near-keep", pair.Newer.Id, "btn-outline-light", "Keep both"));
+            entry.appendChild(actionButton("data-near-remove", pair.Newer.Id, "btn-outline-danger",
+                pair.Mine ? "Remove mine" : "Remove newer"));
+            if (pair.Kept) markKept(entry);
+            bindNearEntry(entry);
+            return entry;
+        }
+
+        var checkButton = document.getElementById("groupCheckDupes");
+        if (checkButton !== null && dupes !== null) {
+            checkButton.addEventListener("click", function () {
+                checkButton.disabled = true;
+                say("Checking…");
+                fetch("./groups/neardupes?id=" + encodeURIComponent(groupId), { credentials: "same-origin" })
+                    .then(function (response) {
+                        return response.text().then(function (body) {
+                            var data;
+                            try {
+                                data = JSON.parse(body);
+                            } catch (ignored) {
+                                throw new Error(response.redirected || body.trim().charAt(0) === "<" ?
+                                    "Your session expired — reload the page" : "The server answered " + response.status);
+                            }
+                            if (!data || data.Result !== "OK") throw new Error(sentence(data && data.ErrorMessage));
+                            return data;
+                        });
+                    })
+                    .then(function (data) {
+                        dupesList.textContent = "";
+                        data.Pairs.forEach(function (pair) { dupesList.appendChild(dupeEntry(pair)); });
+                        dupesCount();
+                        dupes.hidden = false;
+                        say("");
+                    })
+                    .catch(failed("Could not check for duplicates"))
+                    .then(function () { checkButton.disabled = false; });
+            });
+            document.getElementById("groupDupesClose").addEventListener("click", function () {
+                dupes.hidden = true;
+            });
+        }
     }
 
     if (document.readyState === "loading") {

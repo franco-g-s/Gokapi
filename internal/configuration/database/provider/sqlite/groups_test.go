@@ -87,6 +87,27 @@ func TestDownloadsAndCollectionsSeen(t *testing.T) {
 	instance.DeleteDownloadsOfFile("d1")
 	test.IsEqualInt(t, len(instance.GetDownloadedFileIds(7)), 0)
 
+	// CopyDownloads: signed-in users' rows follow, once each, never twice
+	instance.SaveDownload(models.Download{FileId: "c1", UserId: 7, At: 5, Via: models.DownloadViaGroup})
+	instance.SaveDownload(models.Download{FileId: "c1", UserId: 7, At: 6, Via: models.DownloadViaZip})
+	instance.SaveDownload(models.Download{FileId: "c1", UserId: 8, At: 7, Via: models.DownloadViaGroup})
+	instance.SaveDownload(models.Download{FileId: "c1", UserId: 0, At: 8, Via: models.DownloadViaFile}) // anonymous
+	instance.SaveDownload(models.Download{FileId: "c2", UserId: 8, At: 9, Via: models.DownloadViaGroup})
+	instance.CopyDownloads("c1", "c2")
+	instance.CopyDownloads("c1", "c2") // twice changes nothing
+	instance.CopyDownloads("c1", "c1")
+	instance.CopyDownloads("", "c2")
+	var rows int
+	test.IsNil(t, instance.sqliteDb.QueryRow(`SELECT COUNT(*) FROM "Downloads" WHERE FileId = 'c2'`).Scan(&rows))
+	test.IsEqualInt(t, rows, 2) // user 8's own, and one for user 7
+	test.IsEqualBool(t, instance.GetDownloadedFileIds(7)["c2"], true)
+	test.IsEqualBool(t, instance.GetDownloadedFileIds(8)["c2"], true)
+	test.IsEqualInt(t, len(instance.GetDownloadedFileIds(0)), 0)
+	test.IsNil(t, instance.sqliteDb.QueryRow(`SELECT COUNT(*) FROM "Downloads" WHERE FileId = 'c1'`).Scan(&rows))
+	test.IsEqualInt(t, rows, 4) // the source keeps its rows
+	instance.DeleteDownloadsOfFile("c1")
+	instance.DeleteDownloadsOfFile("c2")
+
 	instance.SaveCollectionSeen(models.CollectionSeen{UserId: 7, CollectionId: "c1", FirstOpened: 10})
 	instance.SaveCollectionSeen(models.CollectionSeen{UserId: 7, CollectionId: "c1", FirstOpened: 99}) // keeps 10
 	instance.SaveCollectionSeen(models.CollectionSeen{UserId: 7, CollectionId: "c2", FirstOpened: 20})

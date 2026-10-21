@@ -236,3 +236,121 @@ func TestNearCopies(t *testing.T) {
 		test.IsEqualInt(t, len(NearCopies([]models.File{older, same}, creator, nil, true)), 0)
 	})
 }
+
+func TestAllNearCopies(t *testing.T) {
+	const anna, ben = 41, 42
+	const base = uint64(0xF0F0F0F0F0F0F0F0)
+
+	t.Run("two items of one uploader are a pair here, not in NearCopies", func(t *testing.T) {
+		first := nearFileAt(t, "allburst1", anna, "", base, 0, 1000)
+		second := nearFileAt(t, "allburst2", anna, "", base^0b11, 0, 2000)
+		files := []models.File{first, second}
+		test.IsEqualInt(t, len(NearCopies(files, anna, nil, true)), 0)
+		got := AllNearCopies(files, nil)
+		test.IsEqualInt(t, len(got), 1)
+		test.IsEqualString(t, got[0].FileId, second.Id)
+		test.IsEqualString(t, got[0].MatchId, first.Id)
+		test.IsEqualInt(t, got[0].FileUser, anna)
+		test.IsEqualInt(t, got[0].MatchUser, anna)
+		test.IsEqualBool(t, got[0].Kept, false)
+	})
+
+	t.Run("a kept pair is listed, marked Kept", func(t *testing.T) {
+		older := nearFileAt(t, "allkeptold", anna, "", base, 0, 1000)
+		newer := nearFileAt(t, "allkeptnew", ben, "", base^0b1, 0, 2000)
+		files := []models.File{older, newer}
+		kept := map[string]bool{newer.Id: true}
+		test.IsEqualInt(t, len(NearCopies(files, ben, kept, true)), 0)
+		got := AllNearCopies(files, kept)
+		test.IsEqualInt(t, len(got), 1)
+		test.IsEqualBool(t, got[0].Kept, true)
+	})
+
+	t.Run("the same matching rule: far hashes and exact twins are no pair", func(t *testing.T) {
+		a := nearFileAt(t, "allfar1", anna, "", base, 0, 1000)
+		b := nearFileAt(t, "allfar2", ben, "", base^0b1111111, 0, 2000) // 7 bits
+		twinA := nearFileAt(t, "alltwin1", anna, "sha-alltwin", base, 0, 1000)
+		twinB := nearFileAt(t, "alltwin2", ben, "sha-alltwin", base, 0, 2000)
+		test.IsEqualInt(t, len(AllNearCopies([]models.File{a, b}, nil)), 0)
+		test.IsEqualInt(t, len(AllNearCopies([]models.File{twinA, twinB}, nil)), 0)
+	})
+}
+
+func TestIsNearCopyPair(t *testing.T) {
+	const base = uint64(0xF0F0F0F0F0F0F0F0)
+	a := nearFileAt(t, "pairaa", 41, "", base, 0, 1000)
+	b := nearFileAt(t, "pairbb", 41, "", base^0b11, 0, 2000)
+	far := nearFileAt(t, "pairfar", 42, "", ^base, 0, 2000)
+	test.IsEqualBool(t, IsNearCopyPair(a, b), true)
+	test.IsEqualBool(t, IsNearCopyPair(b, a), true)
+	test.IsEqualBool(t, IsNearCopyPair(a, far), false)
+	test.IsEqualBool(t, IsNearCopyPair(a, a), false)
+}
+
+func TestRemoveNearCopies(t *testing.T) {
+	const base = uint64(0xF0F0F0F0F0F0F0F0)
+	creator := models.User{Id: 61, Name: "carla@example.com", UserLevel: models.UserLevelUser}
+	member := models.User{Id: 62, Name: "anna@example.com", UserLevel: models.UserLevelUser}
+	reader := models.User{Id: 63, Name: "ben@example.com", UserLevel: models.UserLevelUser}
+	for _, u := range []models.User{creator, member, reader} {
+		database.SaveUser(u, false)
+	}
+	g, err := CreateGroup("Dupes", 30, creator)
+	test.IsNil(t, err)
+	_, err = JoinGroupByToken(g.InviteToken, member)
+	test.IsNil(t, err)
+	older := nearFileAt(t, "rncolder", creator.Id, "", base, 0, 1000)
+	newer := nearFileAt(t, "rncnewer", member.Id, "", base^0b11, 0, 2000)
+	other := nearFileAt(t, "rncother", creator.Id, "", ^base, 0, 3000)
+	outside := nearFileAt(t, "rncoutside", creator.Id, "", base, 0, 500)
+	admin := models.User{Id: 5, Name: "Test", UserLevel: models.UserLevelSuperAdmin, Permissions: models.UserPermissionAll}
+	_, err = AddFilesToGroup(g, []string{older.Id, newer.Id, other.Id}, admin)
+	test.IsNil(t, err)
+	t.Cleanup(func() {
+		database.DeleteGroup(g.Id)
+		for _, f := range []models.File{older, newer, other, outside} {
+			database.DeleteDownloadsOfFile(f.Id)
+		}
+		for _, u := range []models.User{creator, member, reader} {
+			database.DeleteUser(u.Id)
+		}
+	})
+	database.SaveDownload(models.Download{FileId: newer.Id, UserId: reader.Id, At: 10, Via: models.DownloadViaGroup})
+	database.SaveDownload(models.Download{FileId: newer.Id, UserId: member.Id, At: 11, Via: models.DownloadViaZip})
+	database.SaveDownload(models.Download{FileId: older.Id, UserId: member.Id, At: 12, Via: models.DownloadViaGroup})
+	database.SaveDownload(models.Download{FileId: newer.Id, UserId: 0, At: 13, Via: models.DownloadViaFile})
+
+	// A kept file that is no near-copy, is outside the group, or is the
+	// removed file itself changes nothing
+	for _, kept := range []string{other.Id, outside.Id, newer.Id, "nosuchfile", ""} {
+		_, err = RemoveNearCopies(g, []string{newer.Id}, kept, creator)
+		test.IsEqualBool(t, err == ErrNotACopy, true)
+	}
+	test.IsEqualInt(t, len(GroupFiles(g)), 3)
+	test.IsEqualBool(t, database.GetDownloadedFileIds(reader.Id)[older.Id], false)
+
+	// A stranger may not
+	_, err = RemoveNearCopies(g, []string{newer.Id}, older.Id, models.User{Id: 99, UserLevel: models.UserLevelUser})
+	test.IsEqualBool(t, err == ErrGroupForbidden, true)
+
+	// Anna may remove her own; Ben's tick follows, and Anna's already there
+	n, err := RemoveNearCopies(g, []string{newer.Id}, older.Id, member)
+	test.IsNil(t, err)
+	test.IsEqualInt(t, n, 1)
+	test.IsEqualInt(t, len(GroupFiles(g)), 2)
+	test.IsEqualBool(t, database.GetDownloadedFileIds(reader.Id)[older.Id], true)
+	test.IsEqualBool(t, database.GetDownloadedFileIds(member.Id)[older.Id], true)
+	test.IsEqualBool(t, database.GetDownloadedFileIds(creator.Id)[older.Id], false) // nobody else
+
+	// A file the actor may not remove is skipped, and so is its copying
+	again := nearFileAt(t, "rncagain", creator.Id, "", base^0b1, 0, 4000)
+	_, err = AddFilesToGroup(g, []string{again.Id}, creator)
+	test.IsNil(t, err)
+	t.Cleanup(func() { database.DeleteDownloadsOfFile(again.Id) })
+	database.SaveDownload(models.Download{FileId: again.Id, UserId: reader.Id, At: 20, Via: models.DownloadViaGroup})
+	database.DeleteDownloadsOfFile(older.Id)
+	n, err = RemoveNearCopies(g, []string{again.Id}, older.Id, member)
+	test.IsNil(t, err)
+	test.IsEqualInt(t, n, 0)
+	test.IsEqualBool(t, database.GetDownloadedFileIds(reader.Id)[older.Id], false)
+}

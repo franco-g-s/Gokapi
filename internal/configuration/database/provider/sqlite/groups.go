@@ -277,6 +277,21 @@ func (p DatabaseProvider) DeleteDownloadsOfFile(fileId string) {
 	helper.Check(err)
 }
 
+// CopyDownloads gives every signed-in user who downloaded fromFileId one row
+// for toFileId (their first time, by the same route), unless they have a row
+// for it already. Anonymous rows belong to nobody and stay behind.
+func (p DatabaseProvider) CopyDownloads(fromFileId, toFileId string) {
+	if fromFileId == "" || toFileId == "" || fromFileId == toFileId {
+		return
+	}
+	_, err := p.sqliteDb.Exec(`INSERT INTO "Downloads" (FileId, UserId, At, Via)
+		SELECT ?, UserId, MIN(At), Via FROM "Downloads"
+		WHERE FileId = ? AND UserId IS NOT NULL
+		  AND UserId NOT IN (SELECT UserId FROM "Downloads" WHERE FileId = ? AND UserId IS NOT NULL)
+		GROUP BY UserId`, toFileId, fromFileId, toFileId)
+	helper.Check(err)
+}
+
 // SaveCollectionSeen records the first time a user opened a collection; later calls keep the first time
 func (p DatabaseProvider) SaveCollectionSeen(s models.CollectionSeen) {
 	_, err := p.sqliteDb.Exec(`INSERT OR IGNORE INTO "CollectionsSeen" (UserId, CollectionId, FirstOpened) VALUES (?, ?, ?)`,

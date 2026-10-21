@@ -60,6 +60,7 @@
     {{ if .CanManage }}
     <button type="button" class="btn btn-sm btn-outline-light" data-bs-toggle="modal" data-bs-target="#groupRenameModal"><i class="bi bi-pencil"></i> Rename</button>
     <button type="button" class="btn btn-sm btn-outline-light" data-bs-toggle="modal" data-bs-target="#groupExtendModal"><i class="bi bi-calendar-plus"></i> Extend</button>
+    <button type="button" class="btn btn-sm btn-outline-light" id="groupCheckDupes"><i class="bi bi-images"></i> Check for duplicates</button>
     <button type="button" class="btn btn-sm btn-outline-light" id="groupResetCode"><i class="bi bi-arrow-repeat"></i> Reset code</button>
     <button type="button" class="btn btn-sm btn-outline-danger" id="groupDelete"><i class="bi bi-trash3"></i> Delete group</button>
     {{ end }}
@@ -115,6 +116,17 @@
       <button type="button" class="btn btn-sm btn-outline-danger" data-near-remove="{{ .Newer.Id }}">{{ if .Mine }}Remove mine{{ else }}Remove newer{{ end }}</button>
     </div>
     {{ end }}
+  </div>
+  {{ end }}
+
+  {{ if .CanManage }}
+  {{/* "Check for duplicates": every pair, listed by admin_ui_group.js from /groups/neardupes */}}
+  <div class="mb-3" id="groupDupes" hidden>
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <strong class="me-auto" id="groupDupesTitle"></strong>
+      <button type="button" class="btn btn-sm btn-outline-light" id="groupDupesClose">Close</button>
+    </div>
+    <div id="groupDupesList"></div>
   </div>
   {{ end }}
 

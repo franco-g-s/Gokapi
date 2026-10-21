@@ -461,6 +461,10 @@ func GetDownloadedFileIds(userId int) map[string]bool { return db.GetDownloadedF
 // DeleteDownloadsOfFile removes the download rows of a file
 func DeleteDownloadsOfFile(fileId string) { db.DeleteDownloadsOfFile(fileId) }
 
+// CopyDownloads gives every signed-in user who downloaded fromFileId a
+// download row for toFileId too, unless they already have one
+func CopyDownloads(fromFileId, toFileId string) { db.CopyDownloads(fromFileId, toFileId) }
+
 // SaveCollectionSeen records the first time a user opened a collection; keeps the first FirstOpened
 func SaveCollectionSeen(s models.CollectionSeen) { db.SaveCollectionSeen(s) }
 

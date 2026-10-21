@@ -277,6 +277,7 @@ This disables all of Gokapi's internal authentication except for API calls. The 
 - ``/groups/leave``
 - ``/groups/linkmode``
 - ``/groups/list``
+- ``/groups/neardupes``
 - ``/groups/nearkeep``
 - ``/groups/removefiles``
 - ``/groups/removemember``

@@ -29,7 +29,12 @@
                 {{ if .OwnerName }}<p class="text-muted small mb-1">by {{ .OwnerName }}</p>{{ end }}
                 <p class="text-muted mb-0">
                     {{/* The file count is the list's own ("Files: n"), which follows what is shown */}}
+                    {{ if .CanManageList }}
+                    {{/* The spans let the management list keep these figures current when files are removed (collection_owner.js) */}}
+                    <span data-col-size>{{ .TotalSize }}</span><span data-col-expiry>{{ if not .NeverExpires }} &middot; available until {{ .ExpiryString }}{{ end }}</span>
+                    {{ else }}
                     {{ .TotalSize }}{{ if not .NeverExpires }} &middot; available until {{ .ExpiryString }}{{ end }}
+                    {{ end }}
                 </p>
             </div>
 
@@ -99,11 +104,26 @@
             </div>
             {{ end }}
 
+            {{ if .CanManageList }}
+            {{/* The management list needs what the admin pages load in their header: the list's table, the edit dialog's date picker, copy and QR. They are plain scripts, run before the list is built on DOMContentLoaded. Visitors load none of this. */}}
+            <link href="./assets/dist/css/datatables.min.css" rel="stylesheet">
+            <link href="./assets/dist/css/flatpickr.min.css" rel="stylesheet">
+            <link href="./assets/dist/css/flatpickr.dark.min.css" rel="stylesheet">
+            <script src="./assets/dist/js/clipboard.min.js"></script>
+            <script src="./assets/dist/js/datatables.min.js"></script>
+            <script src="./assets/dist/js/qrcode.min.js"></script>
+            <script src="./assets/dist/js/flatpickr.min.js"></script>
+            {{ end }}
+
             {{ template "file_browser" .Browser }}
 
             {{ template "media_download_buttons" .Buttons }}
             {{ template "media_help_sheet" }}
             {{ template "media_viewer" }}
+            {{ if .CanManageList }}
+            {{ template "file_browser_dialogs" .ServerUrl }}
+            {{ template "file_browser_support" }}
+            {{ end }}
 
             <script>
             // Download all, Save to Photos and the zip link act on every file in the list;
@@ -111,6 +131,11 @@
             FGS.initDownloadButtons(document.querySelector("[data-fgs-downloads]"));
             FGS.initBackButton(document.querySelector("[data-fgs-back]"));
             </script>
+
+            {{ if .CanManageList }}
+            {{/* Management actions of the list (Remove from collection, edit, delete, ...) */}}
+            <script src="./js/min/admin.min.{{ template "js_admin_version"}}.js"></script>
+            {{ end }}
 
             {{ if .CanManage }}
             {{ if .CanTurnIntoGroup }}

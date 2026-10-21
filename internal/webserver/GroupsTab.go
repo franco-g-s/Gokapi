@@ -114,6 +114,10 @@ type groupRow struct {
 	Closes   string
 	Role     string // "Creator", "Member", or "" when the admin is not a member
 	IsMember bool
+	// InviteUrl is what "Copy join link" copies. Every row has it: the tab
+	// lists only the caller's groups, or every group for the admin, who may
+	// manage them all.
+	InviteUrl string
 }
 
 type groupExpiryChoice struct {
@@ -174,14 +178,15 @@ func showGroups(w http.ResponseWriter, r *http.Request) {
 				label = "Member"
 			}
 			view.Groups = append(view.Groups, groupRow{
-				Id:       g.Id,
-				Name:     g.Name,
-				Url:      "./" + groupUrl(g),
-				People:   len(database.GetGroupMembers(g.Id)),
-				Files:    len(storage.GroupFiles(g)),
-				Closes:   closesLabel(g, now),
-				Role:     label,
-				IsMember: member,
+				Id:        g.Id,
+				Name:      g.Name,
+				Url:       "./" + groupUrl(g),
+				People:    len(database.GetGroupMembers(g.Id)),
+				Files:     len(storage.GroupFiles(g)),
+				Closes:    closesLabel(g, now),
+				Role:      label,
+				IsMember:  member,
+				InviteUrl: storage.GroupInviteUrl(g),
 			})
 		}
 	}

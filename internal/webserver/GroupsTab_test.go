@@ -440,3 +440,28 @@ func TestGroupPageRemembersReturn(t *testing.T) {
 	}
 	test.IsEqualBool(t, found, true)
 }
+
+// Every row of the Groups tab has "Copy join link", copying the group's
+// invite link through ClipboardJS: for the creator, and for the admin on a
+// group he is not in. Someone outside the group never sees the link.
+func TestGroupsTabCopyJoinLink(t *testing.T) {
+	groupsTabUsers()
+	group, err := storage.CreateGroup("Join link copy", 30, models.User{Id: 7, UserLevel: models.UserLevelUser})
+	test.IsNil(t, err)
+	defer database.DeleteGroup(group.Id)
+	link := `data-clipboard-text="` + storage.GroupInviteUrl(group) + `"`
+
+	for _, token := range []string{"gtab7", "gtab5"} {
+		_, page := groupsTabDo(t, "GET", "/groups", token, "", "")
+		row := groupsTabRow(t, page, group.Id)
+		for _, want := range []string{link, "copyurl", `aria-label="Copy join link"`, "Copy join link"} {
+			if !strings.Contains(row, want) {
+				t.Errorf("%s: row lacks %q:\n%s", token, want, row)
+			}
+		}
+		// the toast the button confirms with is on the page
+		test.IsEqualBool(t, strings.Contains(page, `id="toastnotification"`), true)
+	}
+	_, page := groupsTabDo(t, "GET", "/groups", "gtab61", "", "")
+	test.IsEqualBool(t, strings.Contains(page, group.InviteToken), false)
+}

@@ -265,3 +265,165 @@ func collectionModify(t *testing.T, user models.User, body map[string]any) (int,
 	_ = json.Unmarshal(w.Body.Bytes(), &result)
 	return w.Code, result
 }
+
+// collectionRow returns the summary row of the collection on the Collections
+// tab, up to its </tr>: the page's file menus have their own "Copy link"
+func collectionRow(t *testing.T, page, id string) string {
+	t.Helper()
+	start := strings.Index(page, `id="collection-`+id+`"`)
+	if start < 0 {
+		t.Fatalf("collection %s is not listed", id)
+	}
+	end := strings.Index(page[start:], "</tr>")
+	if end < 0 {
+		t.Fatalf("row of collection %s does not end", id)
+	}
+	return page[start : start+end]
+}
+
+// The Actions column is one compact group: Copy share link, Rename, Password,
+// Turn into a group (labelled "Group") and Delete. The name opens the
+// collection, so there is no Open button; the member list opens from the
+// Files count, so there is no list button either.
+func TestCollectionsTableActions(t *testing.T) {
+	f := accessFile("coltableactions001", func(f *models.File) { f.Name = "table.pdf"; f.SHA1 = "coltableactionssha" })
+	c, err := storage.CreateCollection(storage.CollectionParameters{Name: "table-actions", FileIds: []string{f.Id}}, models.User{Id: 7})
+	test.IsNil(t, err)
+	defer database.DeleteCollection(c.Id)
+
+	page := collectionsPageAs(t, "validsession")
+	row := collectionRow(t, page, c.Id)
+	for _, want := range []string{
+		`class="btn-group`, `aria-label="Actions"`,
+		`aria-label="Copy share link"`, `title="Copy share link"`, "collection-copy", `data-clipboard-text="`,
+		`aria-label="Rename"`, "collection-rename",
+		`aria-label="Set or change password"`, "collection-password",
+		`aria-label="Turn into a group"`, "collection-togroup", "bi-people-fill", `d-md-inline">Group</span>`,
+		`aria-label="Delete"`, "collection-delete",
+		// the member list is still reachable, from the Files count
+		"collection-files", `aria-controls="files-` + c.Id + `"`, `aria-expanded="false"`,
+		`href="./c?id=` + c.Id + `"`,
+	} {
+		if !strings.Contains(row, want) {
+			t.Errorf("row lacks %q:\n%s", want, row)
+		}
+	}
+	for _, gone := range []string{"Copy link", "bi-list-ul", "bi-box-arrow-up-right", `title="Open"`, `title="Show files"`} {
+		if strings.Contains(row, gone) {
+			t.Errorf("row still has %q", gone)
+		}
+	}
+	// The member list itself, with Add files, is still on the page
+	test.IsEqualBool(t, strings.Contains(page, `id="files-`+c.Id+`"`), true)
+	test.IsEqualBool(t, strings.Contains(page, `id="col-`+c.Id+`"`), true)
+}
+
+// collectionOwnerUsers saves anna (8), who owns the collections of these
+// tests, with a session, and a session for the super admin (5). The stranger
+// is user 7 ("validsession"), signed in but neither owner nor admin.
+func collectionOwnerUsers() {
+	database.SaveUser(models.User{Id: 8, Name: "anna@example.com", Permissions: models.UserPermissionNone, UserLevel: models.UserLevelUser}, false)
+	database.SaveSession("colowner8", models.Session{RenewAt: 2147483645, ValidUntil: 2147483646, UserId: 8})
+	database.SaveSession("colowner5", models.Session{RenewAt: 2147483645, ValidUntil: 2147483646, UserId: 5})
+}
+
+// Everyone sees who made a collection, by display name. Only its owner and
+// an admin get the owner bar and its script; anonymous visitors and other
+// signed-in people do not.
+func TestCollectionPageOwnerBar(t *testing.T) {
+	collectionOwnerUsers()
+	f := accessFile("colownerbar000001", func(f *models.File) { f.Name = "owner.jpg"; f.UserId = 8; f.SHA1 = "colownerbarsha1" })
+	c, err := storage.CreateCollection(storage.CollectionParameters{Name: "Anna trip", FileIds: []string{f.Id}}, models.User{Id: 8})
+	test.IsNil(t, err)
+	defer database.DeleteCollection(c.Id)
+
+	for _, tc := range []struct {
+		who, token string
+		bar        bool
+	}{
+		{"anonymous", "", false},
+		{"stranger", "validsession", false},
+		{"owner", "colowner8", true},
+		{"admin", "colowner5", true},
+	} {
+		body := openCollection(c.Id, tc.token)
+		if !strings.Contains(body, "./cz?id="+c.Id) {
+			t.Errorf("%s: the collection does not open", tc.who)
+		}
+		if !strings.Contains(body, "by anna") || strings.Contains(body, "anna@example.com") {
+			t.Errorf("%s: the owner is not shown as \"by anna\"", tc.who)
+		}
+		for _, marker := range []string{"data-fgs-owner-bar", "collection_owner.min.js", `id="togroup-modal"`} {
+			if strings.Contains(body, marker) != tc.bar {
+				t.Errorf("%s: %q present = %v, want %v", tc.who, marker, !tc.bar, tc.bar)
+			}
+		}
+	}
+	// The bar offers what it can do: no password yet
+	body := openCollection(c.Id, "colowner8")
+	test.IsEqualBool(t, strings.Contains(body, "Set password"), true)
+	test.IsEqualBool(t, strings.Contains(body, "Remove password"), false)
+}
+
+// A password the owner sets protects the page, its downloads and its zip from
+// everyone else, while the owner (and an admin) still get straight in without
+// it: the password gate lets them through.
+func TestCollectionOwnerPasswordKeepsOwnerIn(t *testing.T) {
+	collectionOwnerUsers()
+	f := accessFile("colownerpw0000001", func(f *models.File) { f.Name = "locked.jpg"; f.UserId = 8; f.SHA1 = "colownerpwsha1" })
+	c, err := storage.CreateCollection(storage.CollectionParameters{Name: "Anna locked", FileIds: []string{f.Id}}, models.User{Id: 8})
+	test.IsNil(t, err)
+	defer database.DeleteCollection(c.Id)
+
+	code, answer := collectionModify(t, models.User{Id: 8, UserLevel: models.UserLevelUser}, map[string]any{"id": c.Id, "password": "secret"})
+	test.IsEqualInt(t, code, http.StatusOK)
+	test.IsEqualString(t, answer["Result"].(string), "OK")
+
+	withSession := func(target, token string) *http.Request {
+		r := httptest.NewRequest("GET", target, nil)
+		if token != "" {
+			r.AddCookie(&http.Cookie{Name: "session_token", Value: token})
+		}
+		return r
+	}
+	fileServed := func(token string) bool {
+		w := httptest.NewRecorder()
+		downloadCollectionFile(w, withSession("/cd?id="+c.Id+"&file="+f.Id, token))
+		return w.Code == http.StatusOK
+	}
+	zipServed := func(token string) bool {
+		w := httptest.NewRecorder()
+		downloadCollectionZip(w, withSession("/cz?id="+c.Id, token))
+		return w.Code == http.StatusOK
+	}
+
+	for _, tc := range []struct {
+		who, token string
+		in         bool
+	}{
+		{"anonymous", "", false},
+		{"stranger", "validsession", false},
+		{"owner", "colowner8", true},
+		{"admin", "colowner5", true},
+	} {
+		body := openCollection(c.Id, tc.token)
+		if strings.Contains(body, "./cz?id="+c.Id) != tc.in {
+			t.Errorf("%s: page unlocked = %v, want %v", tc.who, !tc.in, tc.in)
+		}
+		if strings.Contains(body, "This collection is password protected.") == tc.in {
+			t.Errorf("%s: password form shown = %v, want %v", tc.who, tc.in, !tc.in)
+		}
+		if fileServed(tc.token) != tc.in {
+			t.Errorf("%s: /cd served = %v, want %v", tc.who, !tc.in, tc.in)
+		}
+		if zipServed(tc.token) != tc.in {
+			t.Errorf("%s: /cz served = %v, want %v", tc.who, !tc.in, tc.in)
+		}
+	}
+	// The owner's bar now offers to change or remove it
+	body := openCollection(c.Id, "colowner8")
+	test.IsEqualBool(t, strings.Contains(body, "Change password"), true)
+	test.IsEqualBool(t, strings.Contains(body, "Remove password"), true)
+	// and the password form says who made it too
+	test.IsEqualBool(t, strings.Contains(openCollection(c.Id, ""), "by anna"), true)
+}

@@ -172,6 +172,9 @@ type Database interface {
 	GetDownloadedFileIds(userId int) map[string]bool
 	// DeleteDownloadsOfFile removes the download rows of a file
 	DeleteDownloadsOfFile(fileId string)
+	// CopyDownloads gives every signed-in user who downloaded fromFileId a
+	// download row for toFileId too, unless they already have one
+	CopyDownloads(fromFileId, toFileId string)
 	// SaveCollectionSeen records the first time a user opened a collection; keeps the first FirstOpened
 	SaveCollectionSeen(s models.CollectionSeen)
 	// GetCollectionsSeen returns the collections a user has opened, newest first

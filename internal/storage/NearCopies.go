@@ -28,6 +28,7 @@ type NearCopy struct {
 	MatchId   string // someone else's item it looks like
 	MatchUser int
 	MatchAt   int64 // taken-at of the match, or its upload date
+	Kept      bool  // "Keep both" was already pressed; only AllNearCopies returns these
 }
 
 // nearCandidate is a file whose preview can be compared
@@ -90,28 +91,66 @@ func NearCopies(files []models.File, userId int, kept map[string]bool, all bool)
 	if userId == 0 && !all {
 		return result
 	}
+	return nearPairs(files, kept, false, func(mine models.File) bool {
+		return (all || mine.UserId == userId) && !kept[mine.Id]
+	})
+}
+
+// AllNearCopies is the "Check for duplicates" view for the group's creator
+// and the admin: every pair in files, including two items by one uploader
+// (a burst, which NearCopies leaves alone, D11) and pairs already kept,
+// which come back marked Kept.
+func AllNearCopies(files []models.File, kept map[string]bool) []NearCopy {
+	return nearPairs(files, kept, true, func(models.File) bool { return true })
+}
+
+// IsNearCopyPair reports whether two items look like one photo: both have a
+// ready preview, and the pair passes the same test NearCopies applies. Their
+// uploaders do not matter.
+func IsNearCopyPair(a, b models.File) bool {
+	ca, okA := nearCandidateOf(a)
+	cb, okB := nearCandidateOf(b)
+	return okA && okB && ca.file.Id != cb.file.Id && ca.looksLike(cb)
+}
+
+// nearCandidateOf reads a file's preview; ok is false when it cannot be compared
+func nearCandidateOf(f models.File) (nearCandidate, bool) {
+	p, ok := database.GetPreview(f.SHA1)
+	if !ok || p.Status != models.PreviewReady || p.PHash == 0 {
+		return nearCandidate{}, false
+	}
+	at := p.TakenAt
+	if at == 0 {
+		at = f.UploadDate
+	}
+	colour, hasColour := parseColour(p.Color)
+	return nearCandidate{file: f, hash: p.PHash, at: at,
+		color: colour, hasColor: hasColour, width: p.Width, height: p.Height}, true
+}
+
+// looksLike: not an exact twin, within the dHash distance, and close in colour and shape
+func (a nearCandidate) looksLike(b nearCandidate) bool {
+	return a.file.SHA1 != b.file.SHA1 && bits.OnesCount64(a.hash^b.hash) <= nearCopyMaxDistance && a.similar(b)
+}
+
+// nearPairs finds, for each item that want accepts, the closest older item
+// that looks like it; one uploader's own items count only with sameUploader.
+func nearPairs(files []models.File, kept map[string]bool, sameUploader bool, want func(models.File) bool) []NearCopy {
+	result := make([]NearCopy, 0)
 	candidates := make([]nearCandidate, 0, len(files))
 	for _, f := range files {
-		p, ok := database.GetPreview(f.SHA1)
-		if !ok || p.Status != models.PreviewReady || p.PHash == 0 {
-			continue
+		if c, ok := nearCandidateOf(f); ok {
+			candidates = append(candidates, c)
 		}
-		at := p.TakenAt
-		if at == 0 {
-			at = f.UploadDate
-		}
-		colour, hasColour := parseColour(p.Color)
-		candidates = append(candidates, nearCandidate{file: f, hash: p.PHash, at: at,
-			color: colour, hasColor: hasColour, width: p.Width, height: p.Height})
 	}
 	for _, mine := range candidates {
-		if (!all && mine.file.UserId != userId) || kept[mine.file.Id] {
+		if !want(mine.file) {
 			continue
 		}
 		best, bestDistance := -1, nearCopyMaxDistance+1
 		for i, other := range candidates {
-			if other.file.UserId == mine.file.UserId || other.file.SHA1 == mine.file.SHA1 ||
-				!isNewer(mine.file, other.file) || !mine.similar(other) {
+			if (!sameUploader && other.file.UserId == mine.file.UserId) ||
+				!isNewer(mine.file, other.file) || !mine.looksLike(other) {
 				continue
 			}
 			if d := bits.OnesCount64(mine.hash ^ other.hash); d < bestDistance {
@@ -123,7 +162,7 @@ func NearCopies(files []models.File, userId int, kept map[string]bool, all bool)
 		}
 		match := candidates[best]
 		result = append(result, NearCopy{FileId: mine.file.Id, FileUser: mine.file.UserId, MatchId: match.file.Id,
-			MatchUser: match.file.UserId, MatchAt: match.at})
+			MatchUser: match.file.UserId, MatchAt: match.at, Kept: kept[mine.file.Id]})
 	}
 	return result
 }

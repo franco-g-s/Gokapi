@@ -61,6 +61,22 @@ type groupNearCopy struct {
 	NewerUser string // who uploaded the newer item
 	MatchAt   int64
 	MatchTime string // HH:MM in the server's zone; the browser rewrites it in its own
+	Kept      bool   // "Keep both" was already pressed; only the duplicate check lists these
+}
+
+// groupNearCopyOf describes one pair for the viewer. itemById holds the
+// group's board items; someone names an uploader.
+func groupNearCopyOf(near storage.NearCopy, itemById map[string]browserItem, someone func(int) string, viewerId int) groupNearCopy {
+	return groupNearCopy{
+		Newer:     groupNearSideOf(itemById[near.FileId]),
+		Older:     groupNearSideOf(itemById[near.MatchId]),
+		Mine:      viewerId != 0 && near.FileUser == viewerId,
+		MatchUser: someone(near.MatchUser),
+		NewerUser: someone(near.FileUser),
+		MatchAt:   near.MatchAt,
+		MatchTime: time.Unix(near.MatchAt, 0).Format("15:04"),
+		Kept:      near.Kept,
+	}
 }
 
 // groupNearSideOf describes one item of a pair
@@ -256,22 +272,9 @@ func showGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	// The newer item's uploader sees a pair; the group's creator and the
 	// admin see every one
-	someone := func(userId int) string {
-		if name := names[userId]; name != "" {
-			return name
-		}
-		return "someone" // the uploader's account is gone
-	}
+	someone := uploaderName(names)
 	for _, near := range storage.NearCopies(files, user.Id, database.GetNearCopiesKept(g.Id), manager) {
-		view.NearCopies = append(view.NearCopies, groupNearCopy{
-			Newer:     groupNearSideOf(itemById[near.FileId]),
-			Older:     groupNearSideOf(itemById[near.MatchId]),
-			Mine:      user.Id != 0 && near.FileUser == user.Id,
-			MatchUser: someone(near.MatchUser),
-			NewerUser: someone(near.FileUser),
-			MatchAt:   near.MatchAt,
-			MatchTime: time.Unix(near.MatchAt, 0).Format("15:04"),
-		})
+		view.NearCopies = append(view.NearCopies, groupNearCopyOf(near, itemById, someone, user.Id))
 	}
 
 	view.Browser = newFileBrowser("fgs-group", ctxGroup, items, user)
@@ -371,6 +374,52 @@ func groupItem(w http.ResponseWriter, r *http.Request) {
 		GroupLock:     item.GroupLock,
 		Preview:       item.Preview,
 	})
+}
+
+// uploaderName names an uploader for a pair
+func uploaderName(names map[int]string) func(int) string {
+	return func(userId int) string {
+		if name := names[userId]; name != "" {
+			return name
+		}
+		return "someone" // the uploader's account is gone
+	}
+}
+
+// Handling of /groups/neardupes
+// GET ?id=: "Check for duplicates", every near-copy pair in the group for its
+// creator and the admin (403 for any other member): two items by one
+// uploader as well, and pairs already kept, marked Kept. Records nothing.
+func nearCopyCheck(w http.ResponseWriter, r *http.Request) {
+	addNoCacheHeader(w)
+	user, err := authentication.GetUserFromRequest(r)
+	if err != nil {
+		writeJsonError(w, http.StatusUnauthorized, err)
+		return
+	}
+	g, ok := visibleGroup(w, r.URL.Query().Get("id"), user)
+	if !ok {
+		return
+	}
+	if !storage.CanManageGroup(g, user) {
+		writeJsonError(w, http.StatusForbidden, storage.ErrGroupForbidden)
+		return
+	}
+	files := storage.GroupFiles(g)
+	names := memberNamesOf(g, files)
+	items, files := groupBoard(r, g, files, user, names)
+	itemById := make(map[string]browserItem, len(items))
+	for _, item := range items {
+		itemById[item.File.Id] = item
+	}
+	pairs := make([]groupNearCopy, 0)
+	for _, near := range storage.AllNearCopies(files, database.GetNearCopiesKept(g.Id)) {
+		pairs = append(pairs, groupNearCopyOf(near, itemById, uploaderName(names), user.Id))
+	}
+	writeJson(w, struct {
+		Result string
+		Pairs  []groupNearCopy
+	}{"OK", pairs})
 }
 
 var errNotYourFile = errors.New("only the file's uploader, or the group's creator, can keep it")

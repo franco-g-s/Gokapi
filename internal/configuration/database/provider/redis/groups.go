@@ -6,7 +6,7 @@ import "github.com/forceu/gokapi/internal/models"
 // read returns its zero value and every group write panics: those writes are
 // unreachable, because storage checks SupportsGroups() first and answers
 // ErrGroupsUnsupported. SaveDownload, SaveCollectionSeen and
-// DeleteDownloadsOfFile are no-ops instead, so a download never breaks on Redis.
+// DeleteDownloadsOfFile and CopyDownloads are no-ops instead, so a download never breaks on Redis.
 
 const groupsUnsupported = "groups need the SQLite database"
 
@@ -41,6 +41,7 @@ func (p DatabaseProvider) GetNearCopiesKept(groupId string) map[string]bool { re
 func (p DatabaseProvider) SaveDownload(d models.Download)                   {}
 func (p DatabaseProvider) GetDownloadedFileIds(userId int) map[string]bool  { return map[string]bool{} }
 func (p DatabaseProvider) DeleteDownloadsOfFile(fileId string)              {}
+func (p DatabaseProvider) CopyDownloads(fromFileId, toFileId string)        {}
 func (p DatabaseProvider) SaveCollectionSeen(s models.CollectionSeen)       {}
 func (p DatabaseProvider) GetCollectionsSeen(userId int) []models.CollectionSeen {
 	return []models.CollectionSeen{}

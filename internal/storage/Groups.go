@@ -29,6 +29,7 @@ var (
 	ErrCannotRemoveCreator = errors.New("the creator cannot be removed")
 	ErrInvalidJoin         = errors.New("no group with that code or link")
 	ErrGroupNothingAdded   = errors.New("None of these files could go into a group")
+	ErrNotACopy            = errors.New("the photo to keep is not in this group, or is not a near-copy of the one removed")
 )
 
 // GroupExpiryDays are the choices on every create, extend and turn-into form; 0 = never
@@ -618,12 +619,55 @@ func StoredSha1IsPlain() bool {
 // may remove any; a member only their own. Others are skipped, not errors.
 // The files keep their current expiry: it is never shortened.
 func RemoveFilesFromGroup(g models.Group, fileIds []string, actor models.User) (removed int, err error) {
+	ids, err := removeFilesFromGroup(g, fileIds, actor)
+	return len(ids), err
+}
+
+// RemoveNearCopies is RemoveFilesFromGroup for the duplicate view: the files
+// go out because the group keeps keptId, which looks like each of them. What
+// each of them was marked as downloaded for follows to keptId (the tick, or
+// "new to me"), for every user. keptId must be a live file of the group and a
+// near-copy of every file named; otherwise nothing is removed or copied.
+func RemoveNearCopies(g models.Group, fileIds []string, keptId string, actor models.User) (removed int, err error) {
 	current, err := liveGroup(g)
 	if err != nil {
 		return 0, err
 	}
 	if !CanSeeGroup(current, actor) {
 		return 0, ErrGroupForbidden
+	}
+	inGroup := make(map[string]bool)
+	for _, id := range database.GetGroupFileIds(current.Id) {
+		inGroup[id] = true
+	}
+	kept, ok := database.GetMetaDataById(keptId)
+	if !ok || !inGroup[keptId] || kept.IsPendingForDeletion() || IsExpiredFile(kept, time.Now().Unix()) {
+		return 0, ErrNotACopy
+	}
+	for _, id := range fileIds {
+		if !inGroup[id] {
+			continue // skipped by the removal below, as without keptId
+		}
+		f, ok := database.GetMetaDataById(id)
+		if !ok || !IsNearCopyPair(f, kept) {
+			return 0, ErrNotACopy
+		}
+	}
+	ids, err := removeFilesFromGroup(current, fileIds, actor)
+	for _, id := range ids {
+		database.CopyDownloads(id, keptId)
+	}
+	return len(ids), err
+}
+
+// removeFilesFromGroup removes what actor may and returns their ids
+func removeFilesFromGroup(g models.Group, fileIds []string, actor models.User) (removed []string, err error) {
+	current, err := liveGroup(g)
+	if err != nil {
+		return nil, err
+	}
+	if !CanSeeGroup(current, actor) {
+		return nil, ErrGroupForbidden
 	}
 	inGroup := make(map[string]bool)
 	for _, id := range database.GetGroupFileIds(current.Id) {
@@ -642,7 +686,7 @@ func RemoveFilesFromGroup(g models.Group, fileIds []string, actor models.User) (
 		}
 		database.RemoveGroupFile(current.Id, id)
 		delete(inGroup, id)
-		removed++
+		removed = append(removed, id)
 	}
 	return removed, nil
 }

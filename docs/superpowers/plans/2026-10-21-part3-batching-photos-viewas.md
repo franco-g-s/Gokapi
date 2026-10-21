@@ -7,7 +7,7 @@
 **Architecture:**
 - **Lists:** each page's item list becomes one Go function, a `listSource`, used by both the page and a JSON feed.
   - The page renders the first batch. The feed answers later batches through a keyset cursor, with filters, search and sort applied on the server.
-  - The client appends batches through the existing `addItem` template path. A selection is either explicit ids or "everything matching the query, except these". It is resolved to item data on the server before any action runs.
+  - The client appends batches through the existing `addItem` template path. A selection is either explicit ids or "everything matching the query, except these". It is resolved to item data through the feed before any action runs.
 - **Save to Photos:** this builds on the list work. The selection is resolved, split into measured batches, and fetched one batch at a time, so only one batch is ever held in memory.
 - **View as…:** state is per admin, in a `ViewAs` table created `IF NOT EXISTS`.
   - The user is swapped where a session becomes a user (`requireLogin`, `SessionIdentity`).
@@ -31,12 +31,12 @@ Rulings from Parts 1 and 2 still bind: D1–D20 in `2026-10-20-part2-groups.md`,
 
 | # | Gap | Decision | Task |
 |---|---|---|---|
-| P1 | Bulk actions on items not yet loaded | **Every** bulk action acts on the full selection: Download, zip, Save to Photos, Delete, Change expiry & limits, Add to collection, Add to group, Remove from collection, Remove from group, Create one link. The client resolves the selection to item data through the feed before the action runs. "Replace content" gets its own server list (`/files/replacecandidates`), because it used to read names from the page. | T1, T2 |
-| P2 | List view sort and search | Sort moves to the server. Name, Uploaded, Taken and Size can always be sorted; Expires and Downloads can be sorted where those columns show. The search box stays, as a case-insensitive name search on the server. DataTables leaves the shared list. | T1, T2 |
+| P1 | Bulk actions on items not yet loaded | **Every** bulk action acts on the full selection: Download, zip, Save to Photos, Delete, Change expiry & limits, Add to collection, Add to group, Remove from collection, Remove from group, Create one link. The client resolves the selection to item data through the feed before the action runs. "Replace content" gets its own server list (`/files/replacecandidates`), because it used to read names from the page. | T1, T2b |
+| P2 | List view sort and search | Sort moves to the server. Name, Uploaded, Taken and Size can always be sorted; Expires and Downloads can be sorted where those columns show. The search box stays, as a case-insensitive name search on the server. DataTables leaves the shared list. | T1, T2a |
 | P3 | Log category for "View as…" | `[auth]`. The notifier emails each start and end immediately; an email Franco did not trigger is a break-in signal. | V1 |
 | P4 | When "View as…" ends | Exit, logout, 1 hour without a request ("timeout", which also covers an expired session), switching to another person ("switched"), and a server restart ("restart"). Each writes an end line. Only non-admin users can be viewed as, and never yourself. | V1 |
 | P5 | Measuring Save to Photos | It cannot be measured in Playwright. An admin-only probe page (P-task) goes into an early preview, and Franco runs it on his iPhone. T3 builds the logic with named constants; the controller sets the measured values in one commit. Until then the defaults are the current values: 20 files, 500 MB per video, 1.5 GB per batch. | P, T3 |
-| P6 | Part 2 follow-ups | Fold all three in: the superfluous WriteHeader (F), converted collections in "Shared with me" (F), and a live-added uploader missing from the person filter (T2). | F, T2 |
+| P6 | Part 2 follow-ups | Fold all three in: the superfluous WriteHeader (F), converted collections in "Shared with me" (F), and a live-added uploader missing from the person filter (T2a). | F, T2a |
 | P7 | Branding | The sidebar switch is a "View as…" nav link that the repo's header renders for real admins only. The branding `admin.js` already turns nav links into sidebar items, and it only needs an icon entry at deploy. The Users page gets its own "View as…" buttons in the repo. | V1, deploy |
 | P8 | Who "View as…" is keyed to | **The admin's user id, not the session.** Every session of that admin is in "View as…" at once, so a second tab or the phone cannot slip past it, and Gokapi's 12-hour session renewal (a new session id) cannot drop it. Starting it deletes the admin's temporary API tokens (`IsSystemKey`, 5-minute lifetime), and `/auth/token` is refused while it is on. Real API keys (scripts) are not tied to a session and are unaffected; `/api/` accepts only keys, never the session cookie. | V1 |
 | P9 | Default order of collection and file-request lists | Uploaded, newest first, in every view. Today a collection's Grid follows the collection's own order, while its List sorts by Uploaded; one server order now serves all three views. | T1 |
@@ -85,11 +85,15 @@ Everything in `docs/superpowers/plans/2026-10-20-part2-groups.md` → Global Con
   A new source JS or CSS file is committed; its `min` output is not. The controller regenerates the minified assets once per merge and git-adds any new min file.
 - **Shared component ownership:**
   - **T1** owns the Go side: `FileBrowser.go` and the page handlers' list code.
-  - **T2** owns the client side: `html_file_browser.tmpl`, `media.js` except the Save to Photos section, `admin_ui_filebrowser.js`, `media.css`, and the action handlers in `admin_ui_group.js` and `admin_ui_filerequest.js`.
-  - **T3** owns only the Save to Photos section of `media.js`: lines 116–342 today, `PHOTO_BATCH` through `FGS.saveToPhotos`. It runs after T2.
+  - **T2a, then T2b** own the client side: `html_file_browser.tmpl`, `media.js` except the Save to Photos section, `admin_ui_filebrowser.js`, `media.css`, and the action handlers in `admin_ui_group.js` and `admin_ui_filerequest.js`. They run one after the other, never together.
+  - **T3** owns only the Save to Photos section of `media.js`: lines 116–342 today, `PHOTO_BATCH` through `FGS.saveToPhotos`. It runs after T2b.
   - Any other task that needs a change in those files reports NEEDS_CONTEXT instead of making it.
 - **Never touch** the live `gokapi` container, its volumes (`gokapi_gokapi_data`, `gokapi_gokapi_config`) or anything under `~/apps/gokapi`. Only the controller makes previews and deploys, and only after Franco's explicit yes for the deploy.
 - No background processes. Implementers do not dispatch subagents.
+- **Containers and the browser.** `setup_local.py` hard-codes port 53900, and the Playwright MCP is one shared browser.
+  - **In wave 1** (four tasks at once), implementers run **Go tests only**, which `gotest.sh` serialises. The container and Playwright checks of a wave-1 task are listed under it as **"Controller checks"**; the controller runs them after the merge, one at a time.
+  - **In waves 2 and 3** only one task runs, so its implementer may use the seeded throwaway container on 53900 and Playwright directly.
+- **One fixture.** The controller writes `build/e2e/seed_part3.py` in wave 1b (Controller, step 4a). It creates users A and B, group G, and 230 + 20 tiny PNGs, then prints one JSON line with the ids and passwords. T2a, T2b, T3, E and the walkthrough all use it.
 - **Exact copy strings:**
   - Lists:
     - `Files: N`;
@@ -124,9 +128,10 @@ Everything in `docs/superpowers/plans/2026-10-20-part2-groups.md` → Global Con
 | Wave | Tasks | Runs | Depends on |
 |---|---|---|---|
 | 1 | **T1** List feeds and server filters · **V1** View as… · **P** Photos probe · **F** Part 2 follow-ups | parallel worktrees | – |
-| 1b | Controller merges P first and starts the **early preview with the probe**, so Franco can measure on his iPhone while the rest is built. Then it merges T1, V1 and F. | controller | P |
-| 2 | **T2** Client batching and the selection model | worktree `p3-client` from `feature/part3` after wave 1 | T1 |
-| 3 | **T3** Save to Photos batching | worktree `p3-photos` after T2 merges | T2; the constants also need Franco's numbers |
+| 1b | Controller merges P first and starts the **early preview with the probe**, so Franco can measure on his iPhone while the rest is built. Then it merges T1, V1 and F, runs their Controller checks, and writes `seed_part3.py`. | controller | P |
+| 2a | **T2a** Client batching: batches, filters, sort, search, live adds, viewer paging | worktree `p3-client` from `feature/part3` after wave 1 | T1, seed script |
+| 2b | **T2b** Selection model, resolving, actions on `a.data`, zip by POST, collection buttons, Replace content | worktree `p3-select` after T2a merges | T2a |
+| 3 | **T3** Save to Photos batching | worktree `p3-photos` after T2b merges | T2b; the constants also need Franco's numbers |
 | 4 | **E** Part 3 e2e script, existing e2e green, Playwright walkthrough → whole-branch review → preview → deploy | controller | all |
 
 ---
@@ -140,7 +145,9 @@ Everything in `docs/superpowers/plans/2026-10-20-part2-groups.md` → Global Con
 | `FileBrowser.go` | T1 | `fileBrowser` gains list fields and `WithList` |
 | `Files.go`, `GroupPage.go`, `Collections.go`, `FileRequestsView.go` | T1 | page item code moved into `…Source` functions; pages render the first batch |
 | `Zip.go`, `GroupPage.go` (`/gz`) | T1 | zip ids accepted by POST form as well as GET |
-| `html_file_browser.tmpl`, `media.js` (`initFileBrowser`, viewer, `initDownloadButtons`), `admin_ui_filebrowser.js`, `admin_ui_group.js`, `admin_ui_filerequest.js`, `admin_ui_upload.js` (`getAllAvailableFiles`), `media.css` | T2 | batches, server filters, sort and search, selection model, resolving, live adds, viewer paging |
+| `html_file_browser.tmpl`, `media.js` (`initFileBrowser`, viewer), `media.css` | T2a | batches, server filters, sort and search, live adds, viewer paging |
+| `media.js` (selection, actions, `initDownloadButtons`), `admin_ui_filebrowser.js`, `admin_ui_group.js`, `admin_ui_filerequest.js`, `admin_ui_upload.js` (`getAllAvailableFiles`) | T2b | selection model, resolving, actions on the full set |
+| `build/e2e/seed_part3.py` (new) | controller | the shared 250-item fixture |
 | `media.js` (Save to Photos section) | T3 | measured batches, per-batch fetch, big videos to the zip |
 | `internal/webserver/PhotosProbe.go`, `templates/html_photos_probe.tmpl`, `static/js/photos_probe.js` (all new) | P | admin-only measurement page |
 | `internal/models/ViewAs.go` (new) | V1 | `ViewAs` row |
@@ -159,9 +166,9 @@ Everything in `docs/superpowers/plans/2026-10-20-part2-groups.md` → Global Con
 
 | Spec or brief item | Task |
 |---|---|
-| Batches of ~100, fetched near the bottom (Board layout 3) | T1 (server), T2 (client), E |
-| Person filter, "Hide what I've downloaded", "Select all (N)", "Select everything new to me" answered over the full set (Board layout 4) | T1, T2, E |
-| Zip, download and Save to Photos on ids the page has not rendered | T1 (POST zip, resolve), T2, T3, E |
+| Batches of ~100, fetched near the bottom (Board layout 3) | T1 (server), T2a (client), E |
+| Person filter, "Hide what I've downloaded", "Select all (N)", "Select everything new to me" answered over the full set (Board layout 4) | T1, T2a (filters), T2b (selection), E |
+| Zip, download and Save to Photos on ids the page has not rendered | T1 (POST zip, resolve), T2b, T3, E |
 | Save to Photos batches sized to what Safari accepts; big videos to the zip with an explanation; sizes measured | P (measure), T3 |
 | "View as…" read-only; the server rejects every change and every download | V1 (Go route-enumeration test), E |
 | Every start and end on the Status log | V1, E |
@@ -176,7 +183,7 @@ Everything in `docs/superpowers/plans/2026-10-20-part2-groups.md` → Global Con
 - Create: `internal/webserver/FileList.go`, `internal/webserver/FileList_test.go`, `internal/webserver/FileListFeeds.go`, `internal/webserver/FileListFeeds_test.go`
 - Modify: `FileBrowser.go`, `Files.go`, `GroupPage.go`, `Collections.go`, `FileRequestsView.go`, `Zip.go`, `Webserver.go` (one route block), existing tests in `FileBrowser_test.go`, `GroupPage_test.go`, `Collections_test.go`, `Files_test.go`, `CollectionZipFilter_test.go`, `Zip_test.go` where they assert all items render.
 
-**Interfaces — Produces (binding for T2, T3, E):**
+**Interfaces — Produces (binding for T2a, T2b, T3, E):**
 
 ```go
 // FileList.go
@@ -296,7 +303,7 @@ This cursor is what keeps "Hide what I've downloaded" exact while the reader scr
 - `/files/zip` (`ids`), `/cz` and `/gz` (`files`) read the id list with `r.ParseForm()` and `r.Form`, so POST `application/x-www-form-urlencoded` works exactly like GET.
 - `selectedMembers` uses `r.Form.Has("files")` instead of `r.URL.Query().Has`.
 - Counting, `CanView`, the password gate and the 410 on an empty selection are unchanged.
-- Without the URL length limit, the client always resolves to ids (T2). `ZipAllUrl` stays for the unfiltered select-all.
+- Without the URL length limit, the client always resolves to ids (T2b). `ZipAllUrl` stays for the unfiltered select-all.
 
 **Pages:**
 - Each handler builds its source and calls `b.WithList(source, url)` instead of passing all items to `newFileBrowser`.
@@ -316,13 +323,13 @@ This cursor is what keeps "Hide what I've downloaded" exact while the reader scr
   Run: `build/dev/gotest.sh ./internal/webserver/ -run 'TestList' -v`. Expected: FAIL (undefined).
 - [ ] **Step 2: Implement `FileList.go`** to the interfaces above. Run the tests again; expected: PASS.
 - [ ] **Step 3: Failing tests for the sources, feeds and pages** in `FileListFeeds_test.go`, using the existing test fixtures and helpers in `GroupPage_test.go` and `Files_test.go`:
-  - `TestPagesRenderFirstBatch`: a group of 130 files → `/g` renders exactly 100 `fgs-tile`s, with `data-total="130"` from the template (T2 adds the attribute; until then assert `view.Browser.Total == 130` through `groupSource` and `WithList` directly).
+  - `TestPagesRenderFirstBatch`: a group of 130 files → `/g` renders exactly 100 `fgs-tile`s, with `data-total="130"` from the template (T2a adds the attribute; until then assert `view.Browser.Total == 130` through `groupSource` and `WithList` directly).
   - `TestGroupFeedSecondBatch`: `/gl?id=G&after=<Next>` returns the remaining 30 in shooting order, `Total 130`, `Next ""`.
   - `TestFeedAccessMatchesPage`: per feed, a stranger gets 404 or 401 exactly where the page denies. Covers a non-member on `/gl`, a wrong password cookie on `/cl`, a closed collection on `/cl`, a non-owner without PERM_LIST on `src=collection`, and someone else's request on `src=request`.
   - `TestFeedForeignBlank`: a member's `/gl` item for another member's file has an empty `UrlDownload` and `HotlinkId`, a zero `ExpireAt`, and `Foreign: true`.
   - `TestFeedNeverWrites`: `/gl`, `/cl` and `/files/list` leave `GetDownloadedFileIds` and `GetCollectionsSeen` unchanged.
   - `TestFeedMethod`: POST to each feed → 405.
-  - `TestFilesFeedScope`: a user without PERM_LIST in a group. `scope=mine` lists only their own; `scope=all` adds the group's files as Foreign.
+  - `TestFilesFeedScope`: a user without PERM_LIST in a group. `scope=mine` lists only their own; `scope=all` adds the group's files as Foreign, with their management fields blanked as in `TestFeedForeignBlank`.
   - `TestReplaceCandidates`: own listed files only, no e2e, no request uploads; PERM_LIST sees everyone's.
   - `TestZipPostIds`: POST `/gz` with form `files=a,b` serves a zip of those two. POST `/files/zip` with `ids=` the same. GET behaviour is unchanged (the existing tests stay green).
   - `TestParityJsonVsTemplate`: render one tile through the `file_browser_tile` template and the same item through `listItemOf`. Assert the JSON carries every value the tile renders: id, name, download, bytes, taken, uploaded, uploader, uploader-id, downloaded, mine, foreign, kind, w, h, thumb, view, video, color and preview status. Use a table of attribute → JSON field.
@@ -346,13 +353,13 @@ This cursor is what keeps "Hide what I've downloaded" exact while the reader scr
 
 ---
 
-### Task T2: Client batching and the selection model (worktree `p3-client`, after T1 merges)
+### Task T2a: Client batching, filters, sort and search (worktree `p3-client`, after wave 1 merges)
 
-**Files:** `html_file_browser.tmpl`, `media.js` (`initFileBrowser`, the viewer, `FGS.initDownloadButtons`, `collectionDownloads`), `admin_ui_filebrowser.js`, `admin_ui_group.js` (action handlers only), `admin_ui_filerequest.js` (its photos and zip handlers only), `admin_ui_upload.js` (`getAllAvailableFiles` only), `media.css`.
+**Files:** `html_file_browser.tmpl`, `media.js` (`initFileBrowser` and the viewer), `media.css`, `FileBrowser_test.go` (template assertions only).
 
 **Interfaces:**
 - Consumes: T1's feeds, `listAnswer`, `listItemJson`, the fileBrowser fields `ListUrl`, `Total`, `All`, `New`, `Next`, `Sort` and `Desc`, `/files/replacecandidates`, and zip by POST.
-- Produces (binding for T3 and V1's CSS):
+- Produces (binding for T2b, T3 and V1's CSS). T2a builds `loadMore`, `buildItem` and the query state; T2b builds the selection functions:
 
 ```js
 // on the browser api (root.fgsBrowser)
@@ -371,6 +378,7 @@ FGS.itemData(x)        // tile element or listItemJson → {id, name, url, bytes
 // tiles (only the rendered ones), ids (all ids), resolve() is already done
 // before a handler runs
 ```
+
 
 **Template:**
 - The root gets:
@@ -405,7 +413,54 @@ FGS.itemData(x)        // tile element or listItemJson → {id, name, url, bytes
 4. **`reload()`** runs on any filter, scope, search (debounced 300 ms) or sort change.
    - It clears the tiles, rows, selection, polling state and `tilesById` / `rowsById`, then loads the first batch.
    - "Files: N" shows `total`; `Select all (N)` shows `total`; the empty state shows `No matching files` when `all > 0`.
-5. **Selection model:**
+5. **Live adds:**
+   - If `next !== ""` and the new item sorts after the last rendered item under the current sort, do not insert it. Increase `all`, and `total` if it matches the filters.
+   - Otherwise insert as today: sorted position for taken-asc, top for uploaded-desc.
+   - **Follow-up 3:** a live add on a group page whose uploader is not in the person `<select>` adds an `<option value=id>name</option>` (`textContent`).
+6. **List sort:**
+   - Header buttons set `sort` and `desc`. A second click on the active column flips the direction; the default direction is `desc` for uploaded, size, expires and downloads, and `asc` for name and taken.
+   - Then `reload()`.
+   - Remember sort per browser key, like `view`.
+7. **Search:** the box is visible in List only. Switching to Grid or Board with a search active clears it and reloads, as the DataTables search did.
+8. **Viewer:** `FGS.openViewer(list, index, more)`. `more()` returns a Promise of further items (`api.loadMore()` mapped through `FGS.itemFromEl`). It is called when the reader reaches the last item, and the viewer appends what arrives.
+   - If the first `reload()` fails, its failure path removes `fgs-reloading` and shows `Couldn't load more files.` with `Retry`, so the list never stays invisible.
+
+Every check below runs in Playwright (`browser_evaluate`) against the throwaway container on 53900, seeded by `build/e2e/seed_part3.py`: group G holds 230 items by A and 20 by B, viewed as B. Wait for the previews to be ready first (poll `/gl?id=G&limit=all` until every `Preview.Status` is `ready`). Paste each evaluate's output into the task report; the reviewer compares it with the expected value.
+
+- [ ] **Step 1:** Template attributes, sentinel, sort headers and search box. Update the Go template tests in `FileBrowser_test.go` that assert markup, and add `TestTemplateListAttributes`. Run `build/dev/gotest.sh ./internal/webserver/ -run 'TestTemplate|TestFileBrowser' -v`. Expected: PASS.
+- [ ] **Step 2:** DataTables removal, query state, `loadMore` and `reload`. Checks on `/g?id=G`:
+  - on load: `document.querySelectorAll('#fgs-group .fgs-tile').length` → `100`; the count reads `Files: 250`;
+  - `await root.fgsBrowser.loadMore(); await root.fgsBrowser.loadMore();` then the tile count → `250`, and `new Set(ids).size` → `250`;
+  - the ids are in the same order as `/gl?id=G&limit=all`'s `Items` → `true`.
+- [ ] **Step 3:** Filters, sort and search:
+  - choosing A in the person filter gives `Files: 230` and 100 tiles, and every tile's `data-uploader-id` is A's;
+  - "Hide what I've downloaded" (B has downloaded nothing, own 20 count as had) gives `Files: 230`;
+  - List, sort by Name ascending: the first 100 rows' names equal the first 100 of `/gl?id=G&sort=name&limit=all`;
+  - search `q` for one seeded name gives exactly 1 row;
+  - switching to Board clears the search and gives `Files: 250`.
+- [ ] **Step 4:** The remembered filter: set `hideDownloaded` in localStorage and reload the page. `.fgs-views` never shows the unfiltered first batch: sample `getComputedStyle(views).visibility` at `DOMContentLoaded`, which must be `hidden` until the filtered batch is in. Then make the feed fail (`window.fetch` stubbed to reject before the reload) and check that the views are visible with `Retry`.
+- [ ] **Step 5:** Live adds, the person option, viewer paging:
+  - upload one file as a new member C into G while B's page is at 100 rendered; B's count becomes 251 and no tile is inserted at the end;
+  - C's name appears in B's person filter without a reload;
+  - opening the viewer on tile 100 and stepping right shows item 101.
+- [ ] **Step 6:** Builder parity: for 5 ids from the second batch, compare the attribute set of `api.buildItem(json).tile` with the server tile of the same id. Render it by reloading with that item in the first batch, using `/g?id=G` and Name sort so the order differs. Expected: identical attribute names and values, `data-ts` aside.
+- [ ] **Step 7:**
+  - Run `build/dev/gotest.sh` for the full suite.
+  - Run the existing e2e scripts, which must stay green: groups 91/91, collections 56/56.
+
+    The existing scripts read server-rendered tiles of lists under 100 items, and none reads the Files page (checked 2026-10-21), so they should pass unchanged. If one fails, report it rather than editing the script; E owns the scripts.
+- [ ] **Step 8: Commit** (source only), push `p3/client`.
+
+---
+
+### Task T2b: Selection, resolving and actions on the full set (worktree `p3-select`, after T2a merges)
+
+**Files:** `media.js` (`initFileBrowser`'s selection and actions, `FGS.initDownloadButtons`, `collectionDownloads`), `admin_ui_filebrowser.js`, `admin_ui_group.js` (action handlers only), `admin_ui_filerequest.js` (its photos and zip handlers only), `admin_ui_upload.js` (`getAllAvailableFiles` only).
+
+**Interfaces:** T2a's block above. T2b implements `api.selection`, `api.selectedCount`, `api.resolveSelected`, `api.resolveAll`, `api.zipIds`, `FGS.itemData` and `actionArg.data`.
+
+**Behaviour:**
+1. **Selection model:**
    - **`ids` mode**, from taps on rendered items: an explicit set.
    - **`query` mode**:
      - "Select all (N)" captures the current query plus an empty `except`;
@@ -414,11 +469,11 @@ FGS.itemData(x)        // tile element or listItemJson → {id, name, url, bytes
      - items appended later that match are ticked on arrival (with `new=1`, ticked only if new to me per D12: `!downloaded && !mine`).
    - "N selected" is `total` (or `new` for the new-to-me capture) minus `except.length`.
    - Any reload, or leaving select mode, clears the selection, as filters do today.
-6. **`resolveSelected()`:**
+2. **`resolveSelected()`:**
    - In `ids` mode it returns `FGS.itemData` of those tiles.
    - In `query` mode it fetches `ListUrl + query + new + "limit=all"` and drops the `except` ids. While it runs, the action button shows `Loading…`.
    - Every bulk handler receives `a.data` (all items), `a.ids` and `a.tiles` (the rendered subset). On the Files tab, the existing filter on Foreign items for anything but download and photos applies to `a.data`.
-7. **Bulk actions on resolved data:**
+3. **Bulk actions on resolved data:**
    - **Download** runs `downloadSequentially(data)`.
    - **Zip:**
      - with a query selection, no filters and an empty `except`, use `ZipAllUrl` where it exists;
@@ -427,38 +482,40 @@ FGS.itemData(x)        // tile element or listItemJson → {id, name, url, bytes
    - **Mark downloaded:** with the group tools, mark the resolved ids downloaded as today.
    - `admin_ui_filebrowser.js` handlers (delete, bulk delete, change expiry, add to collection, add to group, create one link) and the remove handlers in `admin_ui_group.js` and `admin_ui_collection` read `FGS.itemData` fields from `a.data` instead of `fileData(tile)` and menu attributes.
    - `removeItem` / `updateItem` still act only on rendered items. An id not rendered just adjusts `total` / `all`.
-8. **Live adds:**
-   - If `next !== ""` and the new item sorts after the last rendered item under the current sort, do not insert it. Increase `all`, and `total` if it matches the filters.
-   - Otherwise insert as today: sorted position for taken-asc, top for uploaded-desc.
-   - **Follow-up 3:** a live add on a group page whose uploader is not in the person `<select>` adds an `<option value=id>name</option>` (`textContent`).
-9. **List sort:**
-   - Header buttons set `sort` and `desc`. A second click on the active column flips the direction; the default direction is `desc` for uploaded, size, expires and downloads, and `asc` for name and taken.
-   - Then `reload()`.
-   - Remember sort per browser key, like `view`.
-10. **Search:** the box is visible in List only. Switching to Grid or Board with a search active clears it and reloads, as the DataTables search did.
-11. **Viewer:** `FGS.openViewer(list, index, more)`. `more()` returns a Promise of further items (`api.loadMore()` mapped through `FGS.itemFromEl`). It is called when the reader reaches the last item, and the viewer appends what arrives.
-12. **Collection page buttons:** `FGS.initDownloadButtons` uses `browser.resolveAll()` instead of `collectionDownloads()`'s DOM read; "Download all" and Save to Photos get every member. `collectionDownloads` is deleted.
-13. **Replace content:** `getAllAvailableFiles()` in `admin_ui_upload.js` fetches `./files/replacecandidates` and becomes asynchronous. `showEditModal` fills the select when it resolves. The rest of the edit modal is unchanged.
+4. **Collection page buttons:** `FGS.initDownloadButtons` uses `browser.resolveAll()` instead of `collectionDownloads()`'s DOM read; "Download all" and Save to Photos get every member. `collectionDownloads` is deleted.
+5. **Replace content:** `getAllAvailableFiles()` in `admin_ui_upload.js` fetches `./files/replacecandidates` and becomes asynchronous. `showEditModal` fills the select when it resolves. The rest of the edit modal is unchanged.
 
-- [ ] **Step 1:** Template attributes, sentinel, sort headers and search box. Update the Go template tests in `FileBrowser_test.go` that assert markup, and add `TestTemplateListAttributes`. Run `build/dev/gotest.sh ./internal/webserver/ -run 'TestTemplate|TestFileBrowser' -v`. Expected: PASS.
-- [ ] **Step 2:** DataTables removal, query state, `loadMore` and `reload`. Check by hand against a throwaway container (see E for how to start one) with a group of 250 tiny images, from `build/e2e/part3_e2e.py --seed-only` once E has written it, or from a 10-line upload loop. Scroll the Board, Grid and List: the count reads `Files: 250`, every item appears once, in order.
-- [ ] **Step 3:** Selection model, `resolveSelected`, zip POST, and the handlers moved onto `a.data`. Check: Select all (250) → zip → 250 entries; untick one → zip → 249; person filter + Select all → only that person's.
-- [ ] **Step 4:** Live adds, the person option, sort, search, viewer paging, collection buttons and Replace content.
-- [ ] **Step 5:**
-  - Run `build/dev/gotest.sh` for the full suite.
-  - Run the existing e2e scripts, which must stay green: groups 91/91, collections 56/56.
+Every check below runs in Playwright (`browser_evaluate`) against the throwaway container on 53900, seeded by `build/e2e/seed_part3.py`: group G holds 230 items by A and 20 by B, viewed as B. Wait for the previews to be ready first (poll `/gl?id=G&limit=all` until every `Preview.Status` is `ready`). Paste each evaluate's output into the task report; the reviewer compares it with the expected value.
 
-    The existing scripts parse server-rendered tiles of lists under 100 items, so they should pass unchanged. If one fails because it counts tiles past 100, report it rather than editing the script; E owns the scripts.
-- [ ] **Step 6: Commit** (source only), push `p3/client`.
+- [ ] **Step 1:** Selection model and `resolveSelected`. Checks on `/g?id=G` with 100 rendered:
+  - Select all → the label reads `250 selected`; `(await api.resolveSelected()).length` → `250`;
+  - untick one rendered tile → `249 selected`, and the resolved length is `249` without that id;
+  - person A + Select all → `230 selected`;
+  - "Select everything new to me" → `230 selected` (B's own 20 are had);
+  - after `loadMore`, every newly appended tile is ticked;
+  - changing the filter clears the selection: `0 selected`.
+- [ ] **Step 2:** Zip and download on the full set:
+  - Select all → zip: the POSTed form carries 250 ids (capture with `page.on('request')`, or stub `HTMLFormElement.prototype.submit` and read the form), and the server's zip has 250 entries (fetch it with the same form body in `browser_evaluate` and count `PK` central-directory records);
+  - with an unfiltered Select all and nothing unticked, the zip uses `ZipAllUrl` (a GET without `files=`);
+  - Download with `FGS.downloadSequentially` stubbed to record its argument: 250 items.
+- [ ] **Step 3:** Management actions on unrendered ids, on the Files tab as A with Select all of A's 230:
+  - "Add to collection…" → create `T2b` → the collection has 230 files (`/collections/list`);
+  - "Change expiry & limits" reports 230 as group-locked failures (D4), and none silently skipped.
+
+  As the group creator, on `/g`, select 3 unrendered items by person-and-except, then Remove from group: `/gl?id=G` Total drops by exactly that number.
+- [ ] **Step 4:** Collection page and Replace content:
+  - a visitor on `/c` of a 150-file collection: "Download all" with `downloadSequentially` stubbed → 150 items;
+  - the edit dialog's Replace select lists every file of `/files/replacecandidates` (count equal), including files not rendered on the page.
+- [ ] **Step 5:** Full suite and the existing e2e (as T2a Step 7). Commit (source only), push `p3/select`.
 
 ---
 
-### Task T3: Save to Photos batching (worktree `p3-photos`, after T2 merges)
+### Task T3: Save to Photos batching (worktree `p3-photos`, after T2b merges)
 
 **Files:** `media.js`, the Save to Photos section only.
 
 **Interfaces:**
-- Consumes: `api.resolveSelected()`, `api.zipIds(ids)`, `FGS.itemData`, and the measured constants from P (or the defaults).
+- Consumes: T2b's `api.resolveSelected()`, `api.zipIds(ids)` and `FGS.itemData`, and the measured constants from P (or the defaults).
 - Produces: `FGS.saveToPhotos(items, button, opts)`, where `opts = {zipIds: function(ids)}`, and `FGS.planPhotos(items, limits)`.
 
 ```js
@@ -476,7 +533,7 @@ FGS.planPhotos = function (items, limits) { ... };
 ```
 
 **Flow:**
-1. The first tap resolves the selection (T2) and calls `planPhotos`.
+1. The first tap resolves the selection (T2b) and calls `planPhotos`.
 2. If there are `bigVideos`, show in the selection status (`aria-live`): `N video(s) are too big to save to Photos from Safari. Download them as a .zip, then save them from the Files app.` followed by a `Download those as .zip` button, which calls `opts.zipIds(bigVideo ids)`.
 3. **Fetch the batch.** Fetch batch K only: never more than one batch in memory, and drop the Files after their share resolves. The label shows `Preparing n/m…`.
    - Then, if the activation is still alive, open the share sheet; else show `Ready — tap to save` (`Ready — tap to save (batch K of B)` when B > 1).
@@ -488,7 +545,7 @@ FGS.planPhotos = function (items, limits) { ... };
 6. **Group pages:** mark each batch's ids downloaded when it is fetched, kept visible (`markDownloaded(ids, true)`), as today.
 7. The "⋯" menu's single-file Save to Photos goes through the same function with one item.
 
-- [ ] **Step 1:** Write `planPhotos` and verify it with a Playwright `browser_evaluate` against the test container, using the cases below:
+- [ ] **Step 1:** Write `planPhotos` and verify it with a Playwright `browser_evaluate` against the seeded test container, using the cases below:
   - 45 photos of 2 MB, limits 20 files / 1.5 GB → batches of 20, 20, 5;
   - 3 photos of 600 MB → 2 + 1;
   - a 700 MB `.mov` → `bigVideos`;
@@ -533,8 +590,10 @@ FGS.planPhotos = function (items, limits) { ... };
 - A tab reload is itself a result: the log is kept in `sessionStorage` so it survives one.
 
 - [ ] **Step 1:** `TestPhotosProbeAccess`: a non-admin → 404; an admin → 200; the page lists only the admin's own photos and videos, and writes nothing.
-- [ ] **Step 2:** Implement. Check in Playwright (desktop) that the page renders and that "Try", with stubbed `navigator.share`, logs a line.
+- [ ] **Step 2:** Implement. Go tests only (wave 1).
 - [ ] **Step 3:** Commit (source only), push `p3/probe`.
+
+**Controller checks** (after the merge): in Playwright, desktop, as the admin, the page renders the lists; "Try" with `navigator.share` stubbed appends one log line; the log survives a reload.
 
 **Controller, wave 1b:**
 1. Merge P.
@@ -621,13 +680,16 @@ const DisplayCookie = "fgs_viewas"
 - `SessionIdentity`: after `PeekSession`, `if t, ok := viewas.Target(u.Id); ok { return t, true }`. Everything that reads the session then sees the target: `CanView`, `/c`'s owner bar, `tagDownload`, `/join`.
 - The real-admin checks in `/viewas`, `/viewas/start` and `/viewas/end` use `viewas.RealUser(r)`, falling back to `GetUserFromRequest`.
 
-**The guard** wraps the whole mux (`Handler: viewas.Guard(mux)`). For each request:
+**The guard** wraps the whole mux (`Handler: viewas.Guard(mux)`). It sees every request from every visitor, thumbnails included, so it has a **fast path**: an in-memory set of active admin ids, written through on Start, End, the sweep and the ticker.
+- **When the set is empty**, the guard calls `next` at once: no `PeekSession`, no database read. If the request carries `fgs_viewas`, it also expires that cookie, which needs no read either.
+- **Otherwise**, for each request:
+
 1. `Active(r)`; if not active, clear `fgs_viewas` if it was sent, and pass the request through.
 2. If active and `Allowed(r.Method, r.URL.Path)`, set `fgs_viewas` if it is missing or stale, and pass the request through.
 3. `/logout` (any method): `End(admin, "logout")`, clear the cookie, pass through.
 4. Anything else is a **403**:
    - JSON `{"Result":"error","ErrorMessage":"View as… is read-only. Exit it to make changes or download."}` when the method is not GET or HEAD, or the path is a JSON endpoint (`/api/`, `/groups/`, `/collections/`, `/files/` sub-paths, `/viewas/`, `/auth/token`), or `Accept` contains `json`;
-   - otherwise a small HTML page with the same sentence and an `Exit` button (a form POST to `./viewas/end`, then a redirect to `./admin`). Build it with `html/template`.
+   - otherwise a small HTML page with the same sentence and an `Exit` button marked `data-fgs-viewas-exit`. Build it with `html/template`. It loads `./js/min/viewas.min.js`, which wires every `[data-fgs-viewas-exit]` to the JSON POST below. `/viewas/end` stays POST + JSON only, like every other mutation (415 for a form).
    - The request never reaches the handler.
 
 **`Allowed`:**
@@ -644,7 +706,8 @@ const DisplayCookie = "fgs_viewas"
 **`viewas.js`** is loaded synchronously in `<head>` by `html_header.tmpl`, in both the admin and the public branch:
 - If the cookie is set:
   - it adds `fgs-viewas` to `<html>` at once;
-  - on `DOMContentLoaded` it inserts a fixed top banner: `Viewing as <name> · read-only · ` and an `Exit` button, all with `textContent`. Exit is a POST to `./viewas/end`, then `location.href = "./admin"`.
+  - on `DOMContentLoaded` it inserts a fixed top banner: `Viewing as <name> · read-only · ` and an `Exit` button (`data-fgs-viewas-exit`), all with `textContent`.
+- Every `[data-fgs-viewas-exit]` button (the banner's and the refusal page's) POSTs `{}` as `application/json` to `./viewas/end`, then sets `location.href = "./admin"`.
 - It injects one `<style>` that, under `.fgs-viewas`, hides controls the server would refuse:
   - the selection bar's `[data-act]`;
   - the "⋯" entries other than `[data-menu=open]`;
@@ -665,7 +728,7 @@ const DisplayCookie = "fgs_viewas"
   - 400 for yourself, an admin, or an unknown user;
   - 501 on Redis;
   - on success `{"Result":"OK"}`. The client then navigates to `./files`.
-- `POST /viewas/end`: `End(real admin, "exit")` → `{"Result":"OK"}`.
+- `POST /viewas/end`, JSON (`{}`; 415 for any other content type): `End(real admin, "exit")` → `{"Result":"OK"}`.
 - Nav: in `html_header.tmpl`, before Logout:
 
   ```
@@ -689,9 +752,9 @@ const DisplayCookie = "fgs_viewas"
   Read the log lines with `logging.GetAll()`, after `logging.Init` on a temp dir as the logging tests do.
 - [ ] **Step 2:** Implement the model, the table, the logging and `viewas/ViewAs.go`. Tests PASS.
 - [ ] **Step 3: Failing guard tests** (`viewas/Guard_test.go`):
-  - `TestGuardPassesWhenInactive`.
+  - `TestGuardPassesWhenInactive`, and `TestGuardFastPath`: with no active row, the guard never calls the session lookup (inject a counting `peek` function var).
   - `TestGuardAllowlist`: allowed GET passes; allowed path with POST → 403 JSON.
-  - `TestGuardHtmlRefusal`: GET `/gd` with `Accept: text/html` → 403 HTML containing the sentence and a form to `./viewas/end`.
+  - `TestGuardHtmlRefusal`: GET `/gd` with `Accept: text/html` → 403 HTML containing the sentence, a `data-fgs-viewas-exit` button and the `viewas.min.js` script tag.
   - `TestGuardLogoutEnds`.
   - `TestGuardCookieSync`: active and no cookie → `Set-Cookie: fgs_viewas=…`; inactive with cookie → expiring `Set-Cookie`.
 - [ ] **Step 4:** Implement `Guard.go`. Tests PASS.
@@ -704,7 +767,7 @@ const DisplayCookie = "fgs_viewas"
   - `TestNavLinkOnlyForRealAdmin`: `/files` as admin shows `View as…`; viewing as B does not.
   - `TestAuthTokenRefused`: `/auth/token` → 403 while active.
 - [ ] **Step 6: The spec's test** (`ViewAsRoutes_test.go`):
-  - Read `Webserver.go`'s source with `os.ReadFile` and collect every `mux.HandleFunc("<path>"` and `mux.Handle("<path>"`, plus `/oauth-login`, `/oauth-callback` and `/api/`.
+  - Read every non-test `.go` file in `internal/webserver` with `os.ReadFile`, and collect every `mux.HandleFunc("<path>"` and `mux.Handle("<path>"`. That includes `addMuxForCustomContent` in `CustomStaticContent.go` and the conditional `/oauth-login` and `/oauth-callback`. Add `/api/`.
   - Replace `{id}` and `{filename}` with `x`.
   - For each path and each of GET and POST, send the request through `viewas.Guard` (wrapping a handler that records whether it was reached) with an admin session viewing as B.
   - Assert reached == `Allowed(method, path)`.
@@ -713,8 +776,10 @@ const DisplayCookie = "fgs_viewas"
     - mutations and the rest: `/api/`, `/auth/token`, `/uploadChunk`, `/changePassword`, `/collections/create`, `/collections/modify`, `/collections/delete`, every `/groups/*` POST route, `/forgotpw`, `/publicUpload`, `/e2eSetup`.
 
     For each of those, `Allowed` is false for both GET and POST, so a route added to the allowlist later fails here.
-  - A route added to `Webserver.go` later is refused until someone allowlists it, and this test lists it.
-- [ ] **Step 7:** Implement the pages, nav, Users button, `viewas.js` and the `Main.go` hooks. Run the full suite. Then check in Playwright against a throwaway container, desktop:
+  - A route added anywhere in `internal/webserver` later is refused until someone allowlists it, and this test lists it.
+- [ ] **Step 7:** Implement the pages, nav, Users button, `viewas.js` and the `Main.go` hooks. Run the full suite (Go tests only, wave 1).
+
+**Controller checks** (after the merge), in Playwright against a throwaway container, desktop:
   1. Start as B from the Users page; the banner shows.
   2. Files, Groups and a group page show B's items, and the viewer opens.
   3. The selection bar and download controls are hidden.
@@ -742,15 +807,14 @@ const DisplayCookie = "fgs_viewas"
 
 **Files:** create `build/e2e/part3_e2e.py`, in the style of `groups_e2e.py`: one `Client` per person, no followed redirects, `check()` lines, exit 1 on any FAIL.
 
-1. **Setup:**
+1. **Setup:** import `seed_part3.py` (Controller, step 4a), or run it when the fixture is missing:
    - the admin creates users A and B (as `groups_e2e.py` does);
    - A creates a group and uploads **230** generated PNGs of distinct flat colours (pure stdlib `zlib` + `struct` PNG writer, 8×8, so they are never near-copies), with alternating names;
    - B joins and uploads 20;
-   - `--seed-only` stops here (T2 uses it).
 2. **Batching:**
    - `/g` as B renders exactly 100 tiles, `data-total="250"`, a non-empty `data-next`;
    - `/gl` walks the rest in 2 more batches, and the union is 250 unique ids in shooting order.
-3. **Server/template parity:** for the 100 rendered tiles, each attribute equals the matching `/gl?limit=100` JSON field.
+3. **Server/template parity:** first poll `/gl?id=G&limit=all` (every 2 s, up to 3 minutes) until every item's `Preview.Status` is `ready`, so no tile changes between the two fetches. Then fetch the page and `/gl?limit=100`: for the 100 rendered tiles, each attribute equals the matching JSON field.
 4. **Filters:**
    - `person=<A>` gives Total 230;
    - `hide=1` for B gives Total 230 (own uploads count as had, D12);
@@ -806,13 +870,13 @@ docker rm -f p3e2e && docker volume rm p3e2e_data p3e2e_config
 1. **Worktrees** for wave 1:
 
    ```bash
-   for t in list viewas probe followups; do
+   for t in list viewas probe followups; do   # later: client, select, photos
      git -C ~/src/Gokapi worktree add ~/src/Gokapi-wt/p3-$t -b p3/$t feature/part3
    done
    ```
 
 2. **Review** each task as it finishes (spec compliance, then code quality), and fix rounds until approved.
-3. **Merge order** into `feature/part3`: P (then the early preview), T1, V1, F. Next T2, then T3. After each merge:
+3. **Merge order** into `feature/part3`: P (then the early preview), T1, V1, F (then each wave-1 task's Controller checks, and the seed script). Next T2a, then T2b, then T3. After each merge:
    - regenerate the minified assets once (`build/dev/gotest.sh` runs `go generate`);
    - `git add` any new min file (`viewas.min.js`, `photos_probe.min.js`, and the versioned media min);
    - commit `build: regenerate static assets after <task>`;
@@ -835,6 +899,14 @@ docker rm -f p3e2e && docker volume rm p3e2e_data p3e2e_config
      - the `GOKAPI_*` env.
    - `tailscale serve --bg --https=8443 http://127.0.0.1:53910`.
    - Send Franco the probe URL and its four steps.
+4a. **The shared fixture**, `build/e2e/seed_part3.py`, once T1 is merged and before T2a starts:
+   - helpers copied from `groups_e2e.py` (`Client`, `make_user`, join);
+   - the admin creates A and B; A creates group G and uploads 230 generated 8×8 PNGs of distinct flat colours (stdlib `zlib` + `struct`), named `p3-<nnn>-<word>.png` with alternating words, so search has something to find; B joins and uploads 20;
+   - A also creates a 150-file collection from their uploads (T2b Step 4);
+   - prints one JSON line: `{"A":{...},"B":{...},"group":G,"collection":C,"ids":[...]}`;
+   - idempotent per run suffix, as the other scripts are.
+
+   Commit it as `e2e: shared Part 3 fixture`.
 5. **Set the constants** from Franco's log (T3's three lines) in one commit, `photos: measured batch size and video limit`. Then revert P (`git revert` of P's merge) so the probe never reaches the PR.
 6. **E**, then the **whole-branch review** (superpowers:requesting-code-review) against `feature/collections`. Fix it, then run E again.
 7. **Full preview:** rebuild as `gokapi-fgs:part3`, and recreate the preview container on the same copied volumes; recopy if the copy is stale. Run the Playwright walkthrough on the preview (desktop and 390×844), then hand it to Franco.

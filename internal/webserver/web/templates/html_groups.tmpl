@@ -23,6 +23,7 @@
               <th scope="col">Files</th>
               <th scope="col">Closes</th>
               <th scope="col">Role</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
             </tr>
           </thead>
           <tbody>
@@ -33,6 +34,13 @@
               <td>{{ .Files }}</td>
               <td>{{ .Closes }}</td>
               <td>{{ if .IsMember }}{{ .Role }}{{ else }}<span class="badge bg-secondary">not a member</span>{{ end }}</td>
+              <td class="text-end">
+                {{/* ClipboardJS copies every .copyurl; the toast confirms it */}}
+                <button type="button" class="btn btn-sm btn-outline-light copyurl text-nowrap" data-clipboard-text="{{ .InviteUrl }}"
+                        onclick="showToast(1000)" title="Copy join link" aria-label="Copy join link">
+                  <i class="bi bi-copy"></i><span class="ms-1 d-none d-md-inline">Copy join link</span>
+                </button>
+              </td>
             </tr>
             {{ end }}
           </tbody>
@@ -95,6 +103,8 @@
   </div>
 </div>
 {{ end }}
+
+<div id="toastnotification" class="toastnotification" data-default="Join link copied">Toast Text</div>
 
 <script src="./js/min/admin.min.{{ template "js_admin_version"}}.js"></script>
 {{ template "pagename" "Groups"}}

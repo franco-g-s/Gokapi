@@ -113,6 +113,12 @@ func getPaths() []converter {
 		Type:       "text/javascript",
 		Name:       "Collection owner bar JS",
 	})
+	result = append(result, converter{
+		InputPath:  pathPrefix + "js/collection_togroup.js",
+		OutputPath: pathPrefix + "js/min/collection_togroup.min.js",
+		Type:       "text/javascript",
+		Name:       "Turn into a group JS",
+	})
 	return result
 }
 

@@ -1,5 +1,6 @@
 // The group page (Part 2, G10): "Remove from group" on the board, the
 // header controls (Rename, Extend, Reset code, Delete group, Leave group),
+// "Also shared as a link" (R4),
 // the members panel (and Remove member in it), the near-copy entries
 // (Compare, Keep both, Remove) and the copy buttons. Merged into the
 // admin bundle with every other admin_*.js file, so everything is inside
@@ -253,6 +254,47 @@
                     .then(function () { say("New code and link made."); })
                     .catch(failed("Could not reset the code"))
                     .then(function () { reset.disabled = false; });
+            });
+        }
+
+        // "Also shared as a link" (R4): the old collection link's mode, and
+        // Stop the link, which deletes the collection behind it
+        var linkPanel = document.getElementById("groupLink");
+        if (linkPanel !== null) {
+            var modeRadios = linkPanel.querySelectorAll("input[name=groupLinkMode]");
+            var currentMode = (linkPanel.querySelector("input[name=groupLinkMode]:checked") || {}).value;
+            Array.prototype.forEach.call(modeRadios, function (radio) {
+                radio.addEventListener("change", function () {
+                    if (!radio.checked || radio.value === currentMode) return;
+                    Array.prototype.forEach.call(modeRadios, function (r) { r.disabled = true; });
+                    postJson("./groups/linkmode", { id: groupId, mode: radio.value })
+                        .then(function () {
+                            currentMode = radio.value;
+                            say(radio.value === "require" ? "The old link now requires joining." :
+                                "The old link now shows the photos and invites to join.");
+                        })
+                        .catch(function (error) {
+                            Array.prototype.forEach.call(modeRadios, function (r) { r.checked = r.value === currentMode; });
+                            failed("Could not change the link")(error);
+                        })
+                        .then(function () {
+                            Array.prototype.forEach.call(modeRadios, function (r) { r.disabled = false; });
+                        });
+                });
+            });
+            var stopLink = document.getElementById("groupStopLink");
+            stopLink.addEventListener("click", function () {
+                if (!confirm("Stop the link? It stops working and the collection behind it is deleted. The group and its files stay.")) return;
+                stopLink.disabled = true;
+                postJson("./groups/stoplink", { id: groupId })
+                    .then(function () {
+                        linkPanel.parentNode.removeChild(linkPanel);
+                        say("The link is stopped.");
+                    })
+                    .catch(function (error) {
+                        stopLink.disabled = false;
+                        failed("Could not stop the link")(error);
+                    });
             });
         }
 

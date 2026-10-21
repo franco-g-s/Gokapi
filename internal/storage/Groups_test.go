@@ -346,12 +346,13 @@ func TestGroupFromCollection(t *testing.T) {
 
 	// A stranger is refused before anything is created
 	before := len(GetAllGroups())
-	_, _, err := GroupFromCollection(collection.Id, 60, models.User{Id: 9, UserLevel: models.UserLevelUser})
+	_, _, err := GroupFromCollection(collection.Id, 60, FromCollectionOptions{}, models.User{Id: 9, UserLevel: models.UserLevelUser})
 	test.IsEqualBool(t, errors.Is(err, ErrGroupForbidden), true)
 	test.IsEqualInt(t, len(GetAllGroups()), before)
 
-	g, res, err := GroupFromCollection(collection.Id, 60, owner)
+	g, res, err := GroupFromCollection(collection.Id, 60, FromCollectionOptions{}, owner)
 	test.IsNil(t, err)
+	defer database.DeleteCollectionGroup(collection.Id)
 	defer database.DeleteGroup(g.Id)
 	test.IsEqualString(t, g.Name, "Iceland trip")
 	test.IsEqualInt(t, len(res.Added), 2)
@@ -359,7 +360,7 @@ func TestGroupFromCollection(t *testing.T) {
 	role, _ := GroupRole(g, 7)
 	test.IsEqualString(t, role, models.GroupRoleCreator)
 
-	// The collection is untouched (D6)
+	// The collection itself is untouched: only linked to the group (R4)
 	stored, ok := database.GetCollection(collection.Id)
 	test.IsEqualBool(t, ok, true)
 	test.IsEqualString(t, strings.Join(stored.FileIds, ","), a.Id+","+b.Id)

@@ -144,6 +144,10 @@ func Start() {
 	mux.HandleFunc("/p/poster", servePreviewFile("poster"))
 	mux.HandleFunc("/p/video", streamVideo)
 	mux.HandleFunc("/p/info", publicPreviewInfo)
+	// Part 2, R4: a collection turned into a group, its old link's modes and stopping it
+	mux.HandleFunc("/groups/fromcollection/preview", requireLogin(groupFromCollectionPreview, false, false))
+	mux.HandleFunc("/groups/linkmode", requireLogin(setGroupLinkMode, false, false))
+	mux.HandleFunc("/groups/stoplink", requireLogin(stopGroupLink, false, false))
 	// Part 2, G10: the group page
 	mux.HandleFunc("/g", requireLogin(showGroup, true, false))
 	mux.HandleFunc("/gd", requireLogin(downloadGroupFile, false, false))

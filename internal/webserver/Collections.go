@@ -55,6 +55,12 @@ type CollectionView struct {
 	// visitor is signed in as the owner or an admin (managesCollection)
 	CanManage   bool
 	HasPassword bool
+	// CanTurnIntoGroup offers "Turn into a group" in the owner bar: not
+	// once the collection is a group (R4)
+	CanTurnIntoGroup bool
+	// GroupBanner is set when the collection was turned into a group and
+	// its link invites to join (R4)
+	GroupBanner *collectionGroupBanner
 	// Browser is the shared file list (context collection-public): no
 	// management actions, downloads through /cd, previews scoped with &c=
 	Browser fileBrowser
@@ -71,6 +77,11 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(collection.Files) == 0 {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeFileNotFound)
+		return
+	}
+	// Part 2, R4: a collection turned into a group
+	link, linked, answered := collectionGroupGate(w, r, collection)
+	if answered {
 		return
 	}
 	manages := managesCollection(r, collection)
@@ -105,6 +116,12 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "c?id="+collection.Id)
 		return
 	}
+	var banner *collectionGroupBanner
+	if linked {
+		if banner, answered = collectionGroupJoin(w, r, link); answered {
+			return
+		}
+	}
 
 	// A signed-in visitor who is not the owner finds the collection under
 	// "Shared with me" from now on. Anonymous visits and the password form
@@ -131,6 +148,9 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 		OwnerName:      ownerName,
 		CanManage:      manages,
 		HasPassword:    collection.IsPasswordProtected(),
+		// R4: a collection becomes a group once
+		CanTurnIntoGroup: manages && !linked,
+		GroupBanner:      banner,
 	}
 	// Visitors are not users: the zero User gives no uploader, ownership or
 	// permissions, and the context keeps every management action out
@@ -164,7 +184,7 @@ func downloadCollectionFile(w http.ResponseWriter, r *http.Request) {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeFileNotFound)
 		return
 	}
-	if !collectionUnlocked(r, collection) {
+	if !collectionUnlocked(r, collection) || collectionClosed(r, collection) {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeFileNotFound)
 		return
 	}
@@ -323,6 +343,10 @@ func showCollectionsAdmin(w http.ResponseWriter, r *http.Request) {
 	rows := make([]collectionInfo, 0)
 	for _, collection := range storage.GetAllCollectionsResolved() {
 		if collection.UserId != user.Id && !seeAll {
+			continue
+		}
+		// R4: a collection turned into a group lives on as the group's link
+		if _, linked := storage.CollectionLinkOf(collection.Id); linked {
 			continue
 		}
 		expiry, never := collectionExpiry(&collection)
@@ -594,6 +618,9 @@ func listCollections(w http.ResponseWriter, r *http.Request) {
 	for _, collection := range storage.GetAllCollectionsResolved() {
 		if collection.UserId != user.Id && (mineOnly || !user.HasPermission(models.UserPermListOtherUploads)) {
 			continue
+		}
+		if _, linked := storage.CollectionLinkOf(collection.Id); linked {
+			continue // R4: hidden, like on the Collections tab
 		}
 		expiry, never := collectionExpiry(&collection)
 		result = append(result, entry{collection.Id, collection.Name, len(collection.Files),

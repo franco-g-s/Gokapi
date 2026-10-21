@@ -11,6 +11,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/helper"
 	"github.com/forceu/gokapi/internal/models"
@@ -88,6 +89,9 @@ type GroupView struct {
 	ExtendChoices []groupExtendChoice
 	NearCopies    []groupNearCopy
 	Browser       fileBrowser
+	// Link is "Also shared as a link" (R4), for the creator and the admin of
+	// a group made from a collection; nil otherwise
+	Link *groupLinkView
 }
 
 // avatarHue is the colour of a person's initials circle: hsl(hue, 45%, 45%)
@@ -204,6 +208,7 @@ func showGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	if manager {
 		view.ExtendChoices = groupExtendChoices(g, now.Unix())
+		view.Link = groupLinkOf(g, configuration.Get().ServerUrl)
 	}
 
 	// The members panel lists every member. The person filter lists everyone with

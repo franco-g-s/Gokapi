@@ -1,5 +1,5 @@
 // "Add to group…" on the shared file list (html_file_browser.tmpl,
-// #fgs-group-modal) and "Turn into a group" on the Collections tab.
+// #fgs-group-modal). "Turn into a group" is collection_togroup.js.
 // All files named admin_*.js will be merged together and minimised by calling
 // go generate ./...
 // Every name, group and person is put into the page with textContent, never
@@ -171,46 +171,4 @@
     if (window.FGS && FGS.registerFileActions) {
         FGS.registerFileActions({ "add-to-group": openAddToGroup });
     }
-
-    // --- Turn into a group (Collections tab) --------------------------------
-    // The collection and its link stay as they are; its password does not
-    // carry over, because group members sign in instead (D6).
-    var turnModal = document.getElementById("togroup-modal");
-    if (!turnModal) return;
-    var turnWhat = document.getElementById("togroup-what");
-    var turnConfirm = document.getElementById("togroup-confirm");
-    var turnStatus = document.getElementById("togroup-status");
-    var turnId = null;
-
-    document.querySelectorAll(".collection-togroup").forEach(function (button) {
-        button.addEventListener("click", function () {
-            turnId = button.getAttribute("data-id");
-            turnWhat.textContent = "“" + button.getAttribute("data-name") + "” becomes a group with the same files. " +
-                "The collection and its link stay as they are.";
-            document.getElementById("togroup-days-60").checked = true;
-            turnStatus.textContent = "";
-            turnStatus.className = "";
-            turnConfirm.disabled = false;
-            bootstrap.Modal.getOrCreateInstance(turnModal).show();
-        });
-    });
-
-    turnConfirm.addEventListener("click", function () {
-        if (!turnId || turnConfirm.disabled) return;
-        var chosen = turnModal.querySelector("input[name=togroup-days]:checked");
-        if (!chosen) return;
-        turnConfirm.disabled = true; // each request makes a new group
-        turnStatus.className = "text-muted small mt-3";
-        turnStatus.textContent = "Turning into a group…";
-        postJson("./groups/fromcollection", { collectionId: turnId, days: parseInt(chosen.value, 10) })
-            .then(function (data) {
-                if (data.Result !== "OK") throw new Error(data.ErrorMessage || "unknown error");
-                window.location.href = data.Url;
-            })
-            .catch(function (error) {
-                turnStatus.className = "alert alert-danger mt-3";
-                turnStatus.textContent = "Could not turn into a group: " + errorText(error);
-                turnConfirm.disabled = false;
-            });
-    });
 })();

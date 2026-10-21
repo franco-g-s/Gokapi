@@ -21,6 +21,11 @@ func downloadCollectionZip(w http.ResponseWriter, r *http.Request) {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeFileNotFound)
 		return
 	}
+	if collectionClosed(r, collection) {
+		// R4: the link requires joining a group this visitor cannot see
+		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeFileNotFound)
+		return
+	}
 	if !collectionUnlocked(r, collection) {
 		redirect(w, r, "c?id="+collection.Id)
 		return

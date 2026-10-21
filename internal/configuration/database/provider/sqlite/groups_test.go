@@ -109,6 +109,62 @@ func TestGroupTablesIdempotentWithoutSchemaBump(t *testing.T) {
 		test.IsNil(t, err)
 		test.IsEqualInt(t, instance.GetDbVersion(), 17)
 		instance.SaveGroup(models.Group{Id: "x", Name: "x", JoinCode: "h", InviteToken: "t"})
+		// R4's CollectionGroups table is there as well
+		instance.SaveCollectionGroup(models.CollectionGroup{CollectionId: "c", GroupId: "x", LinkMode: models.CollectionLinkInvite})
+		_, linked := instance.GetCollectionGroup("c")
+		test.IsEqualBool(t, linked, true)
 		instance.Close()
 	}
+}
+
+// R4: a collection turned into a group, the people who opened it, and the
+// link going away with the collection or the group
+func TestCollectionGroupsAndViewers(t *testing.T) {
+	instance, err := New(config)
+	test.IsNil(t, err)
+	defer instance.Close()
+
+	instance.SaveCollectionSeen(models.CollectionSeen{UserId: 21, CollectionId: "cg1", FirstOpened: 30})
+	instance.SaveCollectionSeen(models.CollectionSeen{UserId: 22, CollectionId: "cg1", FirstOpened: 10})
+	instance.SaveCollectionSeen(models.CollectionSeen{UserId: 21, CollectionId: "cg2", FirstOpened: 5})
+	viewers := instance.GetCollectionViewers("cg1")
+	test.IsEqualInt(t, len(viewers), 2)
+	test.IsEqualInt(t, viewers[0].UserId, 22) // first opened first
+	test.IsEqualInt(t, viewers[1].UserId, 21)
+	test.IsEqualString(t, viewers[1].CollectionId, "cg1")
+	test.IsEqualInt(t, len(instance.GetCollectionViewers("nosuch")), 0)
+
+	_, ok := instance.GetCollectionGroup("cg1")
+	test.IsEqualBool(t, ok, false)
+	link := models.CollectionGroup{CollectionId: "cg1", GroupId: "gg1", LinkMode: models.CollectionLinkInvite}
+	instance.SaveCollectionGroup(link)
+	got, ok := instance.GetCollectionGroup("cg1")
+	test.IsEqualBool(t, ok, true)
+	test.IsEqualBool(t, got == link, true)
+	link.LinkMode = models.CollectionLinkRequire
+	instance.SaveCollectionGroup(link) // replaces
+	got, _ = instance.GetCollectionGroup("cg1")
+	test.IsEqualString(t, got.LinkMode, models.CollectionLinkRequire)
+	instance.SaveCollectionGroup(models.CollectionGroup{CollectionId: "cg2", GroupId: "gg1", LinkMode: models.CollectionLinkInvite})
+	instance.SaveCollectionGroup(models.CollectionGroup{CollectionId: "cg3", GroupId: "gg2", LinkMode: models.CollectionLinkInvite})
+	ofGroup := instance.GetCollectionGroupsOfGroup("gg1")
+	test.IsEqualInt(t, len(ofGroup), 2)
+	test.IsEqualString(t, ofGroup[0].CollectionId, "cg1")
+
+	// Deleting a collection drops its link (and who opened it)
+	instance.SaveCollection(models.Collection{Id: "cg1", Name: "x", UserId: 7, CreationDate: 1})
+	instance.DeleteCollection("cg1")
+	_, ok = instance.GetCollectionGroup("cg1")
+	test.IsEqualBool(t, ok, false)
+	test.IsEqualInt(t, len(instance.GetCollectionViewers("cg1")), 0)
+	// DeleteCollectionGroup drops one link
+	instance.DeleteCollectionGroup("cg3")
+	_, ok = instance.GetCollectionGroup("cg3")
+	test.IsEqualBool(t, ok, false)
+	// Deleting the group drops its links; the collections themselves are
+	// storage's to delete
+	instance.SaveGroup(models.Group{Id: "gg1", Name: "x", JoinCode: "CGG-AA1", InviteToken: "cgtoken1"})
+	instance.DeleteGroup("gg1")
+	test.IsEqualInt(t, len(instance.GetCollectionGroupsOfGroup("gg1")), 0)
+	instance.DeleteCollection("cg2")
 }

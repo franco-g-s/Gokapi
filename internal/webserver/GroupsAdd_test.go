@@ -213,8 +213,13 @@ func TestGroupFromCollection(t *testing.T) {
 		test.IsEqualBool(t, g.Name == "Not mine", false)
 	}
 
+	// A collection is turned into a group once (R4)
+	w, answer = call("POST", owner, collection.Id, 60)
+	test.IsEqualInt(t, w.Code, http.StatusBadRequest)
+	test.IsEqualString(t, answer.ErrorMessage, storage.ErrCollectionAlreadyGroup.Error())
+
 	// The admin may turn anyone's collection into a group of their own
-	w, answer = call("POST", admin, collection.Id, 0)
+	w, answer = call("POST", admin, foreign.Id, 0)
 	test.IsEqualInt(t, w.Code, 200)
 	test.IsEqualString(t, answer.Result, "OK")
 	defer database.DeleteGroup(answer.Id)
@@ -250,6 +255,11 @@ func TestCollectionsPageTurnIntoGroupButton(t *testing.T) {
 		test.IsEqualBool(t, strings.Contains(html, button), true)
 		test.IsEqualBool(t, strings.Contains(html, `id="togroup-modal"`), true)
 		test.IsEqualBool(t, strings.Contains(html, `value="60" checked`), true)
+		// R4: the one shared dialog script, and the dialog's new choices
+		test.IsEqualBool(t, strings.Contains(html, "collection_togroup.min.js"), true)
+		test.IsEqualBool(t, strings.Contains(html, "Add the people who opened this link while signed in"), true)
+		test.IsEqualBool(t, strings.Contains(html, `value="invite" checked`), true)
+		test.IsEqualBool(t, strings.Contains(html, "Require signing in and joining"), true)
 	}
 	html := page(lister)
 	test.IsEqualBool(t, strings.Contains(html, "btn-collection"), true)

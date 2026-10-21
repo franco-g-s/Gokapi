@@ -176,6 +176,16 @@ type Database interface {
 	SaveCollectionSeen(s models.CollectionSeen)
 	// GetCollectionsSeen returns the collections a user has opened, newest first
 	GetCollectionsSeen(userId int) []models.CollectionSeen
+	// GetCollectionViewers returns who opened a collection while signed in, first opened first
+	GetCollectionViewers(collectionId string) []models.CollectionSeen
+	// SaveCollectionGroup links a collection to the group it was turned into
+	SaveCollectionGroup(cg models.CollectionGroup)
+	// GetCollectionGroup returns the group link of a collection, or false
+	GetCollectionGroup(collectionId string) (models.CollectionGroup, bool)
+	// GetCollectionGroupsOfGroup returns the collections linked to a group
+	GetCollectionGroupsOfGroup(groupId string) []models.CollectionGroup
+	// DeleteCollectionGroup removes the group link of a collection
+	DeleteCollectionGroup(collectionId string)
 
 	// GetStatTraffic returns the total traffic from statistics
 	GetStatTraffic() uint64

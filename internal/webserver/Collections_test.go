@@ -353,7 +353,7 @@ func TestCollectionPageOwnerBar(t *testing.T) {
 		if !strings.Contains(body, "by anna") || strings.Contains(body, "anna@example.com") {
 			t.Errorf("%s: the owner is not shown as \"by anna\"", tc.who)
 		}
-		for _, marker := range []string{"data-fgs-owner-bar", "collection_owner.min.js", `id="togroup-modal"`} {
+		for _, marker := range []string{"data-fgs-owner-bar", "collection_owner.min.js", `id="togroup-modal"`, "collection_togroup.min.js"} {
 			if strings.Contains(body, marker) != tc.bar {
 				t.Errorf("%s: %q present = %v, want %v", tc.who, marker, !tc.bar, tc.bar)
 			}

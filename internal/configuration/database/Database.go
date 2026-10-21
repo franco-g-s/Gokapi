@@ -467,6 +467,27 @@ func SaveCollectionSeen(s models.CollectionSeen) { db.SaveCollectionSeen(s) }
 // GetCollectionsSeen returns the collections a user has opened, newest first
 func GetCollectionsSeen(userId int) []models.CollectionSeen { return db.GetCollectionsSeen(userId) }
 
+// GetCollectionViewers returns who opened a collection while signed in, first opened first
+func GetCollectionViewers(collectionId string) []models.CollectionSeen {
+	return db.GetCollectionViewers(collectionId)
+}
+
+// SaveCollectionGroup links a collection to the group it was turned into
+func SaveCollectionGroup(cg models.CollectionGroup) { db.SaveCollectionGroup(cg) }
+
+// GetCollectionGroup returns the group link of a collection, or false
+func GetCollectionGroup(collectionId string) (models.CollectionGroup, bool) {
+	return db.GetCollectionGroup(collectionId)
+}
+
+// GetCollectionGroupsOfGroup returns the collections linked to a group
+func GetCollectionGroupsOfGroup(groupId string) []models.CollectionGroup {
+	return db.GetCollectionGroupsOfGroup(groupId)
+}
+
+// DeleteCollectionGroup removes the group link of a collection
+func DeleteCollectionGroup(collectionId string) { db.DeleteCollectionGroup(collectionId) }
+
 // Statistics
 
 // GetStatTraffic returns the total traffic from statistics

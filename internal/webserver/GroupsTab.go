@@ -52,7 +52,7 @@ func groupErrorStatus(err error) int {
 	switch {
 	case errors.Is(err, storage.ErrGroupForbidden):
 		return http.StatusForbidden
-	case errors.Is(err, storage.ErrGroupNotFound):
+	case errors.Is(err, storage.ErrGroupNotFound), errors.Is(err, storage.ErrNoGroupLink):
 		return http.StatusNotFound
 	case errors.Is(err, storage.ErrGroupsUnsupported):
 		return http.StatusNotImplemented

@@ -425,8 +425,9 @@ func ResetGroupCode(g models.Group, actor models.User) (models.Group, error) {
 	return current, nil
 }
 
-// DeleteGroup removes the group only. Its files stay with their uploaders
-// and keep their current expiry (D7).
+// DeleteGroup removes the group, and the collection behind its old link if
+// it was made from one (R4). Its files stay with their uploaders and keep
+// their current expiry (D7).
 func DeleteGroup(g models.Group, actor models.User) error {
 	current, err := liveGroup(g)
 	if err != nil {
@@ -435,7 +436,7 @@ func DeleteGroup(g models.Group, actor models.User) error {
 	if !CanManageGroup(current, actor) {
 		return ErrGroupForbidden
 	}
-	database.DeleteGroup(current.Id)
+	deleteGroupAndLinks(current.Id)
 	return nil
 }
 
@@ -646,38 +647,6 @@ func RemoveFilesFromGroup(g models.Group, fileIds []string, actor models.User) (
 	return removed, nil
 }
 
-// GroupFromCollection turns a collection into a group with its name and its
-// live files. The collection and its link are not modified (D6).
-func GroupFromCollection(collectionId string, days int, actor models.User) (models.Group, GroupAddResult, error) {
-	if !database.SupportsGroups() {
-		return models.Group{}, GroupAddResult{}, ErrGroupsUnsupported
-	}
-	collection, ok := GetCollection(collectionId)
-	if !ok {
-		return models.Group{}, GroupAddResult{}, ErrorCollectionNoFiles
-	}
-	if collection.UserId != actor.Id && !isGroupAdmin(actor) {
-		return models.Group{}, GroupAddResult{}, ErrGroupForbidden
-	}
-	g, err := CreateGroup(collection.Name, days, actor)
-	if err != nil {
-		return models.Group{}, GroupAddResult{}, err
-	}
-	ids := make([]string, 0, len(collection.Files))
-	for _, f := range collection.Files {
-		ids = append(ids, f.Id)
-	}
-	result, err := AddFilesToGroup(g, ids, actor)
-	if err == nil && len(result.Added) == 0 {
-		// Every file was refused (end-to-end encrypted, a file request
-		// upload, someone else's, no longer live): no empty group is left
-		// behind for the user to land in (M4)
-		database.DeleteGroup(g.Id)
-		return models.Group{}, result, ErrGroupNothingAdded
-	}
-	return g, result, err
-}
-
 // UserSharesGroupWithFile reports whether the user is a member of a live
 // group the file is in, for access.CanView
 func UserSharesGroupWithFile(userId int, fileId string) bool {
@@ -718,14 +687,15 @@ func closesLater(a, b models.Group) bool {
 	return a.NeverExpires() || a.Expires > b.Expires
 }
 
-// cleanUpGroups deletes every group that has closed. Its files stay.
+// cleanUpGroups deletes every group that has closed, with the collection
+// behind its old link. Its files stay.
 func cleanUpGroups(timeNow int64) {
 	if !database.SupportsGroups() {
 		return
 	}
 	for _, g := range database.GetAllGroups() {
 		if g.IsExpired(timeNow) {
-			database.DeleteGroup(g.Id)
+			deleteGroupAndLinks(g.Id)
 		}
 	}
 }

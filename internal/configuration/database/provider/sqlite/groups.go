@@ -8,8 +8,8 @@ import (
 	"github.com/forceu/gokapi/internal/models"
 )
 
-// ensureGroupTables creates the fork's group, download and "shared with me"
-// tables if missing. Runs on every start, like ensurePreviewsTable, so the
+// ensureGroupTables creates the fork's group, download, "shared with me" and
+// collection-to-group tables if missing. Runs on every start, like ensurePreviewsTable, so the
 // schema version stays at upstream's 17 and rollback stays an image swap.
 // "Groups" is always quoted: GROUPS is an SQLite keyword.
 func (p DatabaseProvider) ensureGroupTables() error {
@@ -56,7 +56,14 @@ func (p DatabaseProvider) ensureGroupTables() error {
 			"CollectionId"	TEXT NOT NULL,
 			"FirstOpened"	INTEGER NOT NULL,
 			PRIMARY KEY("UserId","CollectionId")
-		) WITHOUT ROWID;`)
+		) WITHOUT ROWID;
+		CREATE TABLE IF NOT EXISTS "CollectionGroups" (
+			"CollectionId"	TEXT NOT NULL,
+			"GroupId"	TEXT NOT NULL,
+			"LinkMode"	TEXT NOT NULL,
+			PRIMARY KEY("CollectionId")
+		) WITHOUT ROWID;
+		CREATE INDEX IF NOT EXISTS "CollectionGroupsByGroup" ON "CollectionGroups" ("GroupId");`)
 }
 
 // Columns are listed explicitly rather than using SELECT *, as in collections.go
@@ -127,13 +134,14 @@ func (p DatabaseProvider) SaveGroup(g models.Group) {
 	helper.Check(err)
 }
 
-// DeleteGroup removes the group, its members, its file links and its kept
-// near-copies. Files are never touched.
+// DeleteGroup removes the group, its members, its file links, its kept
+// near-copies and its collection links. Files are never touched; nor are
+// the linked collections, which storage deletes first.
 func (p DatabaseProvider) DeleteGroup(id string) {
 	if id == "" {
 		return
 	}
-	for _, table := range []string{"GroupMembers", "GroupFiles", "GroupNearKept"} {
+	for _, table := range []string{"GroupMembers", "GroupFiles", "GroupNearKept", "CollectionGroups"} {
 		_, err := p.sqliteDb.Exec(`DELETE FROM "`+table+`" WHERE GroupId = ?`, id)
 		helper.Check(err)
 	}
@@ -289,4 +297,61 @@ func (p DatabaseProvider) GetCollectionsSeen(userId int) []models.CollectionSeen
 		result = append(result, s)
 	}
 	return result
+}
+
+// GetCollectionViewers returns who opened a collection while signed in, first opened first
+func (p DatabaseProvider) GetCollectionViewers(collectionId string) []models.CollectionSeen {
+	result := make([]models.CollectionSeen, 0)
+	rows, err := p.sqliteDb.Query(`SELECT UserId, CollectionId, FirstOpened FROM "CollectionsSeen"
+		WHERE CollectionId = ? ORDER BY FirstOpened ASC, UserId ASC`, collectionId)
+	helper.Check(err)
+	defer rows.Close()
+	for rows.Next() {
+		var s models.CollectionSeen
+		helper.Check(rows.Scan(&s.UserId, &s.CollectionId, &s.FirstOpened))
+		result = append(result, s)
+	}
+	return result
+}
+
+// SaveCollectionGroup links a collection to the group it was turned into,
+// or changes the link's mode
+func (p DatabaseProvider) SaveCollectionGroup(cg models.CollectionGroup) {
+	_, err := p.sqliteDb.Exec(`INSERT OR REPLACE INTO "CollectionGroups" (CollectionId, GroupId, LinkMode) VALUES (?, ?, ?)`,
+		cg.CollectionId, cg.GroupId, cg.LinkMode)
+	helper.Check(err)
+}
+
+func (p DatabaseProvider) queryCollectionGroups(where string, arg any) []models.CollectionGroup {
+	result := make([]models.CollectionGroup, 0)
+	rows, err := p.sqliteDb.Query(`SELECT CollectionId, GroupId, LinkMode FROM "CollectionGroups" WHERE `+where+
+		` ORDER BY CollectionId`, arg)
+	helper.Check(err)
+	defer rows.Close()
+	for rows.Next() {
+		var cg models.CollectionGroup
+		helper.Check(rows.Scan(&cg.CollectionId, &cg.GroupId, &cg.LinkMode))
+		result = append(result, cg)
+	}
+	return result
+}
+
+// GetCollectionGroup returns the group link of a collection, or false
+func (p DatabaseProvider) GetCollectionGroup(collectionId string) (models.CollectionGroup, bool) {
+	found := p.queryCollectionGroups("CollectionId = ?", collectionId)
+	if len(found) == 0 {
+		return models.CollectionGroup{}, false
+	}
+	return found[0], true
+}
+
+// GetCollectionGroupsOfGroup returns the collections linked to a group
+func (p DatabaseProvider) GetCollectionGroupsOfGroup(groupId string) []models.CollectionGroup {
+	return p.queryCollectionGroups("GroupId = ?", groupId)
+}
+
+// DeleteCollectionGroup removes the group link of a collection
+func (p DatabaseProvider) DeleteCollectionGroup(collectionId string) {
+	_, err := p.sqliteDb.Exec(`DELETE FROM "CollectionGroups" WHERE CollectionId = ?`, collectionId)
+	helper.Check(err)
 }

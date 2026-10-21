@@ -30,3 +30,21 @@ type GroupMember struct {
 	Joined  int64  `json:"joined"`
 	Role    string `json:"role"`
 }
+
+// How a collection's old link behaves once the collection was turned into a
+// group (Part 2, R4)
+const (
+	// CollectionLinkInvite shows the photos, with a banner inviting to join
+	CollectionLinkInvite = "invite"
+	// CollectionLinkRequire sends everyone to the group, or to its join page
+	CollectionLinkRequire = "require"
+)
+
+// CollectionGroup links a collection that was turned into a group to that
+// group. The collection's link lives on as the group's; the collection
+// itself is hidden from its owner's Collections list.
+type CollectionGroup struct {
+	CollectionId string `json:"collectionId"`
+	GroupId      string `json:"groupId"`
+	LinkMode     string `json:"linkMode"` // CollectionLinkInvite or CollectionLinkRequire
+}

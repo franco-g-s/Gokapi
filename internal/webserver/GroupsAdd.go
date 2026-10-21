@@ -87,9 +87,11 @@ func addToGroup(w http.ResponseWriter, r *http.Request) {
 	}{"OK", len(result.Added), duplicates, refused})
 }
 
-// groupFromCollection answers POST /groups/fromcollection {collectionId, days}:
-// a new group named after the collection, with its files. The collection and
-// its link stay as they are (D6).
+// groupFromCollection answers POST /groups/fromcollection {collectionId,
+// days, addViewers, linkMode}: a new group named after the collection, with
+// its files and, if asked, the people who opened its link while signed in.
+// The collection leaves the Collections list; its link lives on in linkMode
+// ("invite" when empty, or "require"). Part 2, G8 and R4.
 func groupFromCollection(w http.ResponseWriter, r *http.Request) {
 	if !postOnly(w, r) || !jsonOnly(w, r) {
 		return
@@ -102,12 +104,15 @@ func groupFromCollection(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		CollectionId string `json:"collectionId"`
 		Days         int    `json:"days"`
+		AddViewers   bool   `json:"addViewers"`
+		LinkMode     string `json:"linkMode"`
 	}
 	if err = readJsonBody(r, &request); err != nil {
 		writeJsonError(w, http.StatusBadRequest, errors.New("invalid request"))
 		return
 	}
-	group, result, err := storage.GroupFromCollection(request.CollectionId, request.Days, user)
+	group, result, err := storage.GroupFromCollection(request.CollectionId, request.Days,
+		storage.FromCollectionOptions{AddViewers: request.AddViewers, LinkMode: request.LinkMode}, user)
 	if err != nil {
 		status := groupErrorStatus(err)
 		if errors.Is(err, storage.ErrorCollectionNoFiles) {
@@ -117,9 +122,10 @@ func groupFromCollection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJson(w, struct {
-		Result string
-		Id     string
-		Url    string
-		Added  int
-	}{"OK", group.Id, "./g?id=" + group.Id, len(result.Added)})
+		Result       string
+		Id           string
+		Url          string
+		Added        int
+		MembersAdded int
+	}{"OK", group.Id, "./g?id=" + group.Id, len(result.Added), result.MembersAdded})
 }

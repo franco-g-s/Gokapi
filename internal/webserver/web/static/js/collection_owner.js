@@ -1,7 +1,8 @@
 // The owner bar of a collection's public page (html_collection.tmpl): Rename,
-// Set / Change / Remove password and Turn into a group. The page loads this
-// only for the collection's owner or an admin; the public page does not load
-// the admin bundle, so this stands alone. Every request is a POST with a JSON
+// Set / Change / Remove password and Turn into a group, whose dialog is
+// collection_togroup.js. The page loads this only for the collection's owner
+// or an admin; the public page does not load the admin bundle, so this
+// stands alone. Every request is a POST with a JSON
 // body (I1), and names are put into the page with textContent only.
 (function () {
     "use strict";
@@ -118,43 +119,6 @@
         setPassword(value, forms.password);
     });
 
-    // --- Turn into a group: the Collections tab's dialog ----------------
-    // The collection and its link stay as they are; its password does not
-    // carry over, because group members sign in instead (D6).
-    var turnModal = document.getElementById("togroup-modal");
-    var turnWhat = document.getElementById("togroup-what");
-    var turnConfirm = document.getElementById("togroup-confirm");
-    var turnStatus = document.getElementById("togroup-status");
-
-    function openTurnIntoGroup() {
-        if (!turnModal) return;
-        turnWhat.textContent = "“" + bar.getAttribute("data-name") + "” becomes a group with the same files. " +
-            "The collection and its link stay as they are.";
-        document.getElementById("togroup-days-60").checked = true;
-        turnStatus.textContent = "";
-        turnStatus.className = "";
-        turnConfirm.disabled = false;
-        bootstrap.Modal.getOrCreateInstance(turnModal).show();
-    }
-
-    if (turnConfirm) {
-        turnConfirm.addEventListener("click", function () {
-            if (turnConfirm.disabled) return;
-            var chosen = turnModal.querySelector("input[name=togroup-days]:checked");
-            if (!chosen) return;
-            turnConfirm.disabled = true; // each request makes a new group
-            turnStatus.className = "text-muted small mt-3";
-            turnStatus.textContent = "Turning into a group…";
-            postJson("./groups/fromcollection", { collectionId: id, days: parseInt(chosen.value, 10) })
-                .then(function (data) { window.location.href = data.Url; })
-                .catch(function (error) {
-                    turnStatus.className = "alert alert-danger mt-3";
-                    turnStatus.textContent = "Could not turn into a group: " + errorText(error);
-                    turnConfirm.disabled = false;
-                });
-        });
-    }
-
     // --- The bar's buttons ----------------------------------------------
     bar.querySelectorAll("[data-owner-act]").forEach(function (button) {
         button.addEventListener("click", function () {
@@ -172,8 +136,10 @@
                     setPassword("", null);
                     break;
                 case "togroup":
+                    // The shared dialog, collection_togroup.js, loaded before this
                     closeForms();
-                    openTurnIntoGroup();
+                    say("", "");
+                    if (window.FGSTurnIntoGroup) FGSTurnIntoGroup.open(id, bar.getAttribute("data-name"));
                     break;
             }
         });

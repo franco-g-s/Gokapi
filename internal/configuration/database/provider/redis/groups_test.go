@@ -22,4 +22,9 @@ func TestGroupsUnsupported(t *testing.T) {
 	_, ok := instance.GetGroup("g1")
 	test.IsEqualBool(t, ok, false)
 	test.IsEqualInt(t, len(instance.GetAllGroups()), 0)
+	// R4: no collection is ever linked to a group
+	_, ok = instance.GetCollectionGroup("c1")
+	test.IsEqualBool(t, ok, false)
+	test.IsEqualInt(t, len(instance.GetCollectionGroupsOfGroup("g1")), 0)
+	test.IsEqualInt(t, len(instance.GetCollectionViewers("c1")), 0)
 }

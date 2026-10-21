@@ -70,6 +70,28 @@
   </div>
   {{ end }}
 
+  {{ with .Link }}
+  {{/* R4: the collection this group was made from; creator and admin only */}}
+  <div class="border border-secondary rounded p-2 mb-3" id="groupLink">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+      <span class="me-auto">Also shared as a link</span>
+      <button type="button" class="btn btn-sm btn-outline-danger" id="groupStopLink"><i class="bi bi-x-circle"></i> Stop the link</button>
+    </div>
+    <div class="input-group input-group-sm w-auto mb-2">
+      <input type="text" class="form-control font-monospace" id="groupLinkUrl" value="{{ .Url }}" size="36" readonly aria-label="Old link">
+      <button type="button" class="btn btn-outline-light copyurl" id="groupLinkCopy" data-clipboard-text="{{ .Url }}" title="Copy link" aria-label="Copy link"><i class="bi bi-copy"></i></button>
+    </div>
+    <div class="form-check">
+      <input class="form-check-input" type="radio" name="groupLinkMode" id="groupLinkInvite" value="invite"{{ if not .Require }} checked{{ end }}>
+      <label class="form-check-label" for="groupLinkInvite">Show the photos and invite to join</label>
+    </div>
+    <div class="form-check">
+      <input class="form-check-input" type="radio" name="groupLinkMode" id="groupLinkRequire" value="require"{{ if .Require }} checked{{ end }}>
+      <label class="form-check-label" for="groupLinkRequire">Require signing in and joining</label>
+    </div>
+  </div>
+  {{ end }}
+
   {{ if .NearCopies }}
   <div class="mb-3" id="groupNearCopies">
     {{ range .NearCopies }}

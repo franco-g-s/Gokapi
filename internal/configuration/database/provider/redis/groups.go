@@ -45,3 +45,14 @@ func (p DatabaseProvider) SaveCollectionSeen(s models.CollectionSeen)       {}
 func (p DatabaseProvider) GetCollectionsSeen(userId int) []models.CollectionSeen {
 	return []models.CollectionSeen{}
 }
+func (p DatabaseProvider) GetCollectionViewers(collectionId string) []models.CollectionSeen {
+	return []models.CollectionSeen{}
+}
+func (p DatabaseProvider) SaveCollectionGroup(cg models.CollectionGroup) { panic(groupsUnsupported) }
+func (p DatabaseProvider) GetCollectionGroup(collectionId string) (models.CollectionGroup, bool) {
+	return models.CollectionGroup{}, false
+}
+func (p DatabaseProvider) GetCollectionGroupsOfGroup(groupId string) []models.CollectionGroup {
+	return []models.CollectionGroup{}
+}
+func (p DatabaseProvider) DeleteCollectionGroup(collectionId string) { panic(groupsUnsupported) }

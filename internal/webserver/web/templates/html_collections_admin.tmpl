@@ -522,13 +522,14 @@ document.querySelectorAll(".collection-delete").forEach(function (button) {
 
 {{ template "pagename" "Collections"}}
 <script src="./js/min/admin.min.{{ template "js_admin_version"}}.js"></script>
+<script src="./js/min/collection_togroup.min.js?v={{ template "js_admin_version" }}"></script>
 {{ template "customjs" .}}
 
 {{template "footer" true}}
 {{end}}
 
-{{/* "Turn into a group", shared by the Collections tab (admin_ui_groupactions.js)
-     and the owner bar of a collection's own page (collection_owner.js) */}}
+{{/* "Turn into a group", shared by the Collections tab and the owner bar of a
+     collection's own page; both load collection_togroup.js, which runs it */}}
 {{ define "collection_togroup_modal" }}
 <div class="modal fade" id="togroup-modal" tabindex="-1" aria-labelledby="togroup-title" aria-hidden="true">
   <div class="modal-dialog gokapi-dialog">
@@ -542,6 +543,13 @@ document.querySelectorAll(".collection-delete").forEach(function (button) {
         <p class="text-muted small">
           The collection&rsquo;s password does not carry over: people join the group by signing in.
         </p>
+        <div class="mb-3 d-none" id="togroup-viewers">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="togroup-add-viewers" checked>
+            <label class="form-check-label" for="togroup-add-viewers">Add the people who opened this link while signed in</label>
+          </div>
+          <p class="text-muted small ms-4 mb-0" id="togroup-viewer-names"></p>
+        </div>
         <div class="form-check">
           <input class="form-check-input" type="radio" name="togroup-days" id="togroup-days-30" value="30">
           <label class="form-check-label" for="togroup-days-30">30 days</label>
@@ -558,6 +566,17 @@ document.querySelectorAll(".collection-delete").forEach(function (button) {
           <input class="form-check-input" type="radio" name="togroup-days" id="togroup-days-0" value="0">
           <label class="form-check-label" for="togroup-days-0">Never</label>
         </div>
+        <fieldset class="mt-3">
+          <legend class="fs-6 mb-1">Old link</legend>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="togroup-link" id="togroup-link-invite" value="invite" checked>
+            <label class="form-check-label" for="togroup-link-invite">Show the photos and invite to join</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="togroup-link" id="togroup-link-require" value="require">
+            <label class="form-check-label" for="togroup-link-require">Require signing in and joining</label>
+          </div>
+        </fieldset>
         <div id="togroup-status" aria-live="polite"></div>
       </div>
       <div class="modal-footer">

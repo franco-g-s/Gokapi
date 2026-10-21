@@ -100,6 +100,11 @@ func TestDownloadsAndCollectionsSeen(t *testing.T) {
 	var rows int
 	test.IsNil(t, instance.sqliteDb.QueryRow(`SELECT COUNT(*) FROM "Downloads" WHERE FileId = 'c2'`).Scan(&rows))
 	test.IsEqualInt(t, rows, 2) // user 8's own, and one for user 7
+	var at int64
+	var via string
+	test.IsNil(t, instance.sqliteDb.QueryRow(`SELECT At, Via FROM "Downloads" WHERE FileId = 'c2' AND UserId = 7`).Scan(&at, &via))
+	test.IsEqualInt64(t, at, 5) // the first time, by its route
+	test.IsEqualString(t, via, models.DownloadViaGroup)
 	test.IsEqualBool(t, instance.GetDownloadedFileIds(7)["c2"], true)
 	test.IsEqualBool(t, instance.GetDownloadedFileIds(8)["c2"], true)
 	test.IsEqualInt(t, len(instance.GetDownloadedFileIds(0)), 0)

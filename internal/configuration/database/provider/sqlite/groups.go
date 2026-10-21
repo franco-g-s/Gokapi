@@ -278,7 +278,8 @@ func (p DatabaseProvider) DeleteDownloadsOfFile(fileId string) {
 }
 
 // CopyDownloads gives every signed-in user who downloaded fromFileId one row
-// for toFileId (their first time, by the same route), unless they have a row
+// for toFileId (their first time, by the same route: SQLite takes the bare
+// Via from the row that has MIN(At)), unless they have a row
 // for it already. Anonymous rows belong to nobody and stay behind.
 func (p DatabaseProvider) CopyDownloads(fromFileId, toFileId string) {
 	if fromFileId == "" || toFileId == "" || fromFileId == toFileId {

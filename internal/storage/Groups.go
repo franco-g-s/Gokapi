@@ -641,7 +641,7 @@ func RemoveNearCopies(g models.Group, fileIds []string, keptId string, actor mod
 		inGroup[id] = true
 	}
 	kept, ok := database.GetMetaDataById(keptId)
-	if !ok || !inGroup[keptId] || kept.IsPendingForDeletion() {
+	if !ok || !inGroup[keptId] || kept.IsPendingForDeletion() || IsExpiredFile(kept, time.Now().Unix()) {
 		return 0, ErrNotACopy
 	}
 	for _, id := range fileIds {

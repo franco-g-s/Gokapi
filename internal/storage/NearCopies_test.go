@@ -3,6 +3,7 @@
 package storage
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -329,15 +330,30 @@ func TestRemoveNearCopies(t *testing.T) {
 	test.IsEqualInt(t, len(GroupFiles(g)), 3)
 	test.IsEqualBool(t, database.GetDownloadedFileIds(reader.Id)[older.Id], false)
 
+	// A kept copy that expired since the page loaded is not a copy to keep:
+	// removing the newer one would leave nothing visible
+	stale := nearFileAt(t, "rncstale", creator.Id, "", base^0b11, 0, 1500)
+	_, err = AddFilesToGroup(g, []string{stale.Id}, admin)
+	test.IsNil(t, err)
+	expired, _ := database.GetMetaDataById(stale.Id)
+	expired.ExpireAt = 1
+	database.SaveMetaData(expired)
+	t.Cleanup(func() { database.DeleteDownloadsOfFile(stale.Id) })
+	n, err := RemoveNearCopies(g, []string{newer.Id}, stale.Id, creator)
+	test.IsEqualBool(t, err == ErrNotACopy, true)
+	test.IsEqualInt(t, n, 0)
+	test.IsEqualBool(t, slices.Contains(database.GetGroupFileIds(g.Id), newer.Id), true)
+	test.IsEqualBool(t, database.GetDownloadedFileIds(reader.Id)[stale.Id], false)
+
 	// A stranger may not
 	_, err = RemoveNearCopies(g, []string{newer.Id}, older.Id, models.User{Id: 99, UserLevel: models.UserLevelUser})
 	test.IsEqualBool(t, err == ErrGroupForbidden, true)
 
 	// Anna may remove her own; Ben's tick follows, and Anna's already there
-	n, err := RemoveNearCopies(g, []string{newer.Id}, older.Id, member)
+	n, err = RemoveNearCopies(g, []string{newer.Id}, older.Id, member)
 	test.IsNil(t, err)
 	test.IsEqualInt(t, n, 1)
-	test.IsEqualInt(t, len(GroupFiles(g)), 2)
+	test.IsEqualInt(t, len(GroupFiles(g)), 2) // the expired one is not live
 	test.IsEqualBool(t, database.GetDownloadedFileIds(reader.Id)[older.Id], true)
 	test.IsEqualBool(t, database.GetDownloadedFileIds(member.Id)[older.Id], true)
 	test.IsEqualBool(t, database.GetDownloadedFileIds(creator.Id)[older.Id], false) // nobody else

@@ -24,8 +24,8 @@ import (
 // every context gets exactly these "⋯" entries and selection-bar actions, in
 // this order, and its default view.
 func TestFileBrowserActionTable(t *testing.T) {
-	manageMenu := []string{"open", "download", "copy", "hotlink", "share", "qr", "email", "edit", "replace", "add-to-collection", "delete"}
-	manageBulk := []string{"download", "zip", "photos", "link", "add-to-collection", "change-expiry", "delete"}
+	manageMenu := []string{"open", "download", "photos", "copy", "hotlink", "share", "qr", "email", "edit", "replace", "add-to-collection", "add-to-group", "delete"}
+	manageBulk := []string{"download", "zip", "photos", "link", "add-to-collection", "add-to-group", "change-expiry", "delete"}
 	want := map[string]struct {
 		menu, bulk []string
 		view       string
@@ -33,10 +33,11 @@ func TestFileBrowserActionTable(t *testing.T) {
 		ctxFiles:            {manageMenu, manageBulk, "grid"},
 		ctxUpload:           {manageMenu, manageBulk, "grid"},
 		ctxCollectionAdmin:  {append(append([]string{}, manageMenu...), "remove-from-collection"), append(append([]string{}, manageBulk...), "remove-from-collection"), "list"},
-		ctxFileRequest:      {[]string{"open", "download", "delete"}, []string{"download", "zip", "photos", "delete"}, "list"},
-		ctxCollectionPublic: {[]string{"open", "download"}, []string{"download", "zip", "photos"}, "list"},
+		ctxFileRequest:      {[]string{"open", "download", "photos", "delete"}, []string{"download", "zip", "photos", "delete"}, "list"},
+		ctxCollectionPublic: {[]string{"open", "download", "photos"}, []string{"download", "zip", "photos"}, "list"},
+		ctxGroup:            {[]string{"open", "download", "photos", "edit", "replace", "remove-from-group", "delete"}, []string{"download", "zip", "photos", "remove-from-group", "delete"}, "board"},
 	}
-	test.IsEqualInt(t, len(want), 5)
+	test.IsEqualInt(t, len(want), 6)
 	for context, w := range want {
 		b := newFileBrowser("b-"+context, context, nil, models.User{Id: 7})
 		test.IsEqualString(t, b.Context, context)
@@ -45,8 +46,10 @@ func TestFileBrowserActionTable(t *testing.T) {
 		test.IsEqualString(t, strings.Join(b.Bulk, ","), strings.Join(w.bulk, ","))
 		test.IsEqualString(t, b.DefaultView, w.view)
 		test.IsEqualBool(t, b.HasMenu("open"), true)
-		test.IsEqualBool(t, b.HasMenu("edit"), context == ctxFiles || context == ctxUpload || context == ctxCollectionAdmin)
+		test.IsEqualBool(t, b.HasMenu("edit"), context == ctxFiles || context == ctxUpload || context == ctxCollectionAdmin || context == ctxGroup)
 		test.IsEqualBool(t, b.HasBulk("remove-from-collection"), context == ctxCollectionAdmin)
+		// Save to Photos is in the "⋯" menu wherever Download is (R3)
+		test.IsEqualBool(t, b.HasMenu("photos"), b.HasMenu("download"))
 	}
 	// The scope switch is only for the Files tab, and only with PERM_LIST
 	admin := models.User{Id: 5, Permissions: models.UserPermissionAll}
@@ -221,16 +224,19 @@ func renderBrowser(t *testing.T, b fileBrowser) string {
 func TestFileBrowserRendersOnlyItsActions(t *testing.T) {
 	f := accessFile("browserrender0001", func(f *models.File) { f.SHA1 = "browserrendersha"; f.Name = "render.pdf" })
 	user := models.User{Id: 7}
-	allMenu := []string{"open", "download", "copy", "hotlink", "share", "qr", "email", "edit", "replace", "add-to-collection", "delete", "remove-from-collection"}
-	allBulk := []string{"download", "zip", "photos", "link", "add-to-collection", "change-expiry", "delete", "remove-from-collection"}
+	allMenu := []string{"open", "download", "photos", "copy", "hotlink", "share", "qr", "email", "edit", "replace", "add-to-collection", "add-to-group", "delete", "remove-from-collection", "remove-from-group"}
+	allBulk := []string{"download", "zip", "photos", "link", "add-to-collection", "add-to-group", "change-expiry", "delete", "remove-from-collection", "remove-from-group"}
 	collection := models.Collection{Id: "colrender"}
-	for _, context := range []string{ctxFiles, ctxUpload, ctxCollectionAdmin, ctxFileRequest, ctxCollectionPublic} {
+	for _, context := range []string{ctxFiles, ctxUpload, ctxCollectionAdmin, ctxFileRequest, ctxCollectionPublic, ctxGroup} {
 		t.Run(context, func(t *testing.T) {
 			r := sessionRequest("validsession")
 			item := browserItemFromFile(r, f, user, context, collection.Id, map[int]string{7: "Seven"})
 			b := newFileBrowser("b-"+context, context, []browserItem{item}, user)
 			if context == ctxCollectionAdmin || context == ctxCollectionPublic {
 				b.WithCollection(collection)
+			}
+			if context == ctxGroup {
+				b.WithGroup(models.Group{Id: collection.Id}, nil)
 			}
 			html := renderBrowser(t, b)
 			test.IsEqualBool(t, strings.Contains(html, `data-context="`+context+`"`), true)
@@ -241,6 +247,10 @@ func TestFileBrowserRendersOnlyItsActions(t *testing.T) {
 				want := b.HasBulk(key) && (key != "zip" || b.ZipUrl != "" || b.ZipByHandler)
 				test.IsEqualBool(t, strings.Contains(html, `data-act="`+key+`"`), want)
 			}
+			// Save to Photos starts hidden: media.js shows it on iOS, for photos and videos (R3)
+			photosEntry := `<li class="d-none"><button type="button" class="dropdown-item" data-menu="photos"><i class="bi bi-box-arrow-down"></i> Save to Photos</button></li>`
+			test.IsEqualBool(t, strings.Contains(html, photosEntry), b.HasMenu("photos"))
+			test.IsEqualBool(t, strings.Count(html, `data-menu="photos"`) == strings.Count(html, photosEntry), true)
 			// Copy link only where a share link exists
 			test.IsEqualBool(t, strings.Contains(html, "copyurl"), b.HasMenu("copy"))
 			legacy := context == ctxFiles || context == ctxUpload
@@ -324,11 +334,14 @@ func TestFileBrowserWithCollection(t *testing.T) {
 	pub.WithCollection(c)
 	test.IsEqualString(t, pub.CollectionId, "colzip")
 	test.IsEqualString(t, pub.ZipUrl, "./cz?id=colzip&files=")
+	test.IsEqualString(t, pub.ZipAllUrl, "./cz?id=colzip")
 	test.IsEqualString(t, pub.InfoUrl(), "./p/info?c=colzip&id=")
 	adm := newFileBrowser("a", ctxCollectionAdmin, nil, models.User{Id: 7})
 	adm.WithCollection(c)
 	test.IsEqualString(t, adm.CollectionId, "colzip")
 	test.IsEqualString(t, adm.ZipUrl, "./files/zip?ids=")
+	// /files/zip has no "everything" form
+	test.IsEqualString(t, adm.ZipAllUrl, "")
 }
 
 // Files added live get the same type icon as rendered ones: media.js holds
@@ -343,5 +356,251 @@ func TestFileTypeIconsMatchJs(t *testing.T) {
 	test.IsEqualInt(t, len(js), len(fileTypeIconGroups))
 	for icon, extensions := range fileTypeIconGroups {
 		test.IsEqualString(t, js[icon], extensions)
+	}
+}
+
+// A group page (Part 2, G3): the group's own download and zip, previews
+// through /p/info, Board first, and a managed list (edit is back, D4)
+func TestGroupBrowser(t *testing.T) {
+	people := []browserPerson{{Id: 7, Name: "seven"}, {Id: 8, Name: "anna"}}
+	b := newFileBrowser("g", ctxGroup, nil, models.User{Id: 7})
+	b.WithGroup(models.Group{Id: "G1"}, people)
+	test.IsEqualString(t, b.GroupId, "G1")
+	test.IsEqualString(t, b.ZipUrl, "./gz?id=G1&files=")
+	test.IsEqualString(t, b.ZipAllUrl, "./gz?id=G1")
+	test.IsEqualString(t, b.DownloadBase, "./gd?id=G1&file=")
+	test.IsEqualString(t, b.InfoUrl(), "./p/info?id=")
+	test.IsEqualString(t, b.DefaultView, "board")
+	test.IsEqualBool(t, b.SortTakenAsc, true)
+	test.IsEqualBool(t, b.GroupTools, true)
+	test.IsEqualBool(t, b.ShowUploader, true)
+	test.IsEqualInt(t, len(b.People), 2)
+	test.IsEqualBool(t, b.Manages(), true)
+	test.IsEqualBool(t, b.ItemPerms(), true)
+	// Without groups: file requests have item permissions but no management
+	fr := newFileBrowser("r", ctxFileRequest, nil, models.User{Id: 7})
+	test.IsEqualBool(t, fr.ItemPerms(), true)
+	test.IsEqualBool(t, fr.Manages(), false)
+	test.IsEqualBool(t, newFileBrowser("c", ctxCollectionPublic, nil, models.User{}).ItemPerms(), false)
+	test.IsEqualString(t, newFileBrowser("f", ctxFiles, nil, models.User{Id: 7}).DownloadBase, "")
+
+	// The item: the group download, the default branch's permissions. Edit
+	// follows the default branch (D4 revision): the owner may, others not.
+	f := accessFile("groupbrowser00001", func(f *models.File) { f.SHA1 = "groupbrowsersha"; f.Name = "fjord.jpg" })
+	names := map[int]string{7: "anna.mueller"}
+	r := sessionRequest("validsession")
+	own := browserItemFromFile(r, f, models.User{Id: 7}, ctxGroup, "G1", names)
+	test.IsEqualString(t, own.DownloadUrl, "./gd?id=G1&file="+f.Id)
+	test.IsEqualBool(t, own.Mine, true)
+	test.IsEqualBool(t, own.CanEdit, true)
+	test.IsEqualBool(t, own.CanDelete, true)
+	test.IsEqualInt(t, own.UploaderId, 7)
+	test.IsEqualString(t, own.Uploader, "anna.mueller")
+	test.IsEqualString(t, own.Initials, "AM")
+	test.IsEqualBool(t, own.CanRemove, false) // the caller decides (G10)
+	// Previews are not scoped to the group: CanView admits members
+	test.IsEqualBool(t, strings.Contains(own.Preview.Thumb, "&c="), false)
+	other := browserItemFromFile(r, f, models.User{Id: 8}, ctxGroup, "G1", names)
+	test.IsEqualBool(t, other.Mine, false)
+	test.IsEqualBool(t, other.CanEdit, false)
+	test.IsEqualBool(t, other.CanDelete, false)
+	test.IsEqualBool(t, other.CanReplace, false)
+	test.IsEqualInt(t, other.UploaderId, 7)
+
+	test.IsEqualString(t, initialsOf("anna.mueller"), "AM")
+	test.IsEqualString(t, initialsOf("ben"), "B")
+	test.IsEqualString(t, initialsOf(""), "")
+	test.IsEqualString(t, initialsOf("anna.maria.mueller"), "AM")
+	test.IsEqualString(t, initialsOf("élodie_roux"), "ÉR")
+}
+
+// D4: a file in a live group carries the group's name on every managing
+// page, and its menu tells the edit dialog to lock expiry and limits
+func TestGroupBrowserLock(t *testing.T) {
+	owner := models.User{Id: 7, UserLevel: models.UserLevelUser}
+	f := accessFile("groupbrowserlock1", func(f *models.File) { f.SHA1 = "groupbrowserlocksha"; f.Name = "lock.jpg" })
+	free := accessFile("groupbrowserfree1", func(f *models.File) { f.SHA1 = "groupbrowserfreesha"; f.Name = "free.jpg" })
+	g, err := storage.CreateGroup("Iceland trip", 30, owner)
+	test.IsNil(t, err)
+	defer database.DeleteGroup(g.Id)
+	res, err := storage.AddFilesToGroup(g, []string{f.Id}, owner)
+	test.IsNil(t, err)
+	test.IsEqualInt(t, len(res.Added), 1)
+	f, _ = database.GetMetaDataById(f.Id)
+
+	r := sessionRequest("validsession")
+	for _, context := range []string{ctxFiles, ctxUpload, ctxCollectionAdmin, ctxGroup} {
+		test.IsEqualString(t, browserItemFromFile(r, f, owner, context, g.Id, nil).GroupLock, "Iceland trip")
+		test.IsEqualString(t, browserItemFromFile(r, free, owner, context, g.Id, nil).GroupLock, "")
+	}
+	// Pages without the edit dialog never ask
+	test.IsEqualString(t, browserItemFromFile(r, f, owner, ctxFileRequest, "", nil).GroupLock, "")
+	test.IsEqualString(t, browserItemFromFile(httptest.NewRequest("GET", "/c", nil), f, models.User{}, ctxCollectionPublic, "col", nil).GroupLock, "")
+
+	item := browserItemFromFile(r, f, owner, ctxGroup, g.Id, nil)
+	b := newFileBrowser("g-lock", ctxGroup, []browserItem{item}, owner)
+	b.WithGroup(g, nil)
+	test.IsEqualBool(t, strings.Contains(renderBrowser(t, b), `data-group-lock="Iceland trip"`), true)
+	files := newFileBrowser("f-lock", ctxFiles, []browserItem{browserItemFromFile(r, free, owner, ctxFiles, "", nil)}, owner)
+	test.IsEqualBool(t, strings.Contains(renderBrowser(t, files), "data-group-lock"), false)
+}
+
+// The group page's markup: its filters and selections, the downloaded tick,
+// shooting order, and the menu entries of its row of the action table
+func TestGroupBrowserMarkup(t *testing.T) {
+	f := accessFile("groupbrowsermark1", func(f *models.File) { f.SHA1 = "groupbrowsermarksha"; f.Name = "mark.jpg"; f.UserId = 8 })
+	user := models.User{Id: 7}
+	r := sessionRequest("validsession")
+	item := browserItemFromFile(r, f, user, ctxGroup, "G1", map[int]string{8: "anna"})
+	item.Downloaded = true
+	item.CanRemove = true
+	b := newFileBrowser("g-mark", ctxGroup, []browserItem{item}, user)
+	b.WithGroup(models.Group{Id: "G1"}, []browserPerson{{Id: 8, Name: "anna"}, {Id: 7, Name: "<me>"}})
+	html := renderBrowser(t, b)
+	for _, want := range []string{`data-fgs-select-new`, `data-fgs-person`, `Hide what I&#39;ve downloaded`,
+		`data-downloaded="true"`, `data-can-remove="true"`, `data-sort="taken-asc"`, `data-fgs-select-all`,
+		`data-group-id="G1"`, `data-download-base="./gd?id=G1&amp;file="`, `data-group-tools="true"`,
+		`data-upload-sink="false"`, `data-uploader-id="8"`, `<option value="8">anna</option>`,
+		`<option value="7">&lt;me&gt;</option>`, `<option value="">Everyone</option>`,
+		`class="fgs-initials" aria-hidden="true">A</span>`, `class="fgs-tick"`,
+		`data-menu="edit"`, `data-menu="replace"`, `data-menu="remove-from-group"`, `data-act="remove-from-group"`,
+		`data-fgs-sort data-fgs-sort-dir="asc">Taken`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("group browser lacks %s", want)
+		}
+	}
+	for _, unwanted := range []string{`data-menu="copy"`, `data-menu="share"`, `data-menu="add-to-group"`, `data-fgs-sort>Uploaded`} {
+		if strings.Contains(html, unwanted) {
+			t.Errorf("group browser has %s", unwanted)
+		}
+	}
+
+	files := newFileBrowser("f-mark", ctxFiles, []browserItem{browserItemFromFile(r, f, user, ctxFiles, "", nil)}, user)
+	html = renderBrowser(t, files)
+	for _, want := range []string{`data-fgs-select-all`, `data-menu="add-to-group"`, `data-act="add-to-group"`,
+		`data-sort="uploaded-desc"`, `data-group-tools="false"`, `data-fgs-sort>Uploaded`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("files browser lacks %s", want)
+		}
+	}
+	for _, unwanted := range []string{`data-fgs-select-new`, `data-fgs-person`, `data-fgs-hide-downloaded`, `fgs-initials`, `data-menu="remove-from-group"`} {
+		if strings.Contains(html, unwanted) {
+			t.Errorf("files browser has %s", unwanted)
+		}
+	}
+}
+
+// R3: Save to Photos in one tap where the tap's activation survives the
+// downloads, an explicit "Ready" step where it does not, the date taken as
+// the file's date, and a viewer button. There is no browser harness, so the
+// script's load-bearing parts are checked as text.
+func TestSaveToPhotosScript(t *testing.T) {
+	js, err := staticFolderEmbedded.ReadFile("web/static/js/media.js")
+	test.IsNil(t, err)
+	for _, want := range []string{
+		"navigator.userActivation", ".isActive",
+		"opts.lastModified = date", "s * 1000", `getAttribute("data-taken")`, `getAttribute("data-uploaded")`,
+		`"Ready — tap to save"`, `" photos"`, "fgs-photos-ready",
+		`"NotAllowedError"`, `"AbortError"`,
+		"hide.bs.dropdown", "show.bs.dropdown", "clickEvent",
+		".fgs-v-photos", `what === "photos"`,
+	} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("media.js lacks %s", want)
+		}
+	}
+	// The old second-tap label is gone
+	test.IsEqualBool(t, strings.Contains(string(js), `button.textContent = "Save to Photos"`), false)
+
+	css, err := staticFolderEmbedded.ReadFile("web/static/css/media.css")
+	test.IsNil(t, err)
+	for _, want := range []string{
+		".fgs-menu .dropdown-menu{", "backdrop-filter:blur(", "-webkit-backdrop-filter:blur(",
+		"var(--fgs-radius,14px)", "var(--fgs-line,#2e2e2b)", ".fgs-menu .dropdown-item:focus-visible",
+		".btn.fgs-photos-ready", ".dropdown-item.fgs-photos-ready", "@keyframes fgs-pulse",
+		"prefers-reduced-motion", ".fgs-v-photos[hidden]{display:none}",
+	} {
+		if !strings.Contains(string(css), want) {
+			t.Errorf("media.css lacks %s", want)
+		}
+	}
+
+	var out bytes.Buffer
+	test.IsNil(t, templateFolder.ExecuteTemplate(&out, "media_viewer", nil))
+	viewer := out.String()
+	download := strings.Index(viewer, "fgs-v-download")
+	photos := strings.Index(viewer, `<button type="button" class="btn btn-sm btn-outline-light fgs-v-photos" hidden>Save to Photos</button>`)
+	test.IsEqualBool(t, download > 0, true)
+	// next to "Download original", hidden until media.js decides it applies
+	test.IsEqualBool(t, photos > download, true)
+}
+
+// F1: the remembered view is in place before the first paint. Each list root
+// is followed directly by an inline script that hands it to
+// FGS.presetView (media.js, loaded in the head), which can never throw; the
+// CSS shows only data-current-view's view, so the list no longer starts
+// d-none; and the default view's button is active as rendered. The key
+// choice itself is tested in build/dev/browser_view_test.mjs.
+func TestFileBrowserPresetsViewBeforePaint(t *testing.T) {
+	user := models.User{Id: 7}
+	for _, context := range []string{ctxFiles, ctxUpload, ctxCollectionAdmin, ctxFileRequest, ctxCollectionPublic, ctxGroup} {
+		t.Run(context, func(t *testing.T) {
+			b := newFileBrowser("b-"+context, context, nil, user)
+			if context == ctxGroup {
+				b.WithGroup(models.Group{Id: "grp42"}, nil)
+			}
+			html := renderBrowser(t, b)
+			script := `<script>try{window.FGS&&FGS.presetView&&FGS.presetView(document.getElementById("b-` + context + `"))}catch(e){}</script>`
+			at := strings.Index(html, script)
+			if at < 0 {
+				t.Fatalf("no preset script for %s", context)
+			}
+			// directly after the root's closing tag, before anything else
+			test.IsEqualBool(t, strings.HasSuffix(strings.TrimSpace(html[:at]), "</div>"), true)
+			test.IsEqualBool(t, strings.Contains(html, `<div class="table-responsive" data-fgs-list>`), true)
+			for _, v := range []string{viewGrid, viewBoard, viewList} {
+				class := "btn-outline-light"
+				if v == b.DefaultView {
+					class = "btn-light"
+				}
+				test.IsEqualBool(t, strings.Contains(html, `class="btn btn-sm `+class+`" data-layout="`+v+`"`), true)
+			}
+		})
+	}
+	// Groups start on Board, keyed by their own id
+	g := newFileBrowser("b-group", ctxGroup, nil, user)
+	g.WithGroup(models.Group{Id: "grp42"}, nil)
+	html := renderBrowser(t, g)
+	test.IsEqualBool(t, strings.Contains(html, `data-current-view="board"`), true)
+	test.IsEqualBool(t, strings.Contains(html, `data-group-id="grp42"`), true)
+
+	css, err := staticFolderEmbedded.ReadFile("web/static/css/media.css")
+	test.IsNil(t, err)
+	for _, want := range []string{
+		".fgs-browser[data-current-view=list]>.fgs-views>[data-fgs-grid]{display:none!important}",
+		".fgs-browser:not([data-current-view=list])>.fgs-views>[data-fgs-list]{display:none!important}",
+	} {
+		if !strings.Contains(string(css), want) {
+			t.Errorf("media.css lacks %s", want)
+		}
+	}
+	js, err := staticFolderEmbedded.ReadFile("web/static/js/media.js")
+	test.IsNil(t, err)
+	for _, want := range []string{"FGS.presetView = function (root)", "FGS.browserPrefKey = browserPrefKey"} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("media.js lacks %s", want)
+		}
+	}
+}
+
+// F1: iOS 27 drops the date taken on import, through Save to Photos and
+// through Files alike, so the help sheet promises nothing about dates
+func TestHelpSheetMakesNoDatePromise(t *testing.T) {
+	var out bytes.Buffer
+	test.IsNil(t, templateFolder.ExecuteTemplate(&out, "media_help_sheet", nil))
+	sheet := strings.ToLower(out.String())
+	test.IsEqualBool(t, strings.Contains(sheet, "fgs-help-sheet"), true)
+	for _, promise := range []string{"original date", "keep their", "timeline", "date and time"} {
+		test.IsEqualBool(t, strings.Contains(sheet, promise), false)
 	}
 }

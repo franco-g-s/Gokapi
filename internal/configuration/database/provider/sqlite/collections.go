@@ -97,6 +97,11 @@ func (p DatabaseProvider) DeleteCollection(id string) {
 	}
 	_, err := p.sqliteDb.Exec("DELETE FROM CollectionFiles WHERE CollectionId = ?", id)
 	helper.Check(err)
+	_, err = p.sqliteDb.Exec("DELETE FROM CollectionsSeen WHERE CollectionId = ?", id)
+	helper.Check(err)
+	// Part 2, R4: the link of a collection turned into a group goes with it
+	_, err = p.sqliteDb.Exec(`DELETE FROM "CollectionGroups" WHERE CollectionId = ?`, id)
+	helper.Check(err)
 	_, err = p.sqliteDb.Exec("DELETE FROM Collections WHERE Id = ?", id)
 	helper.Check(err)
 }

@@ -55,6 +55,12 @@ and each is useful before the next one starts.
 3. **Save to Photos (batching, big videos) and "View as…".**
 4. **Notifications and the Settings page.**
 
+**Must be built before the revamp is finished** (Franco, 2026-10-20). The
+board's batches of about 100 and its server-side filters ("Board layout",
+items 3 and 4) were built in neither part 1 nor part 2: every list still
+renders all its items at once, which is fine up to about 2,000 items. They
+are scheduled for **part 3**.
+
 ## Navigation
 
 Sidebar order (the custom `admin.js` sidebar):
@@ -335,7 +341,7 @@ did):
 
 | Table | Columns |
 |---|---|
-| `Groups` | id, name, creator user id, created, expires (0 = never), join-code hash, invite token |
+| `Groups` | id, name, creator user id, created, expires (0 = never), join code, invite token |
 | `GroupMembers` | group id, user id, joined, role (`creator` / `member`) |
 | `GroupFiles` | group id, file id |
 | `Downloads` | file id, user id (nullable for anonymous), at, via (`group` / `collection` / `file` / `zip`) |
@@ -373,6 +379,12 @@ uploading. Only your own files can be added; the admin can add anyone's.
     characters.
 
   Both are shown with copy buttons.
+
+  Revised 2026-10-20: the code is stored as is, not as a hash. The invite
+  token beside it is stored in plain text and grants the same access, and
+  both are shown to members again, so a hash protected nothing. Guessing is
+  stopped by rate limiting and the size of the code space; a leaked code is
+  undone with a reset.
 - **Joining:** open the link, or type the code under **Join** on the Groups
   tab, then sign in with Google if not already signed in. Join attempts are
   rate-limited per IP and per account through the existing rate limiter.
@@ -383,6 +395,10 @@ uploading. Only your own files can be added; the admin can add anyone's.
   - **Creator:** can rename, extend, reset the code (which invalidates the old
     code and link), remove members, remove any item, and delete the group.
   - **Members:** can delete only their own uploads.
+  - **Editing** (revised 2026-10-20): anyone who may edit a file can still
+    rename it or replace its content from a group page. While a file is in a
+    live group, its expiry, download limit and password follow the group and
+    cannot be edited anywhere.
   - **Admin:** can do everything, in every group.
 
 ### Groups tab (`/groups`)
@@ -560,6 +576,8 @@ Summaries are grouped by group and person:
 
 - the email switch above;
 - a display name, defaulting to the Google name, used on tiles and in emails.
+- a profile photo, taken from the Google sign-in, replacing the initials
+  that part 2 shows for members (Franco, 2026-10-20).
 
 ### Failure handling
 

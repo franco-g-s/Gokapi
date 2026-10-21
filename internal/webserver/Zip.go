@@ -12,7 +12,8 @@ import (
 
 // downloadCollectionZip serves every live member of a collection as one zip,
 // or with files= only the selected ones (selectedMembers). Same gate as /cd:
-// a password-protected collection needs its pc cookie.
+// a password-protected collection needs its pc cookie, unless the visitor
+// manages it (collectionUnlocked).
 func downloadCollectionZip(w http.ResponseWriter, r *http.Request) {
 	addNoCacheHeader(w)
 	collection, ok := storage.GetCollection(r.URL.Query().Get("id"))
@@ -20,11 +21,16 @@ func downloadCollectionZip(w http.ResponseWriter, r *http.Request) {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeFileNotFound)
 		return
 	}
-	if collection.IsPasswordProtected() && !isValidCollectionPwCookie(r, collection) {
+	if collectionClosed(r, collection) {
+		// R4: the link requires joining a group this visitor cannot see
+		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeFileNotFound)
+		return
+	}
+	if !collectionUnlocked(r, collection) {
 		redirect(w, r, "c?id="+collection.Id)
 		return
 	}
-	storage.ServeZip(selectedMembers(collection.Files, r), collection.Name, w, r, true)
+	storage.ServeZip(selectedMembers(collection.Files, r), collection.Name, w, tagDownload(r, models.DownloadViaZip), true)
 }
 
 // selectedMembers applies /cz's optional files= filter: the comma-separated
@@ -69,5 +75,5 @@ func downloadFilesZip(w http.ResponseWriter, r *http.Request) {
 		}
 		files = append(files, f)
 	}
-	storage.ServeZip(files, "Files", w, r, false)
+	storage.ServeZip(files, "Files", w, tagDownloadUser(r, models.DownloadViaZip, user.Id), false)
 }

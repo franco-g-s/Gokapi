@@ -12,13 +12,25 @@
 {{ define "file_browser" }}
 <div class="fgs-browser" id="{{ .Id }}" data-fgs-browser data-context="{{ .Context }}"
      data-default-view="{{ .DefaultView }}" data-current-view="{{ .DefaultView }}"
-     data-legacy-ids="{{ .LegacyIds }}" data-zip-url="{{ .ZipUrl }}" data-info-url="{{ .InfoUrl }}" data-collection-id="{{ .CollectionId }}"
+     data-legacy-ids="{{ .LegacyIds }}" data-zip-url="{{ .ZipUrl }}" data-zip-all-url="{{ .ZipAllUrl }}" data-info-url="{{ .InfoUrl }}" data-collection-id="{{ .CollectionId }}"
      data-count-label="{{ if eq .Context "upload" }}Uploaded now: {{ else }}Files: {{ end }}"
      data-user-id="{{ .ActiveUser.Id }}" data-user-name="{{ .ActiveUser.Name }}"
      data-perm-edit-others="{{ .Perm "edit-others" }}" data-perm-delete-others="{{ .Perm "delete-others" }}"
-     data-perm-replace="{{ .Perm "replace" }}" data-perm-replace-others="{{ .Perm "replace-others" }}">
+     data-perm-replace="{{ .Perm "replace" }}" data-perm-replace-others="{{ .Perm "replace-others" }}"
+     data-group-id="{{ .GroupId }}" data-download-base="{{ .DownloadBase }}"
+     data-sort="{{ if .SortTakenAsc }}taken-asc{{ else }}uploaded-desc{{ end }}"
+     data-group-tools="{{ .GroupTools }}" data-upload-sink="{{ .UploadSink }}">
   <div class="fgs-toolbar d-flex flex-wrap gap-2 align-items-center mb-3">
     <span class="fgs-count text-muted small me-auto" aria-live="polite"></span>
+    {{ if .GroupTools }}
+    <select class="form-select form-select-sm w-auto" data-fgs-person aria-label="Whose files">
+      <option value="">Everyone</option>
+      {{- range .People }}
+      <option value="{{ .Id }}">{{ .Name }}</option>
+      {{- end }}
+    </select>
+    <label class="form-check-label small text-nowrap"><input type="checkbox" class="form-check-input" data-fgs-hide-downloaded> Hide what I&#39;ve downloaded</label>
+    {{ end }}
     {{ if .ShowScope }}
     <div class="btn-group" role="group" aria-label="Whose files">
       <button type="button" class="btn btn-sm btn-light" data-scope="mine">My files</button>
@@ -26,9 +38,9 @@
     </div>
     {{ end }}
     <div class="btn-group" role="group" aria-label="Layout">
-      <button type="button" class="btn btn-sm btn-outline-light" data-layout="grid" title="Grid"><i class="bi bi-grid-3x3-gap"></i> <span class="fgs-label">Grid</span></button>
-      <button type="button" class="btn btn-sm btn-outline-light" data-layout="board" title="Board"><i class="bi bi-columns-gap"></i> <span class="fgs-label">Board</span></button>
-      <button type="button" class="btn btn-sm btn-outline-light" data-layout="list" title="List"><i class="bi bi-list-ul"></i> <span class="fgs-label">List</span></button>
+      <button type="button" class="btn btn-sm {{ if eq .DefaultView "grid" }}btn-light{{ else }}btn-outline-light{{ end }}" data-layout="grid" title="Grid"><i class="bi bi-grid-3x3-gap"></i> <span class="fgs-label">Grid</span></button>
+      <button type="button" class="btn btn-sm {{ if eq .DefaultView "board" }}btn-light{{ else }}btn-outline-light{{ end }}" data-layout="board" title="Board"><i class="bi bi-columns-gap"></i> <span class="fgs-label">Board</span></button>
+      <button type="button" class="btn btn-sm {{ if eq .DefaultView "list" }}btn-light{{ else }}btn-outline-light{{ end }}" data-layout="list" title="List"><i class="bi bi-list-ul"></i> <span class="fgs-label">List</span></button>
     </div>
     <div class="fgs-grid-only btn-group fgs-shape-toggle" role="group" aria-label="Tile shape">
       <button type="button" class="btn btn-sm btn-light" data-shape="square">Square</button>
@@ -40,6 +52,8 @@
 
   <div class="fgs-selectbar d-none" data-fgs-selectbar>
     <span class="fgs-selcount"></span>
+    <button type="button" class="btn btn-sm btn-outline-light" data-fgs-select-all>Select all ({{ len .Items }})</button>
+    {{ if .GroupTools }}<button type="button" class="btn btn-sm btn-outline-light" data-fgs-select-new>Select everything new to me</button>{{ end }}
     {{ range .Bulk }}{{ template "file_browser_bulk_button" ($.BulkButton .) }}{{ end }}
     <button type="button" class="btn btn-sm btn-link text-muted d-none" data-fgs-help aria-label="How to save to Photos"><i class="bi bi-question-circle"></i></button>
     <span id="{{ .Id }}-selstatus" class="fgs-selstatus small text-muted" aria-live="polite"></span>
@@ -50,16 +64,17 @@
     <div class="fgs-grid" data-fgs-grid>
       {{ range $i, $item := .Items }}{{ template "file_browser_tile" ($.TileAt $i $item) }}{{ end }}
     </div>
-    <div class="table-responsive d-none" data-fgs-list>
+    <div class="table-responsive" data-fgs-list>
       <table class="table table-dark align-middle fgs-table" id="{{ .Id }}-table">
         <thead><tr>
           <th class="fgs-col-check" data-fgs-nosort></th>
           <th>Name</th>
           {{ if .ShowUploader }}<th>Uploaded by</th>{{ end }}
-          <th data-fgs-sort>Uploaded</th>
-          <th>Taken</th>
+          {{ if .SortTakenAsc }}<th>Uploaded</th>
+          <th data-fgs-sort data-fgs-sort-dir="asc">Taken</th>{{ else }}<th data-fgs-sort>Uploaded</th>
+          <th>Taken</th>{{ end }}
           <th>Size</th>
-          {{ if .Manages }}<th>Expires</th><th>Downloads</th>{{ end }}
+          {{ if .ManagesColumns }}<th>Expires</th><th>Downloads</th>{{ end }}
           <th class="text-end" data-fgs-nosort>Actions</th>
         </tr></thead>
         <tbody>
@@ -75,6 +90,9 @@
   <template data-fgs-tpl="tile">{{ template "file_browser_tile" ($.TileAt -1 $.Blank) }}</template>
   <template data-fgs-tpl="row">{{ template "file_browser_row" ($.TileAt -1 $.Blank) }}</template>
 </div>
+{{- /* Before the first paint: the remembered view (media.js, FGS.presetView;
+       media.css shows only data-current-view's view). Never throws. */}}
+<script>try{window.FGS&&FGS.presetView&&FGS.presetView(document.getElementById({{ .Id }}))}catch(e){}</script>
 {{ end }}
 
 {{/* One selection-bar button. Zip only where the page has a zip endpoint. */}}
@@ -84,16 +102,19 @@
 {{- else if eq .Key "photos" }}<button type="button" class="btn btn-sm btn-outline-light d-none" data-act="photos">Save to Photos</button>
 {{- else if eq .Key "link" }}<button type="button" class="btn btn-sm btn-outline-light" data-act="link">Create one link</button>
 {{- else if eq .Key "add-to-collection" }}<button type="button" class="btn btn-sm btn-outline-light" data-act="add-to-collection">Add to collection…</button>
+{{- else if eq .Key "add-to-group" }}<button type="button" class="btn btn-sm btn-outline-light" data-act="add-to-group">Add to group…</button>
 {{- else if eq .Key "change-expiry" }}<button type="button" class="btn btn-sm btn-outline-light" data-act="change-expiry">Change expiry &amp; limits</button>
 {{- else if eq .Key "delete" }}<button type="button" class="btn btn-sm btn-outline-danger" data-act="delete">Delete</button>
 {{- else if eq .Key "remove-from-collection" }}<button type="button" class="btn btn-sm btn-outline-danger" data-act="remove-from-collection">Remove from collection</button>
+{{- else if eq .Key "remove-from-group" }}<button type="button" class="btn btn-sm btn-outline-danger" data-act="remove-from-group">Remove from group</button>
 {{- end }}
 {{ end }}
 
 {{/* One file in Grid and Board. Dot is a browserTile. The data-* attributes
      feed FGS.itemFromEl (the viewer) and the selection bar. */}}
 {{ define "file_browser_tile" }}{{ $it := .Item }}{{ $f := $it.File }}
-<figure class="fgs-tile" data-mine="{{ $it.Mine }}" data-id="{{ $f.Id }}" data-name="{{ $f.Name }}"
+<figure class="fgs-tile" data-mine="{{ $it.Mine }}" data-id="{{ $f.Id }}" data-name="{{ $f.Name }}"{{ if $it.Foreign }} data-foreign="true"{{ end }}
+        data-uploader-id="{{ $it.UploaderId }}" data-downloaded="{{ $it.Downloaded }}"
         data-download="{{ $it.DownloadUrl }}" data-view="{{ $it.Preview.View }}" data-video="{{ $it.Preview.Video }}"
         data-kind="{{ $it.Preview.Kind }}" data-preview-status="{{ $it.Preview.Status }}"
         data-uploader="{{ $it.Uploader }}" data-taken="{{ $it.TakenAt }}" data-uploaded="{{ $f.UploadDate }}"
@@ -107,6 +128,9 @@
     {{- end }}
   </button>
   <input type="checkbox" class="form-check-input fgs-tile-check" aria-label="Select {{ $f.Name }}">
+  <span class="fgs-tick" aria-label="Downloaded" title="Downloaded"><i class="bi bi-check-circle-fill"></i></span>
+  {{- if .B.GroupTools }}
+  <span class="fgs-initials" aria-hidden="true">{{ $it.Initials }}</span>{{ end }}
   {{ template "file_browser_menu" . }}
   <figcaption><span class="fgs-name">{{ $f.Name }}</span>
     <span class="fgs-meta"><span class="fgs-meta-uploader">{{ if $it.Uploader }}{{ $it.Uploader }} · {{ end }}</span><span data-ts="{{ $f.UploadDate }}"></span></span></figcaption>
@@ -117,24 +141,28 @@
      cell-downloads-, url-button-) are the ones the upload page's helpers
      look up. They are only rendered where a page holds one browser (files,
      upload, LegacyIds), so a file listed twice never repeats an id. */}}
-{{ define "file_browser_row" }}{{ $b := .B }}{{ $it := .Item }}{{ $f := $it.File }}
-<tr data-mine="{{ $it.Mine }}" data-row-id="{{ $f.Id }}"{{ if and $b.LegacyIds $f.Id }} id="row-{{ $f.Id }}"{{ end }}>
+{{ define "file_browser_row" }}{{ $b := .B }}{{ $it := .Item }}{{ $f := $it.File }}{{ $ids := and $b.LegacyIds $f.Id (not $it.Foreign) }}
+<tr data-mine="{{ $it.Mine }}" data-row-id="{{ $f.Id }}" data-downloaded="{{ $it.Downloaded }}"{{ if $ids }} id="row-{{ $f.Id }}"{{ end }}>
   <td class="fgs-col-check"><input type="checkbox" class="form-check-input fgs-row-check" aria-label="Select {{ $f.Name }}"></td>
   <td data-col="name" data-order="{{ $f.Name }}"><div class="fgs-list-name">
     {{- if $it.Preview.Thumb }}<img class="fgs-list-thumb" loading="lazy" decoding="async" src="{{ $it.Preview.Thumb }}" alt="" style="background:{{ $it.Preview.Color }}">{{ else }}<span class="fgs-list-thumb fgs-list-icon" aria-hidden="true"><i class="bi {{ or $it.Icon "bi-file-earmark" }}"></i></span>{{ end }}
-    <button type="button" class="btn btn-link fgs-name-open" title="Open"><span class="fgs-row-name"{{ if and $b.LegacyIds $f.Id }} id="cell-name-{{ $f.Id }}"{{ end }}>{{ $f.Name }}</span></button>
+    <button type="button" class="btn btn-link fgs-name-open" title="Open"><span class="fgs-row-name"{{ if $ids }} id="cell-name-{{ $f.Id }}"{{ end }}>{{ $f.Name }}</span></button>
+    {{- if $b.GroupTools }}<span class="fgs-row-tick" aria-label="Downloaded" title="Downloaded"><i class="bi bi-check-circle-fill"></i></span>{{ end }}
   </div></td>
   {{ if $b.ShowUploader }}<td data-col="uploader">{{ $it.Uploader }}</td>{{ end }}
   <td data-col="uploaded" data-order="{{ $f.UploadDate }}"><span data-ts="{{ $f.UploadDate }}"></span></td>
-  <td data-col="taken" data-order="{{ $it.TakenAt }}">{{ if $it.TakenAt }}<span data-ts="{{ $it.TakenAt }}"></span>{{ else }}—{{ end }}</td>
+  <td data-col="taken" data-order="{{ if or $it.TakenAt (not $b.SortTakenAsc) }}{{ $it.TakenAt }}{{ else }}{{ $f.UploadDate }}{{ end }}">{{ if $it.TakenAt }}<span data-ts="{{ $it.TakenAt }}"></span>{{ else }}—{{ end }}</td>
   <td data-col="size" data-order="{{ $it.Bytes }}">{{ $f.Size }}</td>
-  {{ if $b.Manages }}
+  {{ if $b.ManagesColumns }}
+  {{ if $it.Foreign }}<td data-col="expires" data-order="0">—</td>
+  <td data-col="downloads" data-order="0">—</td>
+  {{ else }}
   {{ if $f.UnlimitedTime }}<td data-col="expires" data-order="9223372036854775807">Never</td>{{ else }}<td data-col="expires" data-order="{{ $f.ExpireAt }}"><span data-ts="{{ $f.ExpireAt }}"></span></td>{{ end }}
-  <td data-col="downloads"{{ if and $b.LegacyIds $f.Id }} id="cell-downloads-{{ $f.Id }}"{{ end }}>{{ $f.DownloadCount }}</td>
-  {{ end }}
+  <td data-col="downloads"{{ if $ids }} id="cell-downloads-{{ $f.Id }}"{{ end }}>{{ $f.DownloadCount }}</td>
+  {{ end }}{{ end }}
   <td class="text-end"><div class="fgs-list-actions">
-    {{- if $b.HasMenu "copy" }}
-    <button{{ if and $b.LegacyIds $f.Id }} id="url-button-{{ $f.Id }}"{{ end }} type="button" class="copyurl btn btn-outline-light btn-sm" onclick="showToast(1000)"
+    {{- if and ($b.HasMenu "copy") (not $it.Foreign) }}
+    <button{{ if $ids }} id="url-button-{{ $f.Id }}"{{ end }} type="button" class="copyurl btn btn-outline-light btn-sm" onclick="showToast(1000)"
       data-clipboard-text="{{ $f.UrlDownload }}" title="Copy link" aria-label="Copy link"><i class="bi bi-copy"></i></button>
     {{- else if $b.HasMenu "download" }}
     <button type="button" class="btn btn-outline-light btn-sm" data-menu="download" title="Download" aria-label="Download"><i class="bi bi-download"></i></button>
@@ -146,14 +174,17 @@
 
 {{/* The "⋯" menu, the same in every view: only the context's actions. Dot
      is a browserTile. The management data feeds the edit dialog and the
-     bulk "Change expiry & limits". */}}
+     bulk "Change expiry & limits"; a Foreign item (someone else's file,
+     reached through a group) never carries it (I2). */}}
 {{ define "file_browser_menu" }}{{ $b := .B }}{{ $it := .Item }}{{ $f := $it.File }}
 <div class="dropdown fgs-menu" data-fgs-file-menu data-id="{{ $f.Id }}"
-  {{- if $b.Manages }} data-url="{{ $f.UrlDownload }}"
+  {{- if and $b.Manages (not $it.Foreign) }} data-url="{{ $f.UrlDownload }}"
      data-downloads="{{ $f.DownloadsRemaining }}" data-unlimited-downloads="{{ $f.UnlimitedDownloads }}"
      data-expire="{{ $f.ExpireAt }}" data-unlimited-time="{{ $f.UnlimitedTime }}"
      data-password="{{ $f.IsPasswordProtected }}" data-e2e="{{ $f.IsEndToEndEncrypted }}"
-     data-can-edit="{{ $it.CanEdit }}" data-can-delete="{{ $it.CanDelete }}" data-can-replace="{{ $it.CanReplace }}"{{ end }}>
+     data-can-edit="{{ $it.CanEdit }}" data-can-replace="{{ $it.CanReplace }}"{{ end }}
+  {{- if $b.ItemPerms }} data-can-delete="{{ $it.CanDelete }}" data-can-remove="{{ $it.CanRemove }}"{{ end }}
+  {{- if $it.GroupLock }} data-group-lock="{{ $it.GroupLock }}"{{ end }}>
   <button type="button" class="btn btn-sm fgs-menu-btn" data-bs-toggle="dropdown" data-bs-popper-config='{"strategy":"fixed"}'
     aria-expanded="false" aria-label="Actions for {{ $f.Name }}" title="Actions"><i class="bi bi-three-dots"></i></button>
   <ul class="dropdown-menu dropdown-menu-end" data-bs-theme="dark">
@@ -161,38 +192,46 @@
     <li><button type="button" class="dropdown-item" data-menu="open"><i class="bi bi-arrows-fullscreen"></i> Open</button></li>{{ end }}
     {{- if $b.HasMenu "download" }}
     <li><button type="button" class="dropdown-item" data-menu="download"{{ if $f.IsEndToEndEncrypted }} disabled{{ end }}><i class="bi bi-download"></i> {{ if $b.Manages }}Download original{{ else }}Download{{ end }}</button></li>{{ end }}
+    {{- if $b.HasMenu "photos" }}
+    {{/* Hidden until media.js decides it applies (iOS, navigator.canShare, a photo or video it can fetch), as the selection bar's button is */}}
+    <li class="d-none"><button type="button" class="dropdown-item" data-menu="photos"><i class="bi bi-box-arrow-down"></i> Save to Photos</button></li>{{ end }}
     {{- if $b.HasMenu "copy" }}
-    <li><button type="button" class="dropdown-item copyurl" data-menu="copy" data-clipboard-text="{{ $f.UrlDownload }}"><i class="bi bi-copy"></i> Copy link</button></li>{{ end }}
+    <li><button type="button" class="dropdown-item copyurl" data-menu="copy" data-clipboard-text="{{ $f.UrlDownload }}"{{ if $it.Foreign }} disabled{{ end }}><i class="bi bi-copy"></i> Copy link</button></li>{{ end }}
     {{- if $b.HasMenu "hotlink" }}
     {{/* Always rendered where it can apply: a file added live may have one. media.js (fillMenu) shows it. */}}
     <li{{ if not $f.UrlHotlink }} class="d-none"{{ end }}><button type="button" class="dropdown-item copyurl" data-menu="hotlink" data-clipboard-text="{{ $f.UrlHotlink }}"><i class="bi bi-image"></i> Copy hotlink</button></li>{{ end }}
     {{- if $b.HasMenu "share" }}
-    <li><button type="button" class="dropdown-item" data-menu="share"><i class="bi bi-box-arrow-up"></i> Share…</button></li>{{ end }}
+    <li><button type="button" class="dropdown-item" data-menu="share"{{ if $it.Foreign }} disabled{{ end }}><i class="bi bi-box-arrow-up"></i> Share…</button></li>{{ end }}
     {{- if $b.HasMenu "qr" }}
-    <li><button type="button" class="dropdown-item" data-menu="qr"><i class="bi bi-qr-code"></i> QR code</button></li>{{ end }}
+    <li><button type="button" class="dropdown-item" data-menu="qr"{{ if $it.Foreign }} disabled{{ end }}><i class="bi bi-qr-code"></i> QR code</button></li>{{ end }}
     {{- if $b.HasMenu "email" }}
     {{/* The link is made from data-url when clicked (admin_ui_filebrowser.js), so end-to-end encrypted files carry their #key */}}
-    <li><a class="dropdown-item" data-menu="email" href="mailto:?body={{ $f.UrlDownload | urlquery }}" target="_blank" rel="noopener" title="Share via email"><i class="bi bi-envelope"></i> Email</a></li>{{ end }}
-    {{- if or ($b.HasMenu "edit") ($b.HasMenu "replace") ($b.HasMenu "add-to-collection") }}
+    <li><a class="dropdown-item{{ if $it.Foreign }} disabled{{ end }}"{{ if $it.Foreign }} aria-disabled="true"{{ end }} data-menu="email" href="mailto:?body={{ $f.UrlDownload | urlquery }}" target="_blank" rel="noopener" title="Share via email"><i class="bi bi-envelope"></i> Email</a></li>{{ end }}
+    {{- if or ($b.HasMenu "edit") ($b.HasMenu "replace") ($b.HasMenu "add-to-collection") ($b.HasMenu "add-to-group") }}
     <li><hr class="dropdown-divider"></li>{{ end }}
     {{- if $b.HasMenu "edit" }}
     <li><button type="button" class="dropdown-item" data-menu="edit"{{ if not $it.CanEdit }} disabled{{ end }}><i class="bi bi-pencil"></i> Edit</button></li>{{ end }}
     {{- if $b.HasMenu "replace" }}
     <li><button type="button" class="dropdown-item" data-menu="replace"{{ if not $it.CanReplace }} disabled{{ end }}><i class="bi bi-arrow-repeat"></i> Replace content</button></li>{{ end }}
     {{- if $b.HasMenu "add-to-collection" }}
-    <li><button type="button" class="dropdown-item" data-menu="add-to-collection"{{ if $f.IsEndToEndEncrypted }} disabled{{ end }}><i class="bi bi-collection"></i> Add to collection…</button></li>{{ end }}
-    {{- if or ($b.HasMenu "delete") ($b.HasMenu "remove-from-collection") }}
+    <li><button type="button" class="dropdown-item" data-menu="add-to-collection"{{ if or $f.IsEndToEndEncrypted $it.Foreign }} disabled{{ end }}><i class="bi bi-collection"></i> Add to collection…</button></li>{{ end }}
+    {{- if $b.HasMenu "add-to-group" }}
+    <li><button type="button" class="dropdown-item" data-menu="add-to-group"{{ if or $f.IsEndToEndEncrypted $it.Foreign }} disabled{{ end }}><i class="bi bi-people"></i> Add to group…</button></li>{{ end }}
+    {{- if or ($b.HasMenu "delete") ($b.HasMenu "remove-from-collection") ($b.HasMenu "remove-from-group") }}
     <li><hr class="dropdown-divider"></li>{{ end }}
     {{- if $b.HasMenu "remove-from-collection" }}
     <li><button type="button" class="dropdown-item" data-menu="remove-from-collection"><i class="bi bi-dash-circle"></i> Remove from collection</button></li>{{ end }}
+    {{- if $b.HasMenu "remove-from-group" }}
+    <li><button type="button" class="dropdown-item" data-menu="remove-from-group"{{ if not $it.CanRemove }} disabled{{ end }}><i class="bi bi-dash-circle"></i> Remove from group</button></li>{{ end }}
     {{- if $b.HasMenu "delete" }}
     <li><button type="button" class="dropdown-item text-danger" data-menu="delete"{{ if not $it.CanDelete }} disabled{{ end }}><i class="bi bi-trash3"></i> Delete</button></li>{{ end }}
   </ul>
 </div>
 {{ end }}
 
-{{/* Page singleton: the dialogs behind "Add to collection…" and "Change
-     expiry & limits". Dot is the server URL (AdminView.ServerUrl). */}}
+{{/* Page singleton: the dialogs behind "Add to collection…", "Add to
+     group…" (wired up by G8) and "Change expiry & limits". Dot is the
+     server URL (AdminView.ServerUrl). */}}
 {{ define "file_browser_dialogs" }}
 <div class="modal fade" id="fgs-collect-modal" tabindex="-1" aria-labelledby="fgs-collect-title" aria-hidden="true" data-server-url="{{ . }}">
   <div class="modal-dialog gokapi-dialog">
@@ -212,6 +251,26 @@
         <div id="fgs-collect-result" aria-live="polite"></div>
       </div>
       <div class="modal-footer">
+        <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="fgs-group-modal" tabindex="-1" aria-labelledby="fgs-group-title" aria-hidden="true">
+  <div class="modal-dialog gokapi-dialog">
+    <div class="modal-content gokapi-dialog text-start">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="fgs-group-title">Add to group…</h1>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small" id="fgs-group-what"></p>
+        <div class="list-group mb-3 fgs-collect-list" id="fgs-group-list" aria-label="Your groups"></div>
+        <div id="fgs-group-result" aria-live="polite"></div>
+      </div>
+      <div class="modal-footer">
+        <a class="me-auto small" href="./groups">Create a group on the Groups tab</a>
         <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Close</button>
       </div>
     </div>

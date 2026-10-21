@@ -13,9 +13,10 @@
   // download URLs: saving to Photos is a download.
   function collectionDownloads() {
     return Array.prototype.map.call(document.querySelectorAll("[data-fgs-browser] .fgs-tile"), function (t) {
-      var url = t.getAttribute("data-download");
-      return { url: url ? new URL(url, window.location.href).href : "", name: t.getAttribute("data-name") || "",
-        bytes: parseInt(t.getAttribute("data-bytes"), 10) };
+      var it = FGS.fileItemFromEl(t);
+      it.url = it.url ? new URL(it.url, window.location.href).href : "";
+      it.name = it.name || "";
+      return it;
     }).filter(function (it) { return it.url; });
   }
 
@@ -112,10 +113,14 @@
     })();
   };
 
-  // Save to Photos, in two taps: navigator.share needs a fresh tap, and a
-  // share() after fetching large originals is likely to be rejected by Safari.
-  // Tap 1 fetches the originals ("Preparing n/N"); tap 2 opens the share sheet,
-  // where "Save N Images" puts them straight into Photos. Always pass the
+  // Save to Photos, in one tap where it can be. The tap fetches the originals;
+  // if its user activation is still alive once they have arrived
+  // (navigator.userActivation.isActive), the share sheet opens at once, where
+  // "Save N Images" puts them straight into Photos. Safari only opens the
+  // sheet with that activation, and it lapses during a slow fetch: then, and
+  // where the browser cannot say, the button turns into a highlighted
+  // "Ready — tap to save" and the next tap shares. Each File carries the date
+  // taken as its lastModified, the upload date standing in. Always pass the
   // original-file download URLs (/cd on a board, counted; /files/download on
   // the Files tab, uncounted), never view or video URLs. Batching and the video limit
   // are refined on-device in Part 3.
@@ -132,8 +137,55 @@
     return (m && MIME_BY_EXT[m[1].toLowerCase()]) || blobType || "application/octet-stream";
   }
 
+  // A photo or video Photos can take: by the preview's kind, or by the name
+  // where there is no preview (yet)
+  FGS.isPhotoOrVideo = function (kind, name) {
+    return kind === "image" || kind === "video" || /^(image|video)\//.test(photoMime(name, ""));
+  };
+
+  // A file list tile (or anything carrying its data-*) as a Save to Photos /
+  // download item: the original's URL, name, stored size and dates (seconds)
+  FGS.fileItemFromEl = function (el) {
+    return { url: el.getAttribute("data-download"), name: el.getAttribute("data-name"),
+      bytes: parseInt(el.getAttribute("data-bytes"), 10),
+      taken: parseInt(el.getAttribute("data-taken"), 10) || 0,
+      uploaded: parseInt(el.getAttribute("data-uploaded"), 10) || 0 };
+  };
+
+  // The File's date: when it was taken, else when it was uploaded, in ms.
+  // Undefined leaves the browser's default (now).
+  function photoDate(it) {
+    var s = (it && (it.taken || it.uploaded)) || 0;
+    return s > 0 ? s * 1000 : undefined;
+  }
+
   var PREPARE_MAX_BYTES = 1.5e9;  // per prepare tap; the rest goes in another batch or the zip
   var VIDEO_RE = /\.(mov|mp4|m4v)$/i;
+  var READY_LABEL = "Ready — tap to save";
+
+  // The tap that started the downloads still counts as a user gesture.
+  // Without the API there is no telling, so the explicit second tap it is.
+  function activationAlive() {
+    var ua = navigator.userActivation;
+    return !!(ua && ua.isActive);
+  }
+
+  // The label, keeping a leading icon (the "⋯" menu entry has one)
+  function setPhotosLabel(button, text, ready) {
+    if (button._fgsIcon) {
+      button.textContent = "";
+      button.appendChild(button._fgsIcon.cloneNode(true));
+      button.appendChild(document.createTextNode(" " + text));
+    } else {
+      button.textContent = text;
+    }
+    button.classList.toggle("fgs-photos-ready", !!ready);
+  }
+  // Prepared and waiting for its tap: "Ready — tap to save" (" N photos" for several)
+  function showReady(button, state) {
+    var n = Math.min(PHOTO_BATCH, state.files.length - state.next);
+    setPhotosLabel(button, READY_LABEL + (n > 1 ? " " + n + " photos" : ""), true);
+  }
 
   // Forget any prepared set and put the button back to its first-tap label.
   // Called when the selection changes, and on unexpected failure.
@@ -143,124 +195,149 @@
     button._fgs = null;
     if (button._fgsTimer) { window.clearTimeout(button._fgsTimer); button._fgsTimer = null; }
     button.disabled = false;
+    button.classList.remove("fgs-photos-ready");
     if (button._fgsLabel !== undefined) button.innerHTML = button._fgsLabel;
   };
 
-  // items: [{url, name, bytes}]. bytes is the stored size and is what decides
-  // what is fetched: /cd counts a download before it sends a body, so a file
-  // that can't be shared must be ruled out BEFORE the request, never after.
-  FGS.saveToPhotos = function (list, button) {
-    if (!navigator.canShare) { FGS.openHelpSheet(); return; }
-    if (button._fgsLabel === undefined) button._fgsLabel = button.innerHTML;
-    var state = button._fgs || (button._fgs = { files: null, next: 0 });
-    if (state.busy) return;
-    if (button._fgsTimer) { window.clearTimeout(button._fgsTimer); button._fgsTimer = null; }
-
-    if (!state.files) {
-      // Spend no download on files this browser can't share anyway
-      var probeOk = false;
-      try { probeOk = navigator.canShare({ files: [new File([""], "probe.jpg", { type: "image/jpeg" })] }); } catch (e) { /* unsupported */ }
-      if (!probeOk) { button._fgs = null; FGS.openHelpSheet(); return; }
-
-      // Items without a url (password or client-side encrypted files) cannot be fetched
-      var all = list || [];
-      var noUrl = 0, bigVideos = 0, overCap = 0, failed = 0, total = 0;
-      var items = [];
-      all.forEach(function (it) {
-        if (!it || !it.url) { noUrl++; return; }
-        var known = typeof it.bytes === "number" && it.bytes >= 0;
-        if (known && VIDEO_RE.test(it.name) && it.bytes > VIDEO_MAX_BYTES) { bigVideos++; return; }
-        if (known) {
-          if (total + it.bytes > PREPARE_MAX_BYTES && items.length) { overCap++; return; }
-          total += it.bytes;
-        }
-        items.push(it);
-      });
-      function report() {
-        var notes = [];
-        if (bigVideos) notes.push(bigVideos + " large video(s) were left out");
-        if (overCap) notes.push(overCap + " file(s) didn't fit in one go");
-        if (failed) notes.push(failed + " file(s) could not be fetched");
-        if (noUrl) notes.push(noUrl + " file(s) can't be fetched here");
-        if (notes.length) alert(notes.join("; ") + ". Use Download as .zip for those" + (failed ? ", or try again." : "."));
-      }
-      if (!items.length) { button._fgs = null; report(); return; }
-
-      state.busy = true;
-      button.disabled = true;
-      var done = 0, files = [], fetched = 0;
-      button.textContent = "Preparing 0/" + items.length + "…";
-      var tick = function () { if (state.cancelled) return; done++; button.textContent = "Preparing " + done + "/" + items.length + "…"; };
-      items.reduce(function (p, it) {
-        return p.then(function () {
-          if (state.cancelled) return null;
-          var known = typeof it.bytes === "number" && it.bytes >= 0;
-          // Size unknown: stop before a fetch that would pass the cap, so the
-          // rest is left for another batch
-          if (!known && fetched >= PREPARE_MAX_BYTES) { overCap++; return null; }
-          // it.url may be a function returning a promise of the url, for links
-          // that are only valid for a moment (the File requests page)
-          return Promise.resolve(typeof it.url === "function" ? it.url() : it.url).then(function (url) {
-            return fetch(url, { credentials: "same-origin" });
-          }).then(function (r) {
-            // An error page must never be wrapped up as a photo
-            if (!r.ok) { failed++; return null; }
-            // Fallback only (size unknown): by now the request has been counted
-            var len = parseInt(r.headers.get("Content-Length") || "0", 10);
-            if (!known && VIDEO_RE.test(it.name) && len > VIDEO_MAX_BYTES) {
-              bigVideos++;
-              if (r.body && r.body.cancel) r.body.cancel();
-              return null;
-            }
-            return r.blob();
-          }).then(function (b) {
-            if (b) { fetched += b.size; files.push(new File([b], it.name, { type: photoMime(it.name, b.type) })); }
-          }).catch(function () { failed++; }).then(tick);
-        });
-      }, Promise.resolve()).catch(function () {
-        failed++;
-      }).then(function () {
-        if (state.cancelled) return;  // selection changed meanwhile: drop it all
-        state.busy = false;
-        button.disabled = false;
-        if (!files.length) {
-          // Nothing usable: back to the first tap so they can retry
-          button._fgs = null;
-          button.innerHTML = button._fgsLabel;
-        } else {
-          state.files = files; state.next = 0;
-          button.textContent = "Save to Photos" + (files.length > PHOTO_BATCH ? " (1/" + Math.ceil(files.length / PHOTO_BATCH) + ")" : "");
-        }
-        report();
-      }).catch(function () {
-        // Anything unexpected: leave the button usable rather than stuck
-        if (!state.cancelled) FGS.resetSaveToPhotos(button);
-      });
-      return;
-    }
-
+  // Opens the share sheet for the next batch of a prepared set. after() runs
+  // once the sheet has closed (the report of what was left out).
+  function sharePrepared(button, state, after) {
     var batch = state.files.slice(state.next, state.next + PHOTO_BATCH);
-    if (!navigator.canShare({ files: batch })) { FGS.openHelpSheet(); return; }
+    var done = function () { if (after) after(); };
+    if (!navigator.canShare({ files: batch })) { done(); FGS.openHelpSheet(); return; }
     state.busy = true;
     navigator.share({ files: batch }).then(function () {
       state.busy = false;
       if (state.cancelled) return;  // selection changed while the sheet was open
       state.next += PHOTO_BATCH;
       if (state.next >= state.files.length) {
-        button.textContent = "Saved ✓"; button._fgs = null;
+        setPhotosLabel(button, "Saved ✓", false); button._fgs = null;
         // Back to the first-tap label, so a later tap reads as a new action
         button._fgsTimer = window.setTimeout(function () {
           button._fgsTimer = null;
           if (!button._fgs) button.innerHTML = button._fgsLabel;
         }, 2000);
-        return;
+      } else {
+        showReady(button, state);
       }
-      button.textContent = "Save to Photos (" + (state.next / PHOTO_BATCH + 1) + "/" + Math.ceil(state.files.length / PHOTO_BATCH) + ")";
+      done();
     }, function (err) {
-      // Cancelling the sheet is normal: keep the prepared files, they can tap again
       state.busy = false;
       if (state.cancelled) return;
-      if (!err || err.name !== "AbortError") FGS.openHelpSheet();
+      // "NotAllowedError": the tap's activation had lapsed after all;
+      // "AbortError": the sheet was closed. Either way the files stay
+      // prepared, and the next tap shares them.
+      showReady(button, state);
+      done();
+      if (!err || (err.name !== "AbortError" && err.name !== "NotAllowedError")) FGS.openHelpSheet();
+    });
+  }
+
+  // items: [{url, name, bytes, taken, uploaded}]. bytes is the stored size and
+  // is what decides what is fetched: /cd counts a download before it sends a
+  // body, so a file that can't be shared must be ruled out BEFORE the request,
+  // never after. taken / uploaded (seconds) become the File's date.
+  FGS.saveToPhotos = function (list, button) {
+    if (!navigator.canShare) { FGS.openHelpSheet(); return; }
+    if (button._fgsLabel === undefined) {
+      button._fgsLabel = button.innerHTML;
+      button._fgsIcon = button.querySelector("i");
+    }
+    var state = button._fgs || (button._fgs = { files: null, next: 0 });
+    if (state.busy) return;
+    if (button._fgsTimer) { window.clearTimeout(button._fgsTimer); button._fgsTimer = null; }
+
+    // Prepared: this tap shares
+    if (state.files) { sharePrepared(button, state); return; }
+
+    // Spend no download on files this browser can't share anyway
+    var probeOk = false;
+    try { probeOk = navigator.canShare({ files: [new File([""], "probe.jpg", { type: "image/jpeg" })] }); } catch (e) { /* unsupported */ }
+    if (!probeOk) { button._fgs = null; FGS.openHelpSheet(); return; }
+
+    // Items without a url (password or client-side encrypted files) cannot be fetched
+    var all = list || [];
+    var noUrl = 0, bigVideos = 0, overCap = 0, failed = 0, total = 0;
+    var items = [];
+    all.forEach(function (it) {
+      if (!it || !it.url) { noUrl++; return; }
+      var known = typeof it.bytes === "number" && it.bytes >= 0;
+      if (known && VIDEO_RE.test(it.name) && it.bytes > VIDEO_MAX_BYTES) { bigVideos++; return; }
+      if (known) {
+        if (total + it.bytes > PREPARE_MAX_BYTES && items.length) { overCap++; return; }
+        total += it.bytes;
+      }
+      items.push(it);
+    });
+    function report() {
+      var notes = [];
+      if (bigVideos) notes.push(bigVideos + " large video(s) were left out");
+      if (overCap) notes.push(overCap + " file(s) didn't fit in one go");
+      if (failed) notes.push(failed + " file(s) could not be fetched");
+      if (noUrl) notes.push(noUrl + " file(s) can't be fetched here");
+      if (notes.length) alert(notes.join("; ") + ". Use Download as .zip for those" + (failed ? ", or try again." : "."));
+    }
+    if (!items.length) { button._fgs = null; report(); return; }
+
+    state.busy = true;
+    button.disabled = true;
+    button.classList.remove("fgs-photos-ready");
+    var done = 0, files = [], fetched = 0;
+    setPhotosLabel(button, "Preparing 0/" + items.length + "…", false);
+    var tick = function () { if (state.cancelled) return; done++; setPhotosLabel(button, "Preparing " + done + "/" + items.length + "…", false); };
+    items.reduce(function (p, it) {
+      return p.then(function () {
+        if (state.cancelled) return null;
+        var known = typeof it.bytes === "number" && it.bytes >= 0;
+        // Size unknown: stop before a fetch that would pass the cap, so the
+        // rest is left for another batch
+        if (!known && fetched >= PREPARE_MAX_BYTES) { overCap++; return null; }
+        // it.url may be a function returning a promise of the url, for links
+        // that are only valid for a moment (the File requests page)
+        return Promise.resolve(typeof it.url === "function" ? it.url() : it.url).then(function (url) {
+          return fetch(url, { credentials: "same-origin" });
+        }).then(function (r) {
+          // An error page must never be wrapped up as a photo
+          if (!r.ok) { failed++; return null; }
+          // Fallback only (size unknown): by now the request has been counted
+          var len = parseInt(r.headers.get("Content-Length") || "0", 10);
+          if (!known && VIDEO_RE.test(it.name) && len > VIDEO_MAX_BYTES) {
+            bigVideos++;
+            if (r.body && r.body.cancel) r.body.cancel();
+            return null;
+          }
+          return r.blob();
+        }).then(function (b) {
+          if (!b) return;
+          fetched += b.size;
+          var opts = { type: photoMime(it.name, b.type) };
+          var date = photoDate(it);
+          if (date) opts.lastModified = date;
+          files.push(new File([b], it.name, opts));
+        }).catch(function () { failed++; }).then(tick);
+      });
+    }, Promise.resolve()).catch(function () {
+      failed++;
+    }).then(function () {
+      if (state.cancelled) return;  // selection changed meanwhile: drop it all
+      state.busy = false;
+      button.disabled = false;
+      if (!files.length) {
+        // Nothing usable: back to the first tap so they can retry
+        button._fgs = null;
+        button.innerHTML = button._fgsLabel;
+        report();
+        return;
+      }
+      state.files = files; state.next = 0;
+      showReady(button, state);
+      // One tap: the sheet now, while the tap still counts. The report
+      // (an alert, which would use up the activation) waits for the sheet.
+      if (activationAlive()) sharePrepared(button, state, report);
+      else report();
+    }).catch(function () {
+      // Anything unexpected: leave the button usable rather than stuck
+      if (!state.cancelled) FGS.resetSaveToPhotos(button);
     });
   };
 
@@ -334,6 +411,14 @@
     } else {
       dl.removeAttribute("href"); dl.hidden = true;
     }
+    // Save to Photos: the item on screen, on iOS with navigator.canShare, for
+    // photos and videos whose original can be fetched. A prepared set belongs
+    // to its item, so moving on forgets it.
+    var photos = v.querySelector(".fgs-v-photos");
+    if (photos) {
+      FGS.resetSaveToPhotos(photos);
+      photos.hidden = !(FGS.isIOS() && navigator.canShare && it.download && FGS.isPhotoOrVideo(it.kind, it.name));
+    }
     // Photos are shown as a smaller preview; say so wherever the original can be fetched.
     // Kind, not the stream URL: a capped video withholds the stream but still shows only a poster.
     v.querySelector(".fgs-v-lowres").hidden = !(it.view && it.kind === "image" && it.download);
@@ -345,6 +430,7 @@
   function go(delta) { var n = at + delta; if (n >= 0 && n < items.length) { at = n; render(); } }
   function close() {
     v.hidden = true; clearStage(v.querySelector(".fgs-v-stage")); document.body.style.overflow = "";
+    FGS.resetSaveToPhotos(v.querySelector(".fgs-v-photos"));
     var back = returnFocus; returnFocus = null;
     if (back && back.focus && document.contains(back)) back.focus();
   }
@@ -424,6 +510,12 @@
     render();
     v.querySelector(".fgs-v-close").focus();
   };
+  // The viewer's Save to Photos: the item on screen
+  function savePhotoInViewer(button) {
+    var it = items[at];
+    if (!it || !it.download) return;
+    FGS.saveToPhotos([{ url: it.download, name: it.name, bytes: it.bytes, taken: it.taken, uploaded: it.uploaded }], button);
+  }
   // Empty space: the backdrop, the bare stage, or any other wrapper that is not
   // the picture, a control, a link, the caption bar or a note.
   function isEmptySpace(el) {
@@ -442,6 +534,7 @@
     if (e.target.closest(".fgs-v-close")) close();
     else if (e.target.closest(".fgs-v-prev")) go(-1);
     else if (e.target.closest(".fgs-v-next")) go(1);
+    else if (e.target.closest(".fgs-v-photos")) savePhotoInViewer(e.target.closest(".fgs-v-photos"));
     else if (pressedOnBackdrop && Date.now() >= swipeUntil && isEmptySpace(e.target)) close();
   });
   document.addEventListener("keydown", function (e) {
@@ -548,12 +641,76 @@
   function setData(el, name, value) {
     if (el) el.setAttribute("data-" + name, value === undefined || value === null ? "" : String(value));
   }
+  // The tile badge of a name: the first letters of its first and last parts,
+  // upper case ("anna.mueller" -> "AM"). Must equal initialsOf in
+  // FileBrowser.go.
+  function initialsOf(name) {
+    var parts = String(name || "").split(/[^\p{L}\p{Nd}]+/u).filter(Boolean);
+    if (!parts.length) return "";
+    var first = Array.from(parts[0])[0];
+    if (parts.length === 1) return first.toUpperCase();
+    return (first + Array.from(parts[parts.length - 1])[0]).toUpperCase();
+  }
   function formatTimes(scope) {
     Array.prototype.forEach.call(scope.querySelectorAll("[data-ts]"), function (el) {
       var ts = parseInt(el.getAttribute("data-ts"), 10);
       el.textContent = ts ? fmt(ts) : "";
     });
   }
+
+  // A list's remembered choices, per context: "fgsBrowser.<context>.<k>".
+  // The view of a group page is per group, so a tap on Grid in one group
+  // leaves every other group on Board. The Files tab falls back to the keys
+  // it used before it moved onto this component. localStorage throws in
+  // private mode: then nothing is remembered.
+  var LEGACY_FILES_KEYS = { view: "filesLayout", shape: "filesTileShape", size: "filesIconSize", scope: "filesScope" };
+  function browserPrefKey(root, k) {
+    var context = root.getAttribute("data-context") || "";
+    var group = root.getAttribute("data-group-id") || "";
+    if (k === "view" && context === "group" && group) context = "group." + group;
+    return "fgsBrowser." + context + "." + k;
+  }
+  FGS.browserPrefKey = browserPrefKey;
+  function loadBrowserPref(root, k) {
+    try {
+      var v = localStorage.getItem(browserPrefKey(root, k));
+      if (v === null && root.getAttribute("data-context") === "files" && LEGACY_FILES_KEYS[k]) v = localStorage.getItem(LEGACY_FILES_KEYS[k]);
+      return v;
+    } catch (e) { return null; }
+  }
+  function storeBrowserPref(root, k, v) {
+    try { localStorage.setItem(browserPrefKey(root, k), v); } catch (e) { /* private mode */ }
+  }
+  // The remembered view if it is one, else the context's default
+  function initialView(root) {
+    var v = loadBrowserPref(root, "view");
+    return VIEWS.indexOf(v) >= 0 ? v : root.getAttribute("data-default-view");
+  }
+  // The button of this value is the active one in its group of buttons
+  function markActive(root, attr, value) {
+    root.querySelectorAll("button[" + attr + "]").forEach(function (b) {
+      if (b.closest("[data-fgs-browser]") !== root) return;
+      var on = b.getAttribute(attr) === value;
+      b.classList.toggle("btn-light", on);
+      b.classList.toggle("btn-outline-light", !on);
+    });
+  }
+  // Called by the inline script directly after each list root, before the
+  // first paint: the remembered view, its button, and Board's columns, so
+  // a List or Board page never flashes Grid. initFileBrowser confirms it.
+  FGS.presetView = function (root) {
+    if (!root) return;
+    var v = initialView(root);
+    if (VIEWS.indexOf(v) < 0) return;
+    root.setAttribute("data-current-view", v);
+    markActive(root, "data-layout", v);
+    var grid = root.querySelector("[data-fgs-grid]");
+    if (!grid || v !== "board") return;
+    grid.classList.add("fgs-board-mode");
+    masonry(grid, Array.prototype.filter.call(grid.children, function (t) {
+      return t.classList.contains("fgs-tile") && !t.classList.contains("d-none");
+    }));
+  };
 
   FGS.initFileBrowser = function (root) {
     if (!root) return null;
@@ -574,32 +731,32 @@
     var tplRow = root.querySelector("template[data-fgs-tpl=row]");
     var infoUrl = root.getAttribute("data-info-url") || "";
     var zipUrl = root.getAttribute("data-zip-url") || "";
+    // The zip of every live member (no files=), where the page has one
+    var zipAllUrl = root.getAttribute("data-zip-all-url") || "";
     var manages = !!(tplTile && tplTile.content.querySelector("[data-menu=edit]"));
+    // data-can-delete / data-can-remove are rendered without the rest of the
+    // management data where the menu offers Delete or Remove from group
+    var itemPerms = !!(tplTile && tplTile.content.querySelector("[data-menu=delete], [data-menu=remove-from-group]"));
+    // Group pages (Part 2): the group's own download for live adds, shooting
+    // order, and the person filter, "Hide what I've downloaded" and ticks
+    var downloadBase = root.getAttribute("data-download-base") || "";
+    var sortTakenAsc = root.getAttribute("data-sort") === "taken-asc";
+    var groupTools = root.getAttribute("data-group-tools") === "true";
+    var selectAllButton = bar.querySelector("[data-fgs-select-all]");
+    var selectNewButton = bar.querySelector("[data-fgs-select-new]");
+    var personSelect = root.querySelector("[data-fgs-person]");
+    var hideDownloaded = root.querySelector("[data-fgs-hide-downloaded]");
+    // Active filters: key -> predicate on a tile; a tile any of them rejects is hidden
+    var filters = {};
     // The upload page's element ids, only where the page holds one browser
     var legacyIds = root.getAttribute("data-legacy-ids") === "true";
     var selecting = false, view = null, scope = "all", dataTable = null, api = null;
     var tilesById = {}, rowsById = {};
 
-    // Choices are remembered per context. The Files tab keeps the choices
-    // made before it moved onto this component.
-    var legacyKeys = context === "files" ? { view: "filesLayout", shape: "filesTileShape", size: "filesIconSize", scope: "filesScope" } : {};
-    function load(k) {
-      try {
-        var v = localStorage.getItem("fgsBrowser." + context + "." + k);
-        if (v === null && legacyKeys[k]) v = localStorage.getItem(legacyKeys[k]);
-        return v;
-      } catch (e) { return null; }
-    }
-    function store(k, v) { try { localStorage.setItem("fgsBrowser." + context + "." + k, v); } catch (e) { /* private mode */ } }
-
-    function setActive(attr, value) {
-      root.querySelectorAll("button[" + attr + "]").forEach(function (b) {
-        if (!root.contains(b) || b.closest("[data-fgs-browser]") !== root) return;
-        var on = b.getAttribute(attr) === value;
-        b.classList.toggle("btn-light", on);
-        b.classList.toggle("btn-outline-light", !on);
-      });
-    }
+    // Remembered choices (browserPrefKey)
+    function load(k) { return loadBrowserPref(root, k); }
+    function store(k, v) { storeBrowserPref(root, k, v); }
+    function setActive(attr, value) { markActive(root, attr, value); }
 
     function tileCheck(tile) { return tile.querySelector(".fgs-tile-check"); }
     function rowCheck(row) { return row && row.querySelector(".fgs-row-check"); }
@@ -640,6 +797,11 @@
       }).length;
       if (countEl) countEl.textContent = (root.getAttribute("data-count-label") || "Files: ") + shown;
       root.classList.toggle("fgs-is-empty", all === 0);
+      refreshSelectAll();
+    }
+    // "Select all (N)": N is what is visible now
+    function refreshSelectAll() {
+      if (selectAllButton) selectAllButton.textContent = "Select all (" + visibleTiles().length + ")";
     }
 
     function updateSelection() {
@@ -653,6 +815,7 @@
       var photos = bar.querySelector("[data-act=photos]");
       if (photos) FGS.resetSaveToPhotos(photos);
       if (linkResult) { linkResult.textContent = ""; linkResult.className = "fgs-linkresult"; }
+      refreshSelectAll();
     }
 
     function setChecked(id, on) {
@@ -679,6 +842,25 @@
       updateSelection();
       // The checkbox column appeared or went away
       if (dataTable && view === "list") dataTable.columns.adjust();
+    }
+
+    // The selection becomes exactly the visible files fn(tile) accepts,
+    // entering select mode if it is off. Returns how many that is.
+    function selectWhere(fn) {
+      if (!selecting) setSelecting(true);
+      var n = 0;
+      visibleTiles().forEach(function (t) {
+        var on = !!fn(t);
+        setChecked(idOf(t), on);
+        if (on) n++;
+      });
+      status.textContent = "";
+      updateSelection();
+      return n;
+    }
+    // New to me: neither downloaded nor my own upload (D12)
+    function isNewToMe(tile) {
+      return tile.getAttribute("data-downloaded") !== "true" && tile.getAttribute("data-mine") !== "true";
     }
 
     // The viewer, over everything visible, starting at this file
@@ -727,16 +909,33 @@
       updateSelection();
     }
 
-    // Only users with PERM_LIST get the switch, and only they are ever sent
-    // other users' files. Without the switch everything shown is their own.
-    function hideForScope(el) {
-      el.classList.toggle("d-none", scope === "mine" && el.getAttribute("data-mine") !== "true");
+    // A tile or list row is hidden when the scope switch says so, or any
+    // active filter rejects its tile; a row follows its tile. Users with
+    // PERM_LIST get the switch, and users whose groups hold other people's
+    // files (those are data-foreign). Without the switch everything shown is
+    // their own. Returns
+    // whether the element was shown or hidden by this.
+    function applyVisibility(el) {
+      if (!el) return false;
+      var tile = el.hasAttribute("data-row-id") ? tilesById[el.getAttribute("data-row-id")] || el : el;
+      var hide = scope === "mine" && tile.getAttribute("data-mine") !== "true";
+      if (!hide) hide = Object.keys(filters).some(function (k) { return !filters[k](tile); });
+      var was = el.classList.contains("d-none");
+      el.classList.toggle("d-none", hide);
+      // A hidden file leaves the selection, rather than coming back selected
+      if (hide && el.classList.contains("fgs-tile") && tileCheck(el).checked) setChecked(idOf(el), false);
+      return was !== hide;
+    }
+    function applyAllVisibility() {
+      var changed = false;
+      Object.keys(tilesById).forEach(function (id) { if (applyVisibility(tilesById[id])) changed = true; });
+      Object.keys(rowsById).forEach(function (id) { if (applyVisibility(rowsById[id])) changed = true; });
+      return changed;
     }
     function applyScope(s) {
       if (!root.querySelector("button[data-scope]")) { scope = "all"; return; }
       scope = s === "all" ? "all" : "mine";
-      Object.keys(tilesById).forEach(function (id) { hideForScope(tilesById[id]); });
-      Object.keys(rowsById).forEach(function (id) { hideForScope(rowsById[id]); });
+      applyAllVisibility();
       setActive("data-scope", scope);
       store("scope", scope);
       refreshCount();
@@ -746,6 +945,30 @@
 
     // Square crops every thumbnail to fill its tile; True shape shows the
     // whole picture, letterboxed. Grid only: Board always keeps proportions.
+    // Sets (fn) or clears (null) the filter under key, then shows what passes
+    function setFilter(key, fn) {
+      if (typeof fn === "function") filters[key] = fn;
+      else delete filters[key];
+      applyAllVisibility();
+      refreshCount();
+      layoutBoard();
+      updateSelection();
+    }
+
+    // The viewer now has these files (group pages: the tick, and "Hide what
+    // I've downloaded"). keepVisible leaves them shown for now, so a
+    // selection being worked on (Save to Photos' prepared set) survives.
+    function markDownloaded(ids, keepVisible) {
+      (ids || []).forEach(function (id) {
+        setData(tilesById[id], "downloaded", "true");
+        setData(rowsById[id], "downloaded", "true");
+      });
+      if (keepVisible || !applyAllVisibility()) return;
+      refreshCount();
+      layoutBoard();
+      updateSelection();
+    }
+
     function applyShape(shape) {
       if (shape !== "true") shape = "square";
       grid.classList.toggle("fgs-shape-true", shape === "true");
@@ -757,12 +980,8 @@
       store("size", size.value);
     }
 
-    function asItems(tiles) {
-      return tiles.map(function (t) {
-        return { url: t.getAttribute("data-download"), name: t.getAttribute("data-name"),
-          bytes: parseInt(t.getAttribute("data-bytes"), 10) };
-      });
-    }
+    // Download and Save to Photos items, with the dates the File gets
+    function asItems(tiles) { return tiles.map(FGS.fileItemFromEl); }
 
     function actionArg(tiles, button, bulk, menu, trigger) {
       return { browser: api, root: root, context: context, tiles: tiles, ids: tiles.map(idOf),
@@ -778,6 +997,7 @@
       var usable = tiles.filter(function (t) { return t.getAttribute("data-download"); });
       var skipped = tiles.length - usable.length;
       if (usable.length) FGS.downloadSequentially(asItems(usable), { button: button, status: status });
+      if (usable.length && groupTools) markDownloaded(usable.map(idOf));
       if (skipped) {
         window.setTimeout(function () {
           status.textContent = manages
@@ -786,9 +1006,23 @@
         }, usable.length * 600 + 100); // after downloadSequentially's own last message
       }
     }
+    // Everything is selected and nothing is filtered out: the whole list
+    function selectedIsEverything(tiles) {
+      return scope === "all" && !Object.keys(filters).length && tiles.length === Object.keys(tilesById).length;
+    }
+    // Cloudflare refuses URLs from about 16 KB; stay well below that
+    var ZIP_URL_MAX = 8000;
     function bulkZip(tiles) {
       if (!zipUrl) return;
-      window.location = zipUrl + tiles.map(function (t) { return encodeURIComponent(idOf(t)); }).join(",");
+      var url = zipAllUrl && selectedIsEverything(tiles) ? zipAllUrl
+        : zipUrl + tiles.map(function (t) { return encodeURIComponent(idOf(t)); }).join(",");
+      if (url.length > ZIP_URL_MAX) {
+        status.textContent = "Too many files for one .zip: select fewer" + (zipAllUrl ? ", or select all." : ".");
+        return;
+      }
+      window.location = url;
+      // Ticked only once the request has gone out
+      if (groupTools) markDownloaded(tiles.map(idOf));
     }
 
     bar.addEventListener("click", function (e) {
@@ -797,12 +1031,32 @@
       var tiles = selected();
       if (!tiles.length) return;
       var what = act.getAttribute("data-act");
+      // On the Files tab, other people's files from the viewer's groups
+      // (data-foreign) can be downloaded and saved, but nothing else: those
+      // actions, the uncounted owner zip included, are their uploader's or
+      // the group's. (Group pages mark them too, and act on them there.)
+      if (context === "files" && what !== "download" && what !== "photos") {
+        var own = tiles.filter(function (t) { return t.getAttribute("data-foreign") !== "true"; });
+        if (own.length < tiles.length) {
+          var left = tiles.length - own.length;
+          status.textContent = left + " file(s) from your groups left out: " +
+            (what === "zip" ? "zip them on their group's page." : "they are someone else's.");
+          if (!own.length) return;
+          tiles = own;
+        }
+      }
       var handler = fileAction(context, what);
       if (handler) { handler(actionArg(tiles, act, true, null)); return; }
       if (what === "download") bulkDownload(tiles, act);
       else if (what === "zip") bulkZip(tiles);
-      else if (what === "photos") FGS.saveToPhotos(asItems(tiles), act);
+      else if (what === "photos") {
+        FGS.saveToPhotos(asItems(tiles), act);
+        // Fetched now; hidden only later, or the prepared set would be dropped
+        if (groupTools) markDownloaded(tiles.filter(function (t) { return t.getAttribute("data-download"); }).map(idOf), true);
+      }
     });
+    if (selectAllButton) selectAllButton.addEventListener("click", function () { selectWhere(function () { return true; }); });
+    if (selectNewButton) selectNewButton.addEventListener("click", function () { selectWhere(isNewToMe); });
 
     var help = bar.querySelector("[data-fgs-help]");
     if (FGS.isIOS()) {
@@ -862,12 +1116,52 @@
       // Dialogs and the viewer hand focus back to the "⋯", not to an entry
       // of the menu that just closed
       var trigger = menu ? menu.querySelector(".fgs-menu-btn") : item;
-      trigger.focus();
       var what = item.getAttribute("data-menu");
+      // Save to Photos keeps its menu open (hide.bs.dropdown below), so
+      // focus stays on the entry
+      if (what !== "photos") trigger.focus();
       var handler = fileAction(context, what);
       if (handler) handler(actionArg([tile], item, false, menu || menuOf(tile), trigger));
       else if (what === "open") openAt(tile);
-      else if (what === "download") FGS.downloadSequentially(asItems([tile]));
+      else if (what === "download") {
+        FGS.downloadSequentially(asItems([tile]));
+        if (groupTools && tile.getAttribute("data-download")) markDownloaded([idOf(tile)]);
+      } else if (what === "photos") {
+        FGS.saveToPhotos(asItems([tile]), item);
+        // Fetched now; hidden only later, as from the selection bar
+        if (groupTools && tile.getAttribute("data-download")) markDownloaded([idOf(tile)], true);
+      }
+    });
+
+    // The "⋯" menu's Save to Photos, decided each time a menu opens (so files
+    // added live and previews that arrived later are covered): on iOS with
+    // navigator.canShare, for a photo or video that has an original to fetch
+    // (its own download, or the context's handler: presigned on request
+    // pages), and not where Download is disabled (end-to-end encrypted)
+    function canSaveFromMenu(tile, menu) {
+      if (!FGS.isIOS() || !navigator.canShare) return false;
+      if (!FGS.isPhotoOrVideo(tile.getAttribute("data-kind"), tile.getAttribute("data-name"))) return false;
+      var dl = menu.querySelector("[data-menu=download]");
+      if (dl && dl.disabled) return false;
+      return !!(tile.getAttribute("data-download") || fileAction(context, "photos"));
+    }
+    root.addEventListener("show.bs.dropdown", function (e) {
+      var menu = e.target.closest && e.target.closest("[data-fgs-file-menu]");
+      if (!menu || menu.closest("[data-fgs-browser]") !== root) return;
+      var entry = menu.querySelector("[data-menu=photos]");
+      var tile = tilesById[menu.getAttribute("data-id")];
+      if (entry && entry.parentNode) entry.parentNode.classList.toggle("d-none", !(tile && canSaveFromMenu(tile, menu)));
+    });
+    // A tap on Save to Photos leaves its menu open: the entry shows the
+    // progress, then "Ready — tap to save" where a second tap is needed.
+    // The entry's label changes under the tap, so its target may already be
+    // detached: the click's path (still being dispatched) says where it was.
+    root.addEventListener("hide.bs.dropdown", function (e) {
+      var click = e.clickEvent;
+      var menu = e.target.closest && e.target.closest("[data-fgs-file-menu]");
+      var entry = menu && menu.querySelector("[data-menu=photos]");
+      if (!click || !entry || !click.composedPath) return;
+      if (click.composedPath().indexOf(entry) >= 0) e.preventDefault();
     });
 
     // Live thumbnails: a tile whose preview is still being made asks for it
@@ -934,7 +1228,12 @@
       setData(tile, "kind", info.Kind);
       setData(tile, "w", info.Width || 0);
       setData(tile, "h", info.Height || 0);
+      var oldKey = shootingKey(tile);
       if (info.TakenAt) setData(tile, "taken", info.TakenAt);
+      // Shooting order (D13): a date taken that arrives with the preview
+      // moves the file to its place
+      var moved = sortTakenAsc && shootingKey(tile) !== oldKey;
+      if (moved) placeInShootingOrder(tile, row);
       var open = tile.querySelector(".fgs-tile-open");
       if (info.Thumb) {
         open.textContent = "";
@@ -981,7 +1280,10 @@
       if (taken && info.TakenAt) {
         taken.setAttribute("data-order", String(info.TakenAt));
         taken.textContent = fmt(info.TakenAt);
-        if (dataTable) dataTable.row(row).invalidate("dom");
+        if (dataTable) {
+          dataTable.row(row).invalidate("dom");
+          if (moved) dataTable.draw(false); // re-sorts by the new date taken
+        }
       }
       // A replaced file's new preview is still being made (or its row does
       // not exist yet): ask for it
@@ -1000,7 +1302,9 @@
       setData(menu, "id", file.Id);
       var trigger = menu.querySelector(".fgs-menu-btn");
       if (trigger) trigger.setAttribute("aria-label", "Actions for " + (file.Name || ""));
-      if (manages) {
+      // A group page carries the management data only for the files the
+      // viewer may edit, as the template renders it (I2)
+      if (manages && (context !== "group" || perms.edit)) {
         setData(menu, "url", file.UrlDownload);
         setData(menu, "downloads", file.DownloadsRemaining);
         setData(menu, "unlimited-downloads", !!file.UnlimitedDownloads);
@@ -1009,8 +1313,17 @@
         setData(menu, "password", !!file.IsPasswordProtected);
         setData(menu, "e2e", !!file.IsEndToEndEncrypted);
         setData(menu, "can-edit", perms.edit);
-        setData(menu, "can-delete", perms.del);
         setData(menu, "can-replace", perms.replace);
+      }
+      if (manages || itemPerms) {
+        setData(menu, "can-delete", perms.del);
+        setData(menu, "can-remove", !!perms.remove);
+      }
+      // D4: the name of the live group whose terms the file follows, as the
+      // template renders it; absent leaves the menu's lock as it is
+      if (file.GroupLock !== undefined && file.GroupLock !== null) {
+        if (file.GroupLock) menu.setAttribute("data-group-lock", String(file.GroupLock));
+        else menu.removeAttribute("data-group-lock");
       }
       var e2e = !!file.IsEndToEndEncrypted;
       menu.querySelectorAll("[data-menu]").forEach(function (b) {
@@ -1021,11 +1334,30 @@
           b.setAttribute("data-clipboard-text", file.UrlHotlink || "");
           if (b.parentNode) b.parentNode.classList.toggle("d-none", !file.UrlHotlink);
         }
-        if (k === "download" || k === "add-to-collection") b.disabled = e2e;
+        if (k === "download" || k === "add-to-collection" || k === "add-to-group") b.disabled = e2e;
+        if (k === "remove-from-group") b.disabled = !perms.remove;
         if (k === "edit") b.disabled = !perms.edit;
         if (k === "replace") b.disabled = !perms.replace;
         if (k === "delete") b.disabled = !perms.del;
+        // A prepared Save to Photos holds the old content
+        if (k === "photos") FGS.resetSaveToPhotos(b);
       });
+    }
+
+    function shootingKey(tile) {
+      return parseInt(tile.getAttribute("data-taken"), 10) || parseInt(tile.getAttribute("data-uploaded"), 10) || 0;
+    }
+    // Puts a tile (and, without DataTables, its row) before the first other
+    // file taken later: shooting order, the upload date standing in (D13)
+    function placeInShootingOrder(tile, row) {
+      var key = shootingKey(tile);
+      var before = Array.prototype.find.call(grid.children, function (t) {
+        return t !== tile && t.classList.contains("fgs-tile") && shootingKey(t) > key;
+      }) || null;
+      grid.insertBefore(tile, before);
+      if (dataTable || !row) return;
+      var beforeRow = before && rowsById[idOf(before)];
+      tbody.insertBefore(row, beforeRow && beforeRow.parentNode === tbody ? beforeRow : null);
     }
 
     function addItem(file, preview) {
@@ -1038,8 +1370,18 @@
       var flag = function (k) { return root.getAttribute("data-perm-" + k) === "true"; };
       var perms = { edit: mine || flag("edit-others"), del: mine || flag("delete-others") };
       perms.replace = perms.edit && !file.IsEndToEndEncrypted && ((mine && flag("replace")) || flag("replace-others"));
-      var download = preview.Download || (manages && !file.IsEndToEndEncrypted ? "./files/download?id=" + encodeURIComponent(id) : "");
-      var uploader = mine ? (root.getAttribute("data-user-name") || "") : "";
+      perms.remove = !!file.CanRemove;
+      var download = preview.Download || (downloadBase ? downloadBase + encodeURIComponent(id)
+        : (manages && !file.IsEndToEndEncrypted ? "./files/download?id=" + encodeURIComponent(id) : ""));
+      var ownName = root.getAttribute("data-user-name") || "";
+      // Members see the part before "@" of the Google email (displayName, D5)
+      if (groupTools && ownName.indexOf("@") > 0) ownName = ownName.slice(0, ownName.indexOf("@"));
+      var uploader = file.UploaderName !== undefined && file.UploaderName !== null ? String(file.UploaderName)
+        : (mine ? ownName : "");
+      // As rendered: only group pages carry the uploader's id
+      var uploaderId = !groupTools ? 0 : file.UploaderId !== undefined && file.UploaderId !== null ? file.UploaderId : (mine ? userId : 0);
+      // Shooting order: without a date taken, the upload date stands in (D13)
+      var takenOrder = preview.TakenAt || (sortTakenAsc ? file.UploadDate || 0 : 0);
       var name = file.Name || "";
 
       var tile = tplTile.content.firstElementChild.cloneNode(true);
@@ -1052,6 +1394,10 @@
       setData(tile, "size", file.Size);
       setData(tile, "bytes", file.SizeBytes);
       setData(tile, "taken", preview.TakenAt || 0);
+      setData(tile, "uploader-id", uploaderId);
+      setData(tile, "downloaded", !!file.Downloaded);
+      var initials = tile.querySelector(".fgs-initials");
+      if (initials) initials.textContent = initialsOf(uploader);
       tile.querySelector(".fgs-tile-open").setAttribute("aria-label", "Open " + name);
       tileCheck(tile).setAttribute("aria-label", "Select " + name);
       var small = tile.querySelector(".fgs-typeicon small");
@@ -1066,6 +1412,7 @@
       var row = tplRow.content.firstElementChild.cloneNode(true);
       setData(row, "mine", mine);
       setData(row, "row-id", id);
+      setData(row, "downloaded", !!file.Downloaded);
       if (legacyIds) row.id = "row-" + id;
       rowCheck(row).setAttribute("aria-label", "Select " + name);
       var nameCell = row.querySelector("td[data-col=name]");
@@ -1077,7 +1424,7 @@
       if (cell("uploader")) cell("uploader").textContent = uploader;
       cell("uploaded").setAttribute("data-order", String(file.UploadDate || 0));
       setData(cell("uploaded").querySelector("[data-ts]"), "ts", file.UploadDate || 0);
-      cell("taken").setAttribute("data-order", String(preview.TakenAt || 0));
+      cell("taken").setAttribute("data-order", String(takenOrder));
       cell("taken").textContent = preview.TakenAt ? fmt(preview.TakenAt) : "—";
       cell("size").setAttribute("data-order", String(file.SizeBytes || 0));
       cell("size").textContent = file.Size || "";
@@ -1104,12 +1451,17 @@
       formatTimes(tile);
       formatTimes(row);
 
-      grid.insertBefore(tile, grid.firstChild);
+      // Newest first, or in shooting order (DataTables sorts the row itself)
       index(tile, row);
-      if (dataTable) dataTable.row.add(row).draw(false);
-      else tbody.insertBefore(row, tbody.firstChild);
-      hideForScope(tile);
-      hideForScope(row);
+      if (dataTable) dataTable.row.add(row);
+      if (sortTakenAsc) placeInShootingOrder(tile, row);
+      else {
+        grid.insertBefore(tile, grid.firstChild);
+        if (!dataTable) tbody.insertBefore(row, tbody.firstChild);
+      }
+      if (dataTable) dataTable.draw(false);
+      applyVisibility(tile);
+      applyVisibility(row);
       if (preview.Status === "ready") applyPreview(id, preview);
       else if (!file.IsEndToEndEncrypted && (!preview.Status || preview.Status === "pending")) startPolling(id);
       refreshCount();
@@ -1127,11 +1479,12 @@
       if (!tile) return null;
       var menu = menuOf(tile);
       var was = function (k) {
-        if (manages) return menu.getAttribute("data-can-" + k) === "true";
-        var b = menu.querySelector("[data-menu=" + k + "]");
+        var rendered = menu.getAttribute("data-can-" + k);
+        if (rendered !== null) return rendered === "true";
+        var b = menu.querySelector("[data-menu=" + (k === "remove" ? "remove-from-group" : k) + "]");
         return !!b && !b.disabled;
       };
-      var perms = { edit: was("edit"), del: was("delete"), replace: was("replace") };
+      var perms = { edit: was("edit"), del: was("delete"), replace: was("replace"), remove: was("remove") };
       var name = file.Name || tile.getAttribute("data-name") || "";
       setData(tile, "name", name);
       if (file.Size !== undefined) setData(tile, "size", file.Size);
@@ -1197,7 +1550,10 @@
       visible: visibleTiles,
       setSelecting: setSelecting,
       view: function () { return view; },
-      relayout: layoutBoard
+      relayout: layoutBoard,
+      setFilter: setFilter,
+      markDownloaded: markDownloaded,
+      selectWhere: selectWhere
     };
     root.fgsBrowser = api;
 
@@ -1228,7 +1584,7 @@
       // No paging: the scope switch hides rows in the DOM, and the edit
       // dialog's "Replace content" list reads every row's name from it
       dataTable = jQuery(table).DataTable({
-        "order": sortAt >= 0 ? [[sortAt, "desc"]] : [],
+        "order": sortAt >= 0 ? [[sortAt, heads[sortAt].getAttribute("data-fgs-sort-dir") || "desc"]] : [],
         "columnDefs": [{ "targets": noSort, "orderable": false, "searchable": false }],
         "paging": false,
         "info": false,
@@ -1239,9 +1595,29 @@
       // A search changes which selected files are visible
       dataTable.on("draw", updateSelection);
     }
-    var savedView = load("view");
-    applyView(VIEWS.indexOf(savedView) >= 0 ? savedView : root.getAttribute("data-default-view"));
+    applyView(initialView(root));
     applyScope(load("scope") || "mine");
+    // Group pages: whose files (never remembered: each group has its own
+    // people), and "Hide what I've downloaded" (remembered)
+    if (personSelect) {
+      personSelect.value = ""; // a browser may restore the last choice
+      personSelect.addEventListener("change", function () {
+        var who = personSelect.value;
+        setFilter("person", who ? function (t) { return t.getAttribute("data-uploader-id") === who; } : null);
+      });
+    }
+    if (hideDownloaded) {
+      var applyHideDownloaded = function () {
+        // Your own uploads count as already had (D12)
+        setFilter("downloaded", hideDownloaded.checked ? isNewToMe : null);
+      };
+      hideDownloaded.checked = load("hideDownloaded") === "true";
+      hideDownloaded.addEventListener("change", function () {
+        store("hideDownloaded", hideDownloaded.checked ? "true" : "false");
+        applyHideDownloaded();
+      });
+      if (hideDownloaded.checked) applyHideDownloaded();
+    }
     refreshCount();
     return api;
   };

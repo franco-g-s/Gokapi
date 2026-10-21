@@ -553,15 +553,14 @@ function createFileRequestRow(jsonResult, user) {
         downloadFilesZipWithPresign(a.ids.join(","), requestNameOf(a.root));
     }
 
-    // Save to Photos: the list's own two-tap flow, fed with links that are
-    // only requested when each file is about to be fetched
+    // Save to Photos (selection bar and "⋯" menu): the list's own flow, fed
+    // with links that are only requested when each file is about to be
+    // fetched, and the dates the saved files get
     function photos(a) {
         const button = a.button;
         const prepared = button._fgs && button._fgs.files;
-        const items = prepared ? [] : a.tiles.map(tile => ({
-            url: () => presignUrl(tile.getAttribute("data-id")),
-            name: tile.getAttribute("data-name"),
-            bytes: parseInt(tile.getAttribute("data-bytes"), 10)
+        const items = prepared ? [] : a.tiles.map(tile => Object.assign(FGS.fileItemFromEl(tile), {
+            url: () => presignUrl(tile.getAttribute("data-id"))
         }));
         FGS.saveToPhotos(items, button);
     }

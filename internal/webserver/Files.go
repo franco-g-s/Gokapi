@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,6 +54,24 @@ func fileTypeIcon(name string) string {
 type FilesView struct {
 	AdminView
 	Browser fileBrowser
+	// PersonName is set on the per-person view (/files?user=<id>): whose files
+	// the page lists. Empty on the ordinary Files tab.
+	PersonName string
+}
+
+// personFilter reads ?user=<id> for the per-person view. It applies only to
+// someone who may list other people's uploads, and only to a person who
+// exists; anything else is ignored and the ordinary Files tab shows.
+func personFilter(r *http.Request, viewer models.User) (models.User, bool) {
+	raw := r.URL.Query().Get("user")
+	if raw == "" || !viewer.HasPermissionListOtherUploads() {
+		return models.User{}, false
+	}
+	id, err := strconv.Atoi(raw)
+	if err != nil {
+		return models.User{}, false
+	}
+	return database.GetUser(id)
 }
 
 // isListedFile is the upload table's filter: no pending deletions, no file
@@ -97,7 +116,7 @@ func downloadOwnFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	forceDecryption := file.Encryption.IsEncrypted && !file.Encryption.IsEndToEndEncrypted
-	if !storage.ServeFile(file, w, r, true, false, forceDecryption, true) {
+	if !storage.ServeFile(file, w, tagDownloadUser(r, models.DownloadViaFile, user.Id), true, false, forceDecryption, true) {
 		http.NotFound(w, r)
 	}
 }
@@ -115,6 +134,7 @@ func showFiles(w http.ResponseWriter, r *http.Request) {
 	view := FilesView{}
 	view.AdminView = *(&AdminView{}).convertGlobalConfig(ViewFiles, user)
 	seeEveryone := user.HasPermissionListOtherUploads()
+	person, onlyPerson := personFilter(r, user)
 	names := map[int]string{}
 	for _, u := range database.GetAllUsers() {
 		names[u.Id] = u.Name
@@ -125,12 +145,22 @@ func showFiles(w http.ResponseWriter, r *http.Request) {
 		if f.UserId != user.Id && !seeEveryone {
 			continue
 		}
+		if onlyPerson && f.UserId != person.Id {
+			continue
+		}
 		out, err := f.ToFileApiOutput(config.ServerUrl, config.IncludeFilename)
 		helper.Check(err)
 		if !isListedFile(out, now) {
 			continue
 		}
 		items = append(items, browserItemFromFile(r, f, user, ctxFiles, "", names))
+	}
+	// Without PERM_LIST, Everything is their own files plus those in their
+	// groups (spec, "Files tab")
+	inGroups := false
+	if !seeEveryone && !onlyPerson && database.SupportsGroups() {
+		inGroups = len(storage.GroupsOfUser(user.Id)) > 0
+		items = append(items, filesTabGroupItems(r, user)...)
 	}
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].File.UploadDate != items[j].File.UploadDate {
@@ -139,6 +169,45 @@ func showFiles(w http.ResponseWriter, r *http.Request) {
 		return items[i].File.Id > items[j].File.Id
 	})
 	view.Browser = newFileBrowser("fgs-files", ctxFiles, items, user)
+	if inGroups {
+		// In at least one live group: the switch, even while the groups
+		// hold only their own files
+		view.Browser.ShowScope = true
+		view.Browser.ShowUploader = true
+	}
+	if onlyPerson {
+		// Everything on the page is one person's: the My files / Everything
+		// switch would have nothing to switch between
+		view.Browser.ShowScope = false
+		view.PersonName = displayName(person)
+	}
 	err = templateFolder.ExecuteTemplate(w, "files", &view)
 	helper.CheckIgnoreTimeout(err)
+}
+
+// filesTabGroupItems is the Files tab's share of the viewer's live groups,
+// for someone without PERM_LIST: the other people's live files in them, each
+// once. They are someone else's, so nothing on them is editable and they
+// carry no management data (Foreign). Each is downloaded, counted and
+// recorded through the first of the viewer's groups that has it (./gd), and
+// shows its uploader's display name (D5).
+func filesTabGroupItems(r *http.Request, user models.User) []browserItem {
+	items := make([]browserItem, 0)
+	seen := make(map[string]bool)
+	for _, g := range storage.GroupsOfUser(user.Id) {
+		files := storage.GroupFiles(g)
+		names := memberNamesOf(g, files)
+		for _, f := range files {
+			if f.UserId == user.Id || seen[f.Id] || f.IsFileRequest() || f.Encryption.IsEndToEndEncrypted {
+				continue
+			}
+			seen[f.Id] = true
+			item := browserItemFromFile(r, f, user, ctxGroup, g.Id, names)
+			item.makeForeign()
+			item.Mine = false
+			item.CanEdit, item.CanDelete, item.CanReplace, item.CanRemove = false, false, false, false
+			items = append(items, item)
+		}
+	}
+	return items
 }

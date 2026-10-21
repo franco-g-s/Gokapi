@@ -32,7 +32,13 @@ func CanView(r *http.Request, file models.File, collectionId string) bool {
 	if current.UploadRequestId != "" {
 		return false
 	}
-	if collectionId != "" {
+	// A member of a live group the file is in (spec, "Access")
+	if user, loggedIn := authentication.SessionIdentity(r); loggedIn && storage.UserSharesGroupWithFile(user.Id, current.Id) {
+		return true
+	}
+	// A collection's context counts unless its link requires joining a
+	// group this visitor cannot see (R4); members were let in above
+	if collectionId != "" && !storage.CollectionClosedTo(collectionId, sessionUser(r)) {
 		collection, ok := storage.GetCollection(collectionId)
 		if ok {
 			if _, member := storage.GetCollectionFile(collection, current.Id); member {
@@ -70,4 +76,10 @@ func ValidFilePwCookie(r *http.Request, fileId string) bool {
 func ValidCollectionPwCookie(r *http.Request, collectionId string) bool {
 	c, err := r.Cookie("pc" + collectionId)
 	return err == nil && downloadPasswordToken.IsValid(c.Value, collectionId)
+}
+
+// sessionUser is the signed-in person, or the zero User
+func sessionUser(r *http.Request) models.User {
+	user, _ := authentication.SessionIdentity(r)
+	return user
 }

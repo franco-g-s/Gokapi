@@ -78,6 +78,18 @@ func getPaths() []converter {
 		Name:       "SSE Worker JS",
 	})
 	result = append(result, converter{
+		InputPath:  pathPrefix + "js/sha1.js",
+		OutputPath: pathPrefix + "js/min/sha1.min.js",
+		Type:       "text/javascript",
+		Name:       "SHA-1 JS",
+	})
+	result = append(result, converter{
+		InputPath:  pathPrefix + "js/sha1-worker.js",
+		OutputPath: pathPrefix + "js/min/sha1-worker.min.js",
+		Type:       "text/javascript",
+		Name:       "SHA-1 Worker JS",
+	})
+	result = append(result, converter{
 		InputPath:  pathPrefix + "js/wasm_exec.js",
 		OutputPath: pathPrefix + "js/min/wasm_exec.min.js",
 		Type:       "text/javascript",
@@ -94,6 +106,18 @@ func getPaths() []converter {
 		OutputPath: pathPrefix + "js/min/public_upload.min.js",
 		Type:       "text/javascript",
 		Name:       "Public upload JS",
+	})
+	result = append(result, converter{
+		InputPath:  pathPrefix + "js/collection_owner.js",
+		OutputPath: pathPrefix + "js/min/collection_owner.min.js",
+		Type:       "text/javascript",
+		Name:       "Collection owner bar JS",
+	})
+	result = append(result, converter{
+		InputPath:  pathPrefix + "js/collection_togroup.js",
+		OutputPath: pathPrefix + "js/min/collection_togroup.min.js",
+		Type:       "text/javascript",
+		Name:       "Turn into a group JS",
 	})
 	return result
 }
@@ -179,7 +203,7 @@ func fileExists(filename string) bool {
 // Auto-generated content below, do not modify
 // Version codes can be changed in updateVersionNumbers.go
 
-const jsAdminVersion = "bd2b5282ae"
-const jsMediaVersion = "bd2b5282ae"
-const jsE2EVersion = "bd2b5282ae"
-const cssMainVersion = "bd2b5282ae"
+const jsAdminVersion = "2f6c33adce"
+const jsMediaVersion = "2f6c33adce"
+const jsE2EVersion = "2f6c33adce"
+const cssMainVersion = "2f6c33adce"

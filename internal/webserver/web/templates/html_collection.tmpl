@@ -4,7 +4,8 @@
     <div class="file-card card{{ if not .IsPasswordView }} fgs-collection-wide{{ end }}">
 {{ if .IsPasswordView }}
         <div class="card-body p-5 text-center">
-            <h3 class="card-title mb-3">{{ .Collection.Name }}</h3>
+            <h3 class="card-title mb-1">{{ .Collection.Name }}</h3>
+            {{ if .OwnerName }}<p class="text-muted small mb-3">by {{ .OwnerName }}</p>{{ end }}
             <p class="text-muted">This collection is password protected.</p>
             {{ if .IsFailedLogin }}
             <div class="alert alert-danger py-2">Incorrect password</div>
@@ -25,17 +26,104 @@
 
             <div class="text-center mb-4">
                 <h3 class="card-title mb-1">{{ .Collection.Name }}</h3>
+                {{ if .OwnerName }}<p class="text-muted small mb-1">by {{ .OwnerName }}</p>{{ end }}
                 <p class="text-muted mb-0">
                     {{/* The file count is the list's own ("Files: n"), which follows what is shown */}}
+                    {{ if .CanManageList }}
+                    {{/* The spans let the management list keep these figures current when files are removed (collection_owner.js) */}}
+                    <span data-col-size>{{ .TotalSize }}</span><span data-col-expiry>{{ if not .NeverExpires }} &middot; available until {{ .ExpiryString }}{{ end }}</span>
+                    {{ else }}
                     {{ .TotalSize }}{{ if not .NeverExpires }} &middot; available until {{ .ExpiryString }}{{ end }}
+                    {{ end }}
                 </p>
             </div>
+
+            {{ with .GroupBanner }}
+            {{/* R4: the collection was turned into a group and its link invites to join */}}
+            <div class="alert alert-secondary d-flex flex-wrap align-items-center justify-content-center gap-2 py-2 mb-4" role="status" data-fgs-group-banner>
+                {{ if .CanSee }}
+                <span>This is now a group</span>
+                <a class="btn btn-sm btn-light" href="./{{ .GroupUrl }}">Open the group</a>
+                {{ else }}
+                <span>This is now a group — sign in to join and add your own</span>
+                {{ if .SignedIn }}
+                <form method="post" action="./groups/join" class="m-0">
+                    <input type="hidden" name="t" value="{{ .Token }}">
+                    <button type="submit" class="btn btn-sm btn-light">Join</button>
+                </form>
+                {{ else }}
+                <a class="btn btn-sm btn-light" href="./join?t={{ .Token }}">Sign in to join</a>
+                {{ end }}
+                {{ end }}
+            </div>
+            {{ end }}
+
+            {{ if .CanManage }}
+            {{/* Only for the owner or an admin (managesCollection); collection_owner.js drives it */}}
+            <div class="mb-4" data-fgs-owner-bar data-id="{{ .Collection.Id }}" data-name="{{ .Collection.Name }}">
+                <div class="d-flex flex-wrap justify-content-center gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-light" data-owner-act="rename">
+                        <i class="bi bi-pencil"></i> Rename
+                    </button>
+                    {{ if .HasPassword }}
+                    <button type="button" class="btn btn-sm btn-outline-light" data-owner-act="password">
+                        <i class="bi bi-key"></i> Change password
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-light" data-owner-act="nopassword">
+                        <i class="bi bi-unlock"></i> Remove password
+                    </button>
+                    {{ else }}
+                    <button type="button" class="btn btn-sm btn-outline-light" data-owner-act="password">
+                        <i class="bi bi-key"></i> Set password
+                    </button>
+                    {{ end }}
+                    {{ if .CanTurnIntoGroup }}
+                    <button type="button" class="btn btn-sm btn-outline-light" data-owner-act="togroup">
+                        <i class="bi bi-people-fill"></i> Turn into a group
+                    </button>
+                    {{ end }}
+                </div>
+                <form class="d-none mt-3 mx-auto" style="max-width: 28rem" data-owner-form="rename" novalidate>
+                    <label class="form-label small text-muted" for="fgs-owner-name">New name</label>
+                    <div class="input-group input-group-sm">
+                        <input type="text" class="form-control" id="fgs-owner-name" maxlength="200" autocomplete="off" required>
+                        <button type="submit" class="btn btn-light">Save</button>
+                        <button type="button" class="btn btn-outline-light" data-owner-cancel>Cancel</button>
+                    </div>
+                </form>
+                <form class="d-none mt-3 mx-auto" style="max-width: 28rem" data-owner-form="password" novalidate>
+                    <label class="form-label small text-muted" for="fgs-owner-password">{{ if .HasPassword }}New password (the current one cannot be shown){{ else }}Password{{ end }}</label>
+                    <div class="input-group input-group-sm">
+                        <input type="text" class="form-control" id="fgs-owner-password" autocomplete="new-password" spellcheck="false" required>
+                        <button type="submit" class="btn btn-light">Save</button>
+                        <button type="button" class="btn btn-outline-light" data-owner-cancel>Cancel</button>
+                    </div>
+                    <p class="text-muted small mt-1 mb-0">Anyone else needs it to open this page. You never do.</p>
+                </form>
+                <div class="text-center small mt-2" data-owner-status role="status" aria-live="polite"></div>
+            </div>
+            {{ end }}
+
+            {{ if .CanManageList }}
+            {{/* The management list needs what the admin pages load in their header: the list's table, the edit dialog's date picker, copy and QR. They are plain scripts, run before the list is built on DOMContentLoaded. Visitors load none of this. */}}
+            <link href="./assets/dist/css/datatables.min.css" rel="stylesheet">
+            <link href="./assets/dist/css/flatpickr.min.css" rel="stylesheet">
+            <link href="./assets/dist/css/flatpickr.dark.min.css" rel="stylesheet">
+            <script src="./assets/dist/js/clipboard.min.js"></script>
+            <script src="./assets/dist/js/datatables.min.js"></script>
+            <script src="./assets/dist/js/qrcode.min.js"></script>
+            <script src="./assets/dist/js/flatpickr.min.js"></script>
+            {{ end }}
 
             {{ template "file_browser" .Browser }}
 
             {{ template "media_download_buttons" .Buttons }}
             {{ template "media_help_sheet" }}
             {{ template "media_viewer" }}
+            {{ if .CanManageList }}
+            {{ template "file_browser_dialogs" .ServerUrl }}
+            {{ template "file_browser_support" }}
+            {{ end }}
 
             <script>
             // Download all, Save to Photos and the zip link act on every file in the list;
@@ -43,6 +131,19 @@
             FGS.initDownloadButtons(document.querySelector("[data-fgs-downloads]"));
             FGS.initBackButton(document.querySelector("[data-fgs-back]"));
             </script>
+
+            {{ if .CanManageList }}
+            {{/* Management actions of the list (Remove from collection, edit, delete, ...) */}}
+            <script src="./js/min/admin.min.{{ template "js_admin_version"}}.js"></script>
+            {{ end }}
+
+            {{ if .CanManage }}
+            {{ if .CanTurnIntoGroup }}
+            {{ template "collection_togroup_modal" }}
+            <script src="./js/min/collection_togroup.min.js?v={{ template "js_admin_version" }}"></script>
+            {{ end }}
+            <script src="./js/min/collection_owner.min.js?v={{ template "js_admin_version" }}"></script>
+            {{ end }}
 
         </div>
 {{ end }}

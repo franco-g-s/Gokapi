@@ -144,6 +144,38 @@ func Start() {
 	mux.HandleFunc("/p/poster", servePreviewFile("poster"))
 	mux.HandleFunc("/p/video", streamVideo)
 	mux.HandleFunc("/p/info", publicPreviewInfo)
+	// Part 2, F2: the group creator's "Check for duplicates"
+	mux.HandleFunc("/groups/neardupes", requireLogin(nearCopyCheck, false, false))
+	// Part 2, R4: a collection turned into a group, its old link's modes and stopping it
+	mux.HandleFunc("/groups/fromcollection/preview", requireLogin(groupFromCollectionPreview, false, false))
+	mux.HandleFunc("/groups/linkmode", requireLogin(setGroupLinkMode, false, false))
+	mux.HandleFunc("/groups/stoplink", requireLogin(stopGroupLink, false, false))
+	// Part 2, G10: the group page
+	mux.HandleFunc("/g", requireLogin(showGroup, true, false))
+	mux.HandleFunc("/gd", requireLogin(downloadGroupFile, false, false))
+	mux.HandleFunc("/gz", requireLogin(downloadGroupZip, false, false))
+	mux.HandleFunc("/groups/item", requireLogin(groupItem, false, false))
+	mux.HandleFunc("/groups/nearkeep", requireLogin(keepNearCopy, false, false))
+	// Part 2, G7: uploading into a group
+	mux.HandleFunc("/groups/has", requireLogin(groupHas, false, false))
+	// Part 2, G8: adding files to a group
+	mux.HandleFunc("/groups/add", requireLogin(addToGroup, false, false))
+	mux.HandleFunc("/groups/fromcollection", requireLogin(groupFromCollection, false, false))
+	// Part 2, G2: groups (shared)
+	mux.HandleFunc("/groups/list", requireLogin(listGroups, false, false))
+	// Part 2, G6: groups tab, joining, managing
+	mux.HandleFunc("/groups", requireLogin(showGroups, true, false))
+	mux.HandleFunc("/groups/create", requireLogin(createGroup, false, false))
+	mux.HandleFunc("/groups/join", requireLogin(joinGroup, false, false))
+	mux.HandleFunc("/groups/rename", requireLogin(renameGroup, false, false))
+	mux.HandleFunc("/groups/extend", requireLogin(extendGroup, false, false))
+	mux.HandleFunc("/groups/resetcode", requireLogin(resetGroupCode, false, false))
+	mux.HandleFunc("/groups/removemember", requireLogin(removeGroupMember, false, false))
+	mux.HandleFunc("/groups/leave", requireLogin(leaveGroup, false, false))
+	mux.HandleFunc("/groups/delete", requireLogin(deleteGroup, false, false))
+	mux.HandleFunc("/groups/removefiles", requireLogin(removeGroupFiles, false, false))
+	mux.HandleFunc("/join", showJoin)
+	mux.HandleFunc("/g/join", redirectGroupJoin)
 	mux.HandleFunc("/d/{id}/{filename}", redirectFromFilename)
 	mux.HandleFunc("/dh/{id}/{filename}", downloadFileWithNameInUrl)
 
@@ -503,7 +535,7 @@ func showLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if ok {
-		redirect(w, r, "admin")
+		redirect(w, r, authentication.PopReturnTo(w, r))
 		return
 	}
 	if configuration.Get().Authentication.Method == models.AuthenticationHeader {
@@ -538,7 +570,7 @@ func showLogin(w http.ResponseWriter, r *http.Request) {
 		if validCredentials {
 			logging.LogValidLogin(user)
 			sessionmanager.CreateSession(w, false, 0, retrievedUser.Id)
-			redirect(w, r, "admin")
+			redirect(w, r, authentication.PopReturnTo(w, r))
 			return
 		}
 		if validCsfr {
@@ -659,7 +691,7 @@ func showHotlink(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(imageExpiredPicture)
 		return
 	}
-	validFile := storage.ServeFile(file, w, r, false, true, false, true)
+	validFile := storage.ServeFile(file, w, tagDownload(r, models.DownloadViaFile), false, true, false, true)
 	if !validFile {
 		// Only called if the file has already expired during the expiry check of storage.ServeFile()
 		w.Header().Set("Content-Type", "image/svg+xml")
@@ -705,6 +737,7 @@ func showAdminMenu(w http.ResponseWriter, r *http.Request) {
 	// Starts empty: only what is uploaded now is added, live, by
 	// admin_ui_upload.js. Stored files are on the Files tab.
 	view.Browser = newFileBrowser("fgs-upload", ctxUpload, []browserItem{}, user)
+	view.Browser.UploadSink = true
 
 	err = templateFolder.ExecuteTemplate(w, "admin", &view)
 	helper.CheckIgnoreTimeout(err)
@@ -785,6 +818,7 @@ type AdminView struct {
 	Users                 []userInfo
 	FileRequests          []models.FileRequest
 	Collections           []collectionInfo
+	SharedWithMe          []sharedCollectionInfo
 	ActiveUser            models.User
 	UserMap               map[int]*models.User
 	ServerUrl             string
@@ -849,6 +883,8 @@ const (
 	ViewCollections
 	// ViewFiles is the identifier for the Files tab
 	ViewFiles = 6
+	// ViewGroups is the identifier for the Groups tab
+	ViewGroups = 7
 )
 
 // Converts the globalConfig variable to an AdminView struct to pass the infos to
@@ -898,11 +934,13 @@ func (u *AdminView) convertGlobalConfig(view int, user models.User) *AdminView {
 		_, u.DiskUsage, u.DiskTotal, u.DiskUsagePercent = serverstats.GetDiskInfo()
 		u.CpuLoad = serverstats.GetCpuUsage()
 	case ViewUsers:
-		uploadCounts := storage.GetUploadCounts()
+		fileStats := userFileStats()
 		u.Users = make([]userInfo, 0)
 		for _, userEntry := range database.GetAllUsers() {
 			userWithUploads := userInfo{
-				UploadCount: uploadCounts[userEntry.Id],
+				UploadCount: fileStats[userEntry.Id].Count,
+				TotalSize:   helper.ByteCountSI(fileStats[userEntry.Id].Bytes),
+				Groups:      userGroupNames(userEntry.Id),
 				User:        userEntry,
 			}
 			// Otherwise the user is not shown as online, if /users is opened as first page
@@ -995,7 +1033,9 @@ func sortApiKeys(input []models.ApiKey) []models.ApiKey {
 }
 
 type userInfo struct {
-	UploadCount int
+	UploadCount int      // files the Files tab lists for this person; Size covers the same files
+	TotalSize   string   // their size, human-readable
+	Groups      []string // names of the live groups they belong to
 	User        models.User
 }
 
@@ -1100,13 +1140,18 @@ func downloadPresigned(w http.ResponseWriter, r *http.Request) {
 	}
 	presign.Delete(presignedUrl.Id)
 
+	// requireLogin route: the user is in the context, in every authentication mode
+	user, err := authentication.GetUserFromRequest(r)
+	if err != nil {
+		panic(err)
+	}
 	if len(files) == 1 {
 		file := files[0]
 		forceDecryption := file.Encryption.IsEncrypted && !file.Encryption.IsEndToEndEncrypted
-		storage.ServeFile(file, w, r, true, false, forceDecryption, false)
+		storage.ServeFile(file, w, tagDownloadUser(r, models.DownloadViaFile, user.Id), true, false, forceDecryption, false)
 		return
 	}
-	storage.ServeFilesAsZip(files, presignedUrl.Filename, w, r)
+	storage.ServeFilesAsZip(files, presignedUrl.Filename, w, tagDownloadUser(r, models.DownloadViaZip, user.Id))
 }
 
 func serveFile(id string, isRootUrl bool, w http.ResponseWriter, r *http.Request) {
@@ -1131,7 +1176,7 @@ func serveFile(id string, isRootUrl bool, w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	validFile := storage.ServeFile(savedFile, w, r, true, true, false, true)
+	validFile := storage.ServeFile(savedFile, w, tagDownload(r, models.DownloadViaFile), true, true, false, true)
 	if !validFile {
 		// Only called if the file has already expired during the expiry check of storage.ServeFile()
 		if isRootUrl {
@@ -1167,6 +1212,10 @@ func requireLogin(next http.HandlerFunc, isUiCall, isPwChangeView bool) http.Han
 			w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 			_, _ = io.WriteString(w, "{\"Result\":\"error\",\"ErrorMessage\":\"Not authenticated\"}")
 			return
+		}
+		if r.URL.Path == "/g" {
+			// Part 2: a signed-out member comes back to the group (M8)
+			authentication.SetReturnTo(w, "g?id="+r.URL.Query().Get("id"))
 		}
 		redirect(w, r, "login")
 	}

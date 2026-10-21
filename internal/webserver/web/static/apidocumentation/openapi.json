@@ -510,6 +510,15 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "groupId",
+            "in": "header",
+            "description": "Uploads the file into this group. The user has to be a member of the group. The group's terms replace allowedDownloads, expiryDays and password: unlimited downloads, no password, and an expiry at the group's closing time. A file whose exact copy is already in the group is deleted again; a blocking call then returns 409. Cannot be combined with end-to-end encryption.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -528,6 +537,12 @@
           },
           "401": {
             "description": "Invalid API key provided for authentication or API key does not have the required permission"
+          },
+          "403": {
+            "description": "groupId was set, but the user is not a member of that group or it has closed"
+          },
+          "409": {
+            "description": "groupId was set and the group already has a file with the same content. The new upload was deleted."
           }
         }
       }

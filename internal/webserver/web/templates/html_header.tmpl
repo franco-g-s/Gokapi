@@ -81,6 +81,7 @@
           <nav class="nav nav-masthead justify-content-center">
             <a class="nav-link {{ if eq .ActiveView 0}}active{{ end }}" href="./admin">Upload</a>
             <a class="nav-link {{ if eq .ActiveView 6}}active{{ end }}" href="./files">Files</a>
+            <a class="nav-link {{ if eq .ActiveView 7}}active{{ end }}" href="./groups">Groups</a>
             {{ if .ActiveUser.HasPermissionCreateFileRequests }}
             <a class="nav-link {{ if eq .ActiveView 4 }}active{{ end }}" href="./filerequests">File Requests</a>
             {{ end }}

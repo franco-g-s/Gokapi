@@ -1,0 +1,231 @@
+{{ define "group_page" }}{{ template "header" . }}
+{{/* Part 2, G10: the group page. Dot is a GroupView (GroupPage.go). The
+     header controls, near-copies and "Remove from group" are run by
+     admin_ui_group.js, which does nothing without #groupPage. */}}
+<div class="row"><div class="col"><div id="container" class="card" style="width:100%">
+<div class="card-body text-start" id="groupPage" data-group-id="{{ .Group.Id }}"
+     data-group-name="{{ .Group.Name }}" data-expires="{{ .Group.Expires }}">
+  {{ if not .IsMember }}
+  <div class="alert alert-secondary py-2" role="status">You are not a member of this group</div>
+  {{ end }}
+
+  <h3 class="card-title mb-0" id="groupName">{{ .Group.Name }}</h3>
+
+  {{/* The members: a stack of initials that opens a panel. The panel is a
+       Bootstrap dropdown; admin_ui_group.js keeps the stack and the count in
+       step when someone is removed. */}}
+  <div class="dropdown fgs-members mt-3 mb-2" id="groupMembers">
+    <button type="button" class="btn fgs-members-button" id="groupMembersButton" data-bs-toggle="dropdown"
+            data-bs-auto-close="outside" aria-expanded="false" aria-haspopup="true" aria-label="Members: {{ len .People }}">
+      <span class="fgs-avatar-stack" id="groupMembersStack" aria-hidden="true">
+        {{- range .Stack }}<span class="fgs-avatar" style="background-color: hsl({{ .Hue }}, 45%, 45%)">{{ .Initials }}</span>{{ end -}}
+        {{- if gt .MoreMembers 0 }}<span class="fgs-avatar fgs-avatar-more">+{{ .MoreMembers }}</span>{{ end -}}
+      </span>
+      <span class="fgs-members-count" id="groupMembersCount">{{ len .People }} {{ if eq (len .People) 1 }}member{{ else }}members{{ end }}</span>
+    </button>
+    <div class="dropdown-menu fgs-members-panel p-2" data-bs-theme="dark" aria-labelledby="groupMembersButton">
+      <h6 class="dropdown-header px-1 pt-0">Members</h6>
+      <ul class="fgs-group-people list-unstyled mb-0" id="groupPeople">
+        {{ range .People }}
+        <li class="d-flex align-items-center gap-2 px-1 py-1" data-group-person="{{ .Id }}" data-hue="{{ .Hue }}" data-initials="{{ .Initials }}">
+          <span class="fgs-avatar" style="background-color: hsl({{ .Hue }}, 45%, 45%)" aria-hidden="true">{{ .Initials }}</span>
+          <span class="fgs-group-person-name me-auto">{{ .Name }}</span>
+          {{- if .IsCreator }} <span class="badge bg-secondary">Creator</span>{{ end }}
+          {{- if .Removable }}
+          <button type="button" class="btn btn-sm btn-link link-light p-0 lh-1" data-group-remove-member="{{ .Id }}"
+                  data-name="{{ .Name }}" aria-label="Remove {{ .Name }} from the group" title="Remove member"><i class="bi bi-x-lg"></i></button>
+          {{- end }}
+        </li>
+        {{ end }}
+      </ul>
+    </div>
+  </div>
+  <p class="text-muted mb-3" id="groupCloses">{{ .Closes }}</p>
+
+  <div class="d-flex flex-wrap column-gap-3 row-gap-2 mb-3">
+    <div class="input-group input-group-sm w-auto">
+      <span class="input-group-text">Invite link</span>
+      <input type="text" class="form-control font-monospace" id="groupInviteUrl" value="{{ .InviteUrl }}" size="36" readonly aria-label="Invite link">
+      <button type="button" class="btn btn-outline-light copyurl" id="groupInviteCopy" data-clipboard-text="{{ .InviteUrl }}" title="Copy invite link" aria-label="Copy invite link"><i class="bi bi-copy"></i></button>
+    </div>
+    <div class="input-group input-group-sm w-auto">
+      <span class="input-group-text">Code</span>
+      <span class="input-group-text font-monospace bg-transparent text-light" id="groupCode">{{ .Code }}</span>
+      <button type="button" class="btn btn-outline-light copyurl" id="groupCodeCopy" data-clipboard-text="{{ .Code }}" title="Copy code" aria-label="Copy code"><i class="bi bi-copy"></i></button>
+    </div>
+  </div>
+
+  {{ if or .CanManage .CanLeave }}
+  <div class="d-flex flex-wrap gap-2 mb-3" id="groupControls">
+    {{ if .CanManage }}
+    <button type="button" class="btn btn-sm btn-outline-light" data-bs-toggle="modal" data-bs-target="#groupRenameModal"><i class="bi bi-pencil"></i> Rename</button>
+    <button type="button" class="btn btn-sm btn-outline-light" data-bs-toggle="modal" data-bs-target="#groupExtendModal"><i class="bi bi-calendar-plus"></i> Extend</button>
+    <button type="button" class="btn btn-sm btn-outline-light" id="groupCheckDupes"><i class="bi bi-images"></i> Check for duplicates</button>
+    <button type="button" class="btn btn-sm btn-outline-light" id="groupResetCode"><i class="bi bi-arrow-repeat"></i> Reset code</button>
+    <button type="button" class="btn btn-sm btn-outline-danger" id="groupDelete"><i class="bi bi-trash3"></i> Delete group</button>
+    {{ end }}
+    {{ if .CanLeave }}
+    <button type="button" class="btn btn-sm btn-outline-danger" id="groupLeave"><i class="bi bi-box-arrow-right"></i> Leave group</button>
+    {{ end }}
+    <span class="small text-muted align-self-center" id="groupStatus" role="status" aria-live="polite"></span>
+  </div>
+  {{ end }}
+
+  {{ with .Link }}
+  {{/* R4: the collection this group was made from; creator and admin only */}}
+  <div class="border border-secondary rounded p-2 mb-3" id="groupLink">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+      <span class="me-auto">Also shared as a link</span>
+      <button type="button" class="btn btn-sm btn-outline-danger" id="groupStopLink"><i class="bi bi-x-circle"></i> Stop the link</button>
+    </div>
+    <div class="input-group input-group-sm w-auto mb-2">
+      <input type="text" class="form-control font-monospace" id="groupLinkUrl" value="{{ .Url }}" size="36" readonly aria-label="Old link">
+      <button type="button" class="btn btn-outline-light copyurl" id="groupLinkCopy" data-clipboard-text="{{ .Url }}" title="Copy share link" aria-label="Copy share link"><i class="bi bi-copy"></i></button>
+    </div>
+    <div class="form-check">
+      <input class="form-check-input" type="radio" name="groupLinkMode" id="groupLinkInvite" value="invite"{{ if not .Require }} checked{{ end }}>
+      <label class="form-check-label" for="groupLinkInvite">Show the photos and invite to join</label>
+    </div>
+    <div class="form-check">
+      <input class="form-check-input" type="radio" name="groupLinkMode" id="groupLinkRequire" value="require"{{ if .Require }} checked{{ end }}>
+      <label class="form-check-label" for="groupLinkRequire">Require signing in and joining</label>
+    </div>
+  </div>
+  {{ end }}
+
+  {{ if .NearCopies }}
+  <div class="mb-3" id="groupNearCopies">
+    {{ range .NearCopies }}
+    <div class="d-flex flex-wrap align-items-center gap-2 border border-secondary rounded p-2 mb-2"
+         data-near-file="{{ .Newer.Id }}" data-near-match="{{ .Older.Id }}">
+      {{- with .Newer }}
+      <button type="button" class="fgs-near-open" data-near-open="1" data-id="{{ .Id }}" data-name="{{ .Name }}" data-view="{{ .View }}"
+              data-download="{{ .Download }}" data-uploader="{{ .Uploader }}" data-w="{{ .Width }}" data-h="{{ .Height }}"
+              aria-label="Compare {{ .Name }} with the other photo" title="{{ .Name }}">
+        <img class="fgs-near-thumb" src="{{ .Thumb }}" alt="" loading="lazy" decoding="async"></button>
+      {{- end }}
+      {{- with .Older }}
+      <button type="button" class="fgs-near-open" data-near-open="0" data-id="{{ .Id }}" data-name="{{ .Name }}" data-view="{{ .View }}"
+              data-download="{{ .Download }}" data-uploader="{{ .Uploader }}" data-w="{{ .Width }}" data-h="{{ .Height }}"
+              aria-label="Compare {{ .Name }} with the other photo" title="{{ .Name }}">
+        <img class="fgs-near-thumb" src="{{ .Thumb }}" alt="" loading="lazy" decoding="async"></button>
+      {{- end }}
+      <span class="me-auto">Looks like {{ .MatchUser }}'s photo from <span data-fgs-hm="{{ .MatchAt }}">{{ .MatchTime }}</span>{{ if not .Mine }} (uploaded by {{ .NewerUser }}){{ end }}</span>
+      <button type="button" class="btn btn-sm btn-outline-light" data-near-compare="{{ .Newer.Id }}">Compare</button>
+      <button type="button" class="btn btn-sm btn-outline-light" data-near-keep="{{ .Newer.Id }}">Keep both</button>
+      <button type="button" class="btn btn-sm btn-outline-danger" data-near-remove="{{ .Newer.Id }}">{{ if .Mine }}Remove mine{{ else }}Remove newer{{ end }}</button>
+    </div>
+    {{ end }}
+  </div>
+  {{ end }}
+
+  {{ if .CanManage }}
+  {{/* "Check for duplicates": every pair, listed by admin_ui_group.js from /groups/neardupes */}}
+  <div class="mb-3" id="groupDupes" hidden>
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <strong class="me-auto" id="groupDupesTitle"></strong>
+      <button type="button" class="btn btn-sm btn-outline-light" id="groupDupesClose">Close</button>
+    </div>
+    <div id="groupDupesList"></div>
+  </div>
+  {{ end }}
+
+  <div class="mb-4">
+    {{ template "group_upload_area" .Group.Id }}
+  </div>
+
+  {{ template "file_browser" .Browser }}
+  {{ template "media_viewer" }}
+  {{ template "media_help_sheet" }}
+</div></div></div></div>
+
+{{ if .CanManage }}
+<div class="modal fade" id="groupRenameModal" tabindex="-1" aria-labelledby="groupRenameTitle" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form id="groupRenameForm" novalidate>
+        <div class="modal-header">
+          <h5 class="modal-title" id="groupRenameTitle">Rename</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body text-start">
+          <label for="groupRenameName" class="form-label">Name</label>
+          <input type="text" id="groupRenameName" class="form-control" maxlength="200" autocomplete="off" value="{{ .Group.Name }}" required>
+          <div id="groupRenameError" class="text-danger mt-3" role="alert"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-light" id="groupRenameSubmit">Rename</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="groupRemoveMemberModal" tabindex="-1" aria-labelledby="groupRemoveMemberTitle" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form id="groupRemoveMemberForm" novalidate>
+        <div class="modal-header">
+          <h5 class="modal-title" id="groupRemoveMemberTitle">Remove member</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body text-start">
+          <p id="groupRemoveMemberText"></p>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="groupRemoveMemberReset" checked>
+            <label class="form-check-label" for="groupRemoveMemberReset">Also reset the invite code and link</label>
+          </div>
+          <p class="text-muted small mt-2 mb-0">They have seen the current ones: without a reset they can join again.</p>
+          <div id="groupRemoveMemberError" class="text-danger mt-3" role="alert"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger" id="groupRemoveMemberSubmit">Remove</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="groupExtendModal" tabindex="-1" aria-labelledby="groupExtendTitle" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form id="groupExtendForm" novalidate>
+        <div class="modal-header">
+          <h5 class="modal-title" id="groupExtendTitle">Extend</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body text-start">
+          <p class="text-muted small">From today. The group must close later than it does now.</p>
+          {{ range .ExtendChoices }}
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="groupExtendDays" id="groupExtendDays{{ .Days }}"
+                   value="{{ .Days }}" data-days="{{ .Days }}"{{ if .Disabled }} disabled{{ end }}>
+            <label class="form-check-label" for="groupExtendDays{{ .Days }}">{{ .Label }}</label>
+          </div>
+          {{ end }}
+          <div id="groupExtendError" class="text-danger mt-3" role="alert"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-light" id="groupExtendSubmit">Extend</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{{ end }}
+
+{{ template "file_browser_dialogs" .ServerUrl }}
+{{ template "file_browser_support" }}
+
+<script src="./js/min/admin.min.{{ template "js_admin_version"}}.js"></script>
+<script src="./js/min/uuid.min.js"></script>
+<script>
+FGS.initGroupUploadArea({maxFileSize: {{ .MaxFileSize }}, chunkSize: {{ .ChunkSize }},
+    maxParallelUploads: {{ .MaxParallelUploads }}, e2e: {{ .EndToEndEncryption }}});
+</script>
+{{ template "pagename" "Group"}}
+{{ template "customjs" .}}
+{{ template "footer" true}}{{ end }}

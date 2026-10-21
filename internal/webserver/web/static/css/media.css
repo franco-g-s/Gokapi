@@ -12,6 +12,9 @@
 /* Select mode: checkboxes only while selecting, in both views; the slider and shape toggle only in the grid */
 .fgs-browser:not(.fgs-selecting) .fgs-tile-check,.fgs-browser:not(.fgs-selecting) .fgs-col-check{display:none}
 .fgs-browser:not([data-current-view=grid]) .fgs-grid-only{display:none!important}
+/* Only the current view, from the first paint: the inline script after each list root sets data-current-view (FGS.presetView) */
+.fgs-browser[data-current-view=list]>.fgs-views>[data-fgs-grid]{display:none!important}
+.fgs-browser:not([data-current-view=list])>.fgs-views>[data-fgs-list]{display:none!important}
 /* Empty: the message instead of the views */
 .fgs-browser .fgs-empty{display:none}.fgs-browser.fgs-is-empty .fgs-empty{display:block}.fgs-browser.fgs-is-empty .fgs-views{display:none}
 .fgs-selecting .fgs-tile:has(.fgs-tile-check:checked) .fgs-tile-open{outline:3px solid #f2f1ee;outline-offset:-3px}
@@ -40,6 +43,15 @@
 .fgs-tile:hover .fgs-menu-btn,.fgs-tile:focus-within .fgs-menu-btn,.fgs-tile .fgs-menu-btn.show{opacity:1}
 @media (hover:none){.fgs-tile .fgs-menu-btn{opacity:1}}
 .fgs-play{position:absolute;right:.4rem;bottom:2.6rem;background:rgba(0,0,0,.55);border-radius:50%;padding:.15rem .4rem}
+/* Group pages: a tick on what you have downloaded (hidden in select mode, where the checkbox sits there), the uploader's initials */
+.fgs-tick{display:none;position:absolute;top:.4rem;left:.4rem;z-index:1;width:1.5rem;height:1.5rem;align-items:center;justify-content:center;border-radius:50%;background:#198754;color:#fff;font-size:.9rem;line-height:1;pointer-events:none}
+[data-group-tools=true] .fgs-tile[data-downloaded=true] .fgs-tick{display:flex}
+.fgs-selecting .fgs-tile .fgs-tick{display:none!important}
+.fgs-row-tick{display:none;color:#198754}
+[data-group-tools=true] tr[data-downloaded=true] .fgs-row-tick{display:inline}
+.fgs-initials{position:absolute;left:.4rem;bottom:2.6rem;min-width:1.6rem;height:1.6rem;padding:0 .3rem;display:flex;align-items:center;justify-content:center;border-radius:.8rem;background:rgba(0,0,0,.6);color:#f2f1ee;font-size:.7rem;font-weight:600;pointer-events:none}
+.fgs-initials:empty{display:none}
+.fgs-board-mode .fgs-initials{bottom:.4rem}
 .fgs-typeicon{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;font-size:2.4rem;color:#9a9992}
 .fgs-typeicon small{font-size:.7rem;padding:0 .4rem;word-break:break-all}
 .fgs-tile figcaption{font-size:.8rem;line-height:1.3;margin-top:.35rem}
@@ -69,3 +81,20 @@
 .collection-name-link{color:inherit;text-decoration:none;word-break:break-word}
 .collection-name-link:hover{text-decoration:underline}
 @media (min-width:992px){.file-card.fgs-collection-wide{max-width:min(1280px,100% - 2rem)}}
+.fgs-v-photos[hidden]{display:none}
+/* The "⋯" menu, in the site's look (branding custom.css: the card and dialog
+   surface --fgs-card made translucent with the sidebar's frosted blur, the
+   --fgs-line border, the --fgs-radius corners, and the sidebar links' type
+   size, padding, 9px radius and hover). Fallbacks for pages without it. */
+.fgs-menu .dropdown-menu{--bs-dropdown-bg:rgba(28,28,26,.82);--bs-dropdown-color:var(--fgs-fg,#f2f1ee);--bs-dropdown-border-color:var(--fgs-line,#2e2e2b);--bs-dropdown-border-radius:var(--fgs-radius,14px);--bs-dropdown-inner-border-radius:calc(var(--fgs-radius,14px) - 1px);--bs-dropdown-font-size:.92rem;--bs-dropdown-padding-x:.35rem;--bs-dropdown-padding-y:.35rem;--bs-dropdown-item-padding-x:.65rem;--bs-dropdown-item-padding-y:.5rem;--bs-dropdown-item-border-radius:9px;--bs-dropdown-link-color:#cfcec8;--bs-dropdown-link-hover-color:var(--fgs-fg,#f2f1ee);--bs-dropdown-link-hover-bg:rgba(255,255,255,.05);--bs-dropdown-link-active-color:var(--fgs-fg,#f2f1ee);--bs-dropdown-link-active-bg:rgba(255,255,255,.09);--bs-dropdown-link-disabled-color:#57574f;--bs-dropdown-divider-bg:var(--fgs-line,#2e2e2b);--bs-dropdown-divider-margin-y:.3rem;--bs-dropdown-box-shadow:0 12px 32px rgba(0,0,0,.45);min-width:13rem;background-color:rgba(28,28,26,.82);border:1px solid var(--fgs-line,#2e2e2b);border-radius:var(--fgs-radius,14px);box-shadow:var(--bs-dropdown-box-shadow);-webkit-backdrop-filter:blur(24px) saturate(140%);backdrop-filter:blur(24px) saturate(140%)}
+.fgs-menu .dropdown-item{display:flex;align-items:center;gap:.7rem;font-weight:500;transition:background-color .12s ease,color .12s ease}
+.fgs-menu .dropdown-item i{font-size:1rem;width:1.15rem;text-align:center}
+.fgs-menu .dropdown-item:focus-visible{outline:2px solid rgba(242,241,238,.6);outline-offset:-2px}
+.fgs-menu .dropdown-item.text-danger{color:#b98a86!important}
+.fgs-menu .dropdown-item.text-danger:hover,.fgs-menu .dropdown-item.text-danger:focus{background-color:rgba(185,138,134,.12);color:#d9a6a1!important}
+/* Save to Photos, prepared and waiting for its tap: green, gently pulsing.
+   Explicit colours: the branding's .btn-outline-light:hover loads later. */
+@keyframes fgs-pulse{0%{box-shadow:0 0 0 0 rgba(25,135,84,.6)}70%{box-shadow:0 0 0 .45rem rgba(25,135,84,0)}100%{box-shadow:0 0 0 0 rgba(25,135,84,0)}}
+.btn.fgs-photos-ready,.btn.fgs-photos-ready:focus-visible,.fgs-menu .dropdown-item.fgs-photos-ready{background-color:#198754;border-color:#198754;color:#fff;animation:fgs-pulse 1.6s ease-out infinite}
+.btn.fgs-photos-ready:hover,.btn.fgs-photos-ready:active,.fgs-menu .dropdown-item.fgs-photos-ready:hover,.fgs-menu .dropdown-item.fgs-photos-ready:active{background-color:#157347;border-color:#146c43;color:#fff}
+@media (prefers-reduced-motion:reduce){.btn.fgs-photos-ready,.fgs-menu .dropdown-item.fgs-photos-ready{animation:none}}

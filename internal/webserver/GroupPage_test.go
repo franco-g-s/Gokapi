@@ -286,10 +286,14 @@ func TestGroupPage(t *testing.T) {
 	t.Run("the creator sees a pair of two other members, a plain member does not", func(t *testing.T) {
 		olaf := models.User{Id: 75, Name: "olaf@example.com", UserLevel: models.UserLevelUser}
 		database.SaveUser(olaf, false)
-		defer database.DeleteUser(olaf.Id)
 		_, err := storage.JoinGroupByToken(fx.group.InviteToken, olaf)
 		test.IsNil(t, err)
-		// olaf's F is newer than anna's A and a dHash bit from it, but far from carla's B
+		defer func() {
+			test.IsNil(t, storage.LeaveGroup(fx.group, olaf))
+			database.DeleteUser(olaf.Id)
+		}()
+		// olaf's F is newer than anna's A and one dHash bit from it; carla's B is
+		// three bits away, so A is the closest match
 		f := accessFile("grouppagef000000001", func(f *models.File) {
 			f.SHA1 = "sha-grouppagef"
 			f.UserId = olaf.Id
@@ -355,6 +359,7 @@ func TestGroupPage(t *testing.T) {
 		}
 		defer func() {
 			for _, u := range extra {
+				test.IsNil(t, storage.LeaveGroup(fx.group, u))
 				database.DeleteUser(u.Id)
 			}
 		}()

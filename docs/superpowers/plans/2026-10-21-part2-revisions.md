@@ -230,3 +230,26 @@ Do **not** change "Turn into a group" behaviour; that is R4. R2 only adds a seco
   - Compare;
   - the members panel;
   - the phone drop zone.
+
+---
+
+## Final fixes before go-live (Franco, 2026-10-21 10:19)
+
+### Task F1: shared list — no view flash, group default view, help sheet honesty
+- **No view flash.** On the Files tab and on collection pages, Grid shows for a moment before the remembered List view. The correct view must be in place before the first paint.
+  - Put a tiny inline script directly after each `file_browser` root element. It reads `localStorage["fgsBrowser.<context>.view"]` (plus the Files tab's legacy key) and sets `data-current-view`.
+  - Add CSS keyed on `[data-current-view]` so that only the current view is ever visible. `applyView` then only confirms.
+- **Group default view.** Groups must default to Board. Verify that a fresh browser with empty `localStorage` shows Board on `/g`, with the Board button active, and that nothing forces Grid.
+  - At phone width, Board has two columns, which can look like Grid. Say whether that is what Franco saw.
+  - The remembered view is per context, so one tap on Grid on any group page sets Grid for every group. Keep remembering, but key it **per group id** for the group context, so each group starts on Board.
+- **Help sheet.** Remove any promise that photos keep their original date and time. On Franco's iPhone, iOS 27 drops the date on import both through Save to Photos and through Files, even though the files carry every date field. Replace it with nothing, or with a neutral line. Do not claim the opposite.
+
+### Task F2: duplicates — check on demand, keep the downloaded state
+- **"Check for duplicates".** Creators and admins get a "Check for duplicates" button on the group page. It lists **every** near-copy pair in the group, including same-uploader pairs (bursts, which are not flagged automatically, per D11) and pairs already kept (marked "Kept"). Each pair offers Compare, Keep both and Remove newer.
+  - Detection itself runs on every page load; this view widens what is shown.
+- **Downloaded state follows the kept copy.** When a near-copy is removed through the duplicate UI (Remove newer, Remove mine), every user's Downloads rows for the removed file are copied to the kept file. A tick, or "new to me", then follows the photo they already have. Add a `storage` helper and test it.
+
+### Task F3: Collections tab — no file dropdown; manage members on the collection page
+- **Remove the file dropdown.** Clicking the file count in the Collections table no longer opens a per-collection file list. Remove the dropdown row and its JS; the count is plain text or a link to the collection page.
+- **Manage members on the collection page.** On `/c?id=`, the owner and admins get the management list (context `collection-admin`, so "Remove from collection" is in the "⋯" menu and the selection bar), loading what that needs. Visitors keep the public list.
+  - Adding files stays on the Files tab ("Add to collection…").

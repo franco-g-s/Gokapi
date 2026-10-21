@@ -12,6 +12,9 @@
 /* Select mode: checkboxes only while selecting, in both views; the slider and shape toggle only in the grid */
 .fgs-browser:not(.fgs-selecting) .fgs-tile-check,.fgs-browser:not(.fgs-selecting) .fgs-col-check{display:none}
 .fgs-browser:not([data-current-view=grid]) .fgs-grid-only{display:none!important}
+/* Only the current view, from the first paint: the inline script after each list root sets data-current-view (FGS.presetView) */
+.fgs-browser[data-current-view=list]>.fgs-views>[data-fgs-grid]{display:none!important}
+.fgs-browser:not([data-current-view=list])>.fgs-views>[data-fgs-list]{display:none!important}
 /* Empty: the message instead of the views */
 .fgs-browser .fgs-empty{display:none}.fgs-browser.fgs-is-empty .fgs-empty{display:block}.fgs-browser.fgs-is-empty .fgs-views{display:none}
 .fgs-selecting .fgs-tile:has(.fgs-tile-check:checked) .fgs-tile-open{outline:3px solid #f2f1ee;outline-offset:-3px}

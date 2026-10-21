@@ -38,9 +38,9 @@
     </div>
     {{ end }}
     <div class="btn-group" role="group" aria-label="Layout">
-      <button type="button" class="btn btn-sm btn-outline-light" data-layout="grid" title="Grid"><i class="bi bi-grid-3x3-gap"></i> <span class="fgs-label">Grid</span></button>
-      <button type="button" class="btn btn-sm btn-outline-light" data-layout="board" title="Board"><i class="bi bi-columns-gap"></i> <span class="fgs-label">Board</span></button>
-      <button type="button" class="btn btn-sm btn-outline-light" data-layout="list" title="List"><i class="bi bi-list-ul"></i> <span class="fgs-label">List</span></button>
+      <button type="button" class="btn btn-sm {{ if eq .DefaultView "grid" }}btn-light{{ else }}btn-outline-light{{ end }}" data-layout="grid" title="Grid"><i class="bi bi-grid-3x3-gap"></i> <span class="fgs-label">Grid</span></button>
+      <button type="button" class="btn btn-sm {{ if eq .DefaultView "board" }}btn-light{{ else }}btn-outline-light{{ end }}" data-layout="board" title="Board"><i class="bi bi-columns-gap"></i> <span class="fgs-label">Board</span></button>
+      <button type="button" class="btn btn-sm {{ if eq .DefaultView "list" }}btn-light{{ else }}btn-outline-light{{ end }}" data-layout="list" title="List"><i class="bi bi-list-ul"></i> <span class="fgs-label">List</span></button>
     </div>
     <div class="fgs-grid-only btn-group fgs-shape-toggle" role="group" aria-label="Tile shape">
       <button type="button" class="btn btn-sm btn-light" data-shape="square">Square</button>
@@ -64,7 +64,7 @@
     <div class="fgs-grid" data-fgs-grid>
       {{ range $i, $item := .Items }}{{ template "file_browser_tile" ($.TileAt $i $item) }}{{ end }}
     </div>
-    <div class="table-responsive d-none" data-fgs-list>
+    <div class="table-responsive" data-fgs-list>
       <table class="table table-dark align-middle fgs-table" id="{{ .Id }}-table">
         <thead><tr>
           <th class="fgs-col-check" data-fgs-nosort></th>
@@ -90,6 +90,9 @@
   <template data-fgs-tpl="tile">{{ template "file_browser_tile" ($.TileAt -1 $.Blank) }}</template>
   <template data-fgs-tpl="row">{{ template "file_browser_row" ($.TileAt -1 $.Blank) }}</template>
 </div>
+{{- /* Before the first paint: the remembered view (media.js, FGS.presetView;
+       media.css shows only data-current-view's view). Never throws. */}}
+<script>try{window.FGS&&FGS.presetView&&FGS.presetView(document.getElementById({{ .Id }}))}catch(e){}</script>
 {{ end }}
 
 {{/* One selection-bar button. Zip only where the page has a zip endpoint. */}}

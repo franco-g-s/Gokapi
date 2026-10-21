@@ -658,6 +658,60 @@
     });
   }
 
+  // A list's remembered choices, per context: "fgsBrowser.<context>.<k>".
+  // The view of a group page is per group, so a tap on Grid in one group
+  // leaves every other group on Board. The Files tab falls back to the keys
+  // it used before it moved onto this component. localStorage throws in
+  // private mode: then nothing is remembered.
+  var LEGACY_FILES_KEYS = { view: "filesLayout", shape: "filesTileShape", size: "filesIconSize", scope: "filesScope" };
+  function browserPrefKey(root, k) {
+    var context = root.getAttribute("data-context") || "";
+    var group = root.getAttribute("data-group-id") || "";
+    if (k === "view" && context === "group" && group) context = "group." + group;
+    return "fgsBrowser." + context + "." + k;
+  }
+  FGS.browserPrefKey = browserPrefKey;
+  function loadBrowserPref(root, k) {
+    try {
+      var v = localStorage.getItem(browserPrefKey(root, k));
+      if (v === null && root.getAttribute("data-context") === "files" && LEGACY_FILES_KEYS[k]) v = localStorage.getItem(LEGACY_FILES_KEYS[k]);
+      return v;
+    } catch (e) { return null; }
+  }
+  function storeBrowserPref(root, k, v) {
+    try { localStorage.setItem(browserPrefKey(root, k), v); } catch (e) { /* private mode */ }
+  }
+  // The remembered view if it is one, else the context's default
+  function initialView(root) {
+    var v = loadBrowserPref(root, "view");
+    return VIEWS.indexOf(v) >= 0 ? v : root.getAttribute("data-default-view");
+  }
+  // The button of this value is the active one in its group of buttons
+  function markActive(root, attr, value) {
+    root.querySelectorAll("button[" + attr + "]").forEach(function (b) {
+      if (b.closest("[data-fgs-browser]") !== root) return;
+      var on = b.getAttribute(attr) === value;
+      b.classList.toggle("btn-light", on);
+      b.classList.toggle("btn-outline-light", !on);
+    });
+  }
+  // Called by the inline script directly after each list root, before the
+  // first paint: the remembered view, its button, and Board's columns, so
+  // a List or Board page never flashes Grid. initFileBrowser confirms it.
+  FGS.presetView = function (root) {
+    if (!root) return;
+    var v = initialView(root);
+    if (VIEWS.indexOf(v) < 0) return;
+    root.setAttribute("data-current-view", v);
+    markActive(root, "data-layout", v);
+    var grid = root.querySelector("[data-fgs-grid]");
+    if (!grid || v !== "board") return;
+    grid.classList.add("fgs-board-mode");
+    masonry(grid, Array.prototype.filter.call(grid.children, function (t) {
+      return t.classList.contains("fgs-tile") && !t.classList.contains("d-none");
+    }));
+  };
+
   FGS.initFileBrowser = function (root) {
     if (!root) return null;
     if (root.fgsBrowser) return root.fgsBrowser;
@@ -699,26 +753,10 @@
     var selecting = false, view = null, scope = "all", dataTable = null, api = null;
     var tilesById = {}, rowsById = {};
 
-    // Choices are remembered per context. The Files tab keeps the choices
-    // made before it moved onto this component.
-    var legacyKeys = context === "files" ? { view: "filesLayout", shape: "filesTileShape", size: "filesIconSize", scope: "filesScope" } : {};
-    function load(k) {
-      try {
-        var v = localStorage.getItem("fgsBrowser." + context + "." + k);
-        if (v === null && legacyKeys[k]) v = localStorage.getItem(legacyKeys[k]);
-        return v;
-      } catch (e) { return null; }
-    }
-    function store(k, v) { try { localStorage.setItem("fgsBrowser." + context + "." + k, v); } catch (e) { /* private mode */ } }
-
-    function setActive(attr, value) {
-      root.querySelectorAll("button[" + attr + "]").forEach(function (b) {
-        if (!root.contains(b) || b.closest("[data-fgs-browser]") !== root) return;
-        var on = b.getAttribute(attr) === value;
-        b.classList.toggle("btn-light", on);
-        b.classList.toggle("btn-outline-light", !on);
-      });
-    }
+    // Remembered choices (browserPrefKey)
+    function load(k) { return loadBrowserPref(root, k); }
+    function store(k, v) { storeBrowserPref(root, k, v); }
+    function setActive(attr, value) { markActive(root, attr, value); }
 
     function tileCheck(tile) { return tile.querySelector(".fgs-tile-check"); }
     function rowCheck(row) { return row && row.querySelector(".fgs-row-check"); }
@@ -1557,8 +1595,7 @@
       // A search changes which selected files are visible
       dataTable.on("draw", updateSelection);
     }
-    var savedView = load("view");
-    applyView(VIEWS.indexOf(savedView) >= 0 ? savedView : root.getAttribute("data-default-view"));
+    applyView(initialView(root));
     applyScope(load("scope") || "mine");
     // Group pages: whose files (never remembered: each group has its own
     // people), and "Hide what I've downloaded" (remembered)

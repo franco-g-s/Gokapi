@@ -534,3 +534,73 @@ func TestSaveToPhotosScript(t *testing.T) {
 	// next to "Download original", hidden until media.js decides it applies
 	test.IsEqualBool(t, photos > download, true)
 }
+
+// F1: the remembered view is in place before the first paint. Each list root
+// is followed directly by an inline script that hands it to
+// FGS.presetView (media.js, loaded in the head), which can never throw; the
+// CSS shows only data-current-view's view, so the list no longer starts
+// d-none; and the default view's button is active as rendered. The key
+// choice itself is tested in build/dev/browser_view_test.mjs.
+func TestFileBrowserPresetsViewBeforePaint(t *testing.T) {
+	user := models.User{Id: 7}
+	for _, context := range []string{ctxFiles, ctxUpload, ctxCollectionAdmin, ctxFileRequest, ctxCollectionPublic, ctxGroup} {
+		t.Run(context, func(t *testing.T) {
+			b := newFileBrowser("b-"+context, context, nil, user)
+			if context == ctxGroup {
+				b.WithGroup(models.Group{Id: "grp42"}, nil)
+			}
+			html := renderBrowser(t, b)
+			script := `<script>try{window.FGS&&FGS.presetView&&FGS.presetView(document.getElementById("b-` + context + `"))}catch(e){}</script>`
+			at := strings.Index(html, script)
+			if at < 0 {
+				t.Fatalf("no preset script for %s", context)
+			}
+			// directly after the root's closing tag, before anything else
+			test.IsEqualBool(t, strings.HasSuffix(strings.TrimSpace(html[:at]), "</div>"), true)
+			test.IsEqualBool(t, strings.Contains(html, `<div class="table-responsive" data-fgs-list>`), true)
+			for _, v := range []string{viewGrid, viewBoard, viewList} {
+				class := "btn-outline-light"
+				if v == b.DefaultView {
+					class = "btn-light"
+				}
+				test.IsEqualBool(t, strings.Contains(html, `class="btn btn-sm `+class+`" data-layout="`+v+`"`), true)
+			}
+		})
+	}
+	// Groups start on Board, keyed by their own id
+	g := newFileBrowser("b-group", ctxGroup, nil, user)
+	g.WithGroup(models.Group{Id: "grp42"}, nil)
+	html := renderBrowser(t, g)
+	test.IsEqualBool(t, strings.Contains(html, `data-current-view="board"`), true)
+	test.IsEqualBool(t, strings.Contains(html, `data-group-id="grp42"`), true)
+
+	css, err := staticFolderEmbedded.ReadFile("web/static/css/media.css")
+	test.IsNil(t, err)
+	for _, want := range []string{
+		".fgs-browser[data-current-view=list]>.fgs-views>[data-fgs-grid]{display:none!important}",
+		".fgs-browser:not([data-current-view=list])>.fgs-views>[data-fgs-list]{display:none!important}",
+	} {
+		if !strings.Contains(string(css), want) {
+			t.Errorf("media.css lacks %s", want)
+		}
+	}
+	js, err := staticFolderEmbedded.ReadFile("web/static/js/media.js")
+	test.IsNil(t, err)
+	for _, want := range []string{"FGS.presetView = function (root)", "FGS.browserPrefKey = browserPrefKey"} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("media.js lacks %s", want)
+		}
+	}
+}
+
+// F1: iOS 27 drops the date taken on import, through Save to Photos and
+// through Files alike, so the help sheet promises nothing about dates
+func TestHelpSheetMakesNoDatePromise(t *testing.T) {
+	var out bytes.Buffer
+	test.IsNil(t, templateFolder.ExecuteTemplate(&out, "media_help_sheet", nil))
+	sheet := strings.ToLower(out.String())
+	test.IsEqualBool(t, strings.Contains(sheet, "fgs-help-sheet"), true)
+	for _, promise := range []string{"original date", "keep their", "timeline", "date and time"} {
+		test.IsEqualBool(t, strings.Contains(sheet, promise), false)
+	}
+}

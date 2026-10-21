@@ -90,19 +90,6 @@ func TestCollectionPageShowsFileCountOnce(t *testing.T) {
 	test.IsEqualInt(t, strings.Count(string(body), "2 files"), 1)
 }
 
-// Even the collection's owner, logged in, sees the visitor's page on /c
-func TestCollectionPublicHasNoManagementForOwner(t *testing.T) {
-	f := accessFile("boardfile0000000003", func(f *models.File) { f.SHA1 = "boardsha3" })
-	col, err := storage.CreateCollection(storage.CollectionParameters{Name: "own", FileIds: []string{f.Id}}, models.User{Id: 7})
-	test.IsNil(t, err)
-	test.HttpPageResult(t, test.HttpTestConfig{
-		Url: "http://localhost:53843/c?id=" + col.Id, IsHtml: true,
-		Cookies:         []test.Cookie{filesAdminSession()},
-		RequiredContent: []string{`data-context="collection-public"`, `data-mine="false"`},
-		ExcludedContent: collectionPublicExcluded,
-	})
-}
-
 // The password page is the card alone: no list, viewer or help sheet
 func TestCollectionPasswordPageHasNoBrowser(t *testing.T) {
 	f := accessFile("boardfile0000000004", func(f *models.File) { f.SHA1 = "boardsha4" })

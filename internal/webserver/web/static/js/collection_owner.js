@@ -1,8 +1,8 @@
 // The owner bar of a collection's public page (html_collection.tmpl): Rename,
 // Set / Change / Remove password and Turn into a group, whose dialog is
 // collection_togroup.js. The page loads this only for the collection's owner
-// or an admin; the public page does not load the admin bundle, so this
-// stands alone. Every request is a POST with a JSON
+// or an admin, who also get the management list and so the admin bundle;
+// this file does not depend on it. Every request is a POST with a JSON
 // body (I1), and names are put into the page with textContent only.
 (function () {
     "use strict";
@@ -143,5 +143,20 @@
                     break;
             }
         });
+    });
+
+    // --- The page's figures follow the management list --------------------
+    // Removing members, or deleting a file in the list, reports the
+    // collection's new figures (admin_ui_filebrowser.js); the size and the
+    // "available until" under the title follow without a reload.
+    document.addEventListener("fgs:collection-changed", function (event) {
+        var d = event.detail || {};
+        if (d.collectionId !== id) return;
+        var size = document.querySelector("[data-col-size]");
+        var expiry = document.querySelector("[data-col-expiry]");
+        if (size && d.totalSize !== undefined) size.textContent = d.totalSize;
+        if (expiry && d.neverExpires !== undefined) {
+            expiry.textContent = d.neverExpires ? "" : " \u00b7 available until " + d.expiry;
+        }
     });
 })();

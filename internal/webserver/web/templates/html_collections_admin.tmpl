@@ -40,15 +40,10 @@
                     <a class="collection-name-link" href="./c?id={{ .Id }}">{{ .Name }}</a>
                     {{ if not .IsOwn }}<span class="badge bg-secondary ms-2">{{ .OwnerName }}</span>{{ end }}
                   </td>
-                  <td data-col-count>
-                    {{/* The member list opens from its count: the name opens the collection itself */}}
-                    <button class="btn btn-link btn-sm p-0 text-reset collection-files" type="button"
-                            data-id="{{ .Id }}" aria-expanded="false" aria-controls="files-{{ .Id }}"
-                            title="Show the files"><span data-col-count-text>{{ .FileCount }}</span><span class="visually-hidden"> files</span> <i class="bi bi-chevron-down small" aria-hidden="true"></i></button>
-                  </td>
-                  <td data-col-size>{{ .TotalSize }}</td>
+                  <td>{{ .FileCount }}</td>
+                  <td>{{ .TotalSize }}</td>
                   <td>{{ .Created }}</td>
-                  <td data-col-expiry>{{ if .NeverExpires }}Unlimited{{ else }}{{ .Expiry }}{{ end }}</td>
+                  <td>{{ if .NeverExpires }}Unlimited{{ else }}{{ .Expiry }}{{ end }}</td>
                   <td>
                     <div class="btn-group text-nowrap" role="group" aria-label="Actions">
                       <button class="btn btn-sm btn-outline-light copyurl collection-copy"
@@ -79,15 +74,6 @@
                         <i class="bi bi-trash3"></i>
                       </button>
                     </div>
-                  </td>
-                </tr>
-                <tr class="collection-files-row" id="files-{{ .Id }}" style="display:none">
-                  <td colspan="6">
-                    {{ template "file_browser" .Browser }}
-                    <button class="btn btn-sm btn-outline-light mt-2 collection-addfiles"
-                            type="button" data-id="{{ .Id }}" data-name="{{ .Name }}">
-                      <i class="bi bi-plus-lg"></i> Add files
-                    </button>
                   </td>
                 </tr>
                 {{ end }}
@@ -138,12 +124,12 @@
   <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="filePickerTitle">Choose files</h5>
+        <h5 class="modal-title" id="filePickerTitle">New collection</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
                 aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <div id="filePickerMeta" class="mb-3" style="display:none">
+        <div id="filePickerMeta" class="mb-3">
           <input type="text" id="filePickerName" class="form-control mb-2"
                  placeholder="Collection name" value="Shared files">
           <div class="d-flex gap-2">
@@ -186,9 +172,6 @@
 
 {{ template "collection_togroup_modal" }}
 
-{{ template "media_viewer" }}
-{{ template "media_help_sheet" }}
-{{ template "file_browser_dialogs" .ServerUrl }}
 {{ template "file_browser_support" }}
 
 <script>
@@ -211,33 +194,6 @@ function postCollection(url, payload) {
         });
     }, function (e) { return { Result: "error", ErrorMessage: String(e) }; });
 }
-
-// The member list was built while its row was hidden: measure it now. The
-// List's table needs its column widths worked out, the Board its masonry.
-function laidOutWhenShown(row) {
-    var root = row.querySelector("[data-fgs-browser]");
-    if (!root || !window.FGS || !FGS.initFileBrowser) return;
-    var browser = FGS.initFileBrowser(root);
-    var table = root.querySelector("table.fgs-table");
-    if (window.jQuery && jQuery.fn.dataTable && table && jQuery.fn.dataTable.isDataTable(table)) {
-        jQuery(table).DataTable().columns.adjust();
-    }
-    if (browser) browser.relayout();
-}
-
-// The Files count opens and closes the collection's member list
-document.querySelectorAll(".collection-files").forEach(function (button) {
-    button.addEventListener("click", function () {
-        var row = document.getElementById("files-" + button.getAttribute("data-id"));
-        if (!row) return;
-        var open = row.style.display === "none";
-        row.style.display = open ? "" : "none";
-        button.setAttribute("aria-expanded", String(open));
-        var icon = button.querySelector(".bi");
-        if (icon) icon.className = "bi bi-chevron-" + (open ? "up" : "down") + " small";
-        if (open) laidOutWhenShown(row);
-    });
-});
 
 document.querySelectorAll(".collection-rename").forEach(function (button) {
     button.addEventListener("click", function () {
@@ -282,50 +238,22 @@ document.querySelectorAll(".collection-password").forEach(function (button) {
     });
 });
 
-// The summary row follows the member list: "Remove from collection" reports
-// the collection's figures (admin_ui_filebrowser.js), so no reload is needed.
-document.addEventListener("fgs:collection-changed", function (e) {
-    var d = e.detail || {};
-    var row = document.getElementById("collection-" + d.collectionId);
-    if (!row) return;
-    var set = function (sel, text) { var c = row.querySelector(sel); if (c && text !== undefined) c.textContent = text; };
-    set("[data-col-count-text]", d.fileCount === undefined ? undefined : String(d.fileCount));
-    set("[data-col-size]", d.totalSize);
-    if (d.neverExpires !== undefined) set("[data-col-expiry]", d.neverExpires ? "Unlimited" : d.expiry);
-});
-
-// --- file picker: shared by "new collection" and "add files" ---------------
+// --- file picker for "new collection" ---------------------------------------
 (function () {
     var modalEl = document.getElementById("filePickerModal");
     if (!modalEl) return;
     var modal = new bootstrap.Modal(modalEl);
-    var title = document.getElementById("filePickerTitle");
     var confirm = document.getElementById("filePickerConfirm");
     var counter = document.getElementById("filePickerCount");
     var filter = document.getElementById("filePickerFilter");
     var boxes = Array.prototype.slice.call(document.querySelectorAll(".file-picker-check"));
-    var mode = null;          // "create" | "add"
-    var targetId = null;
 
-    // Disabled boxes are files already in the collection: shown ticked so it is
-    // obvious why they cannot be picked, but never counted or resent.
     function selectedIds() {
         return boxes
-            .filter(function (b) { return b.checked && !b.disabled; })
+            .filter(function (b) { return b.checked; })
             .map(function (b) { return b.value; });
     }
 
-    // Existing members are read from the collection's file list already on the
-    // page, so this needs no extra request.
-    function existingMemberIds(collectionId) {
-        var ids = [];
-        var root = document.getElementById("col-" + collectionId);
-        if (!root) return ids;
-        root.querySelectorAll("[data-fgs-grid] .fgs-tile").forEach(function (tile) {
-            ids.push(tile.getAttribute("data-id"));
-        });
-        return ids;
-    }
     function refresh() {
         var n = selectedIds().length;
         confirm.disabled = n === 0;
@@ -343,33 +271,9 @@ document.addEventListener("fgs:collection-changed", function (e) {
         });
     }
 
-    function open(newMode, id, label) {
-        mode = newMode;
-        targetId = id;
-        var already = newMode === "add" ? existingMemberIds(id) : [];
-        boxes.forEach(function (b) {
-            var isMember = already.indexOf(b.value) !== -1;
-            b.checked = isMember;
-            b.disabled = isMember;
-            var row = b.closest("li");
-            if (row) {
-                row.classList.toggle("is-member", isMember);
-                var note = row.querySelector(".picker-already");
-                if (isMember && !note) {
-                    var span = document.createElement("span");
-                    span.className = "picker-already";
-                    span.textContent = "already added";
-                    // inserted before the size so every size stays in one column
-                    row.querySelector("label").insertBefore(span, row.querySelector(".picker-size"));
-                } else if (!isMember && note) {
-                    note.remove();
-                }
-            }
-        });
+    function open() {
+        boxes.forEach(function (b) { b.checked = false; });
         if (filter) { filter.value = ""; filter.dispatchEvent(new Event("input")); }
-        title.textContent = newMode === "create" ? "New collection" : "Add files to " + label;
-        var meta = document.getElementById("filePickerMeta");
-        if (meta) meta.style.display = newMode === "create" ? "" : "none";
         refresh();
         modal.show();
     }
@@ -404,75 +308,15 @@ document.addEventListener("fgs:collection-changed", function (e) {
         });
     }
 
-    // Puts files just added to a collection into its list, and the summary row
-    function showAdded(collectionId, fileIds, data) {
-        var root = document.getElementById("col-" + collectionId);
-        // The row follows whether or not the list can be updated in place
-        document.dispatchEvent(new CustomEvent("fgs:collection-changed", { detail: {
-            collectionId: collectionId, fileCount: data.FileCount, totalSize: data.TotalSize,
-            expiry: data.Expiry, neverExpires: data.NeverExpires } }));
-        var browser = root && window.FGS && FGS.initFileBrowser(root);
-        if (!browser || typeof apiFilesListById !== "function") return Promise.reject(new Error("no list"));
-        var one = function (id) {
-            if (browser.tile(id)) return Promise.resolve();
-            return apiFilesListById(id).then(function (file) {
-                return fetch("./files/previewinfo?id=" + encodeURIComponent(id), { credentials: "same-origin" })
-                    .then(function (r) { return r.ok ? r.json() : {}; }, function () { return {}; })
-                    .then(function (preview) { browser.addItem(file, preview); });
-            }, function (error) {
-                // 404: gone since the picker was built, which the server
-                // skipped too. Anything else is a real failure.
-                if (String(error && error.message).indexOf("404") === -1) throw error;
-            });
-        };
-        return Promise.all(fileIds.map(one));
-    }
-
-    // "Add to collection…" from a list's menu or selection bar, into a
-    // collection listed here: its list gets the files too. No reload (the
-    // dialog is showing the new link); if the list cannot be updated, the
-    // files show on the next load.
-    document.addEventListener("fgs:collection-members-added", function (e) {
-        var d = e.detail || {};
-        showAdded(d.collectionId, d.ids || [], d.data || {}).catch(function (error) {
-            console.warn("Could not add the files to the collection's list:", error);
-        });
-    });
-
     var newButton = document.getElementById("newCollectionButton");
     if (newButton) {
-        newButton.addEventListener("click", function () { open("create", null, ""); });
+        newButton.addEventListener("click", open);
     }
-    document.querySelectorAll(".collection-addfiles").forEach(function (button) {
-        button.addEventListener("click", function () {
-            open("add", button.getAttribute("data-id"), button.getAttribute("data-name"));
-        });
-    });
 
     confirm.addEventListener("click", function () {
         var ids = selectedIds();
         if (!ids.length) return;
         confirm.disabled = true;
-
-        if (mode === "add") {
-            postCollection("./collections/modify", { id: targetId, addFileIds: ids })
-                .then(function (data) {
-                    if (data.Result !== "OK") {
-                        window.alert("Could not add: " + (data.ErrorMessage || "unknown error"));
-                        confirm.disabled = false;
-                        return;
-                    }
-                    // In place: each added file's details and preview go into
-                    // that collection's list. If any of that fails the page
-                    // reloads, which shows the same thing from the server.
-                    showAdded(targetId, ids, data).then(function () {
-                        modal.hide();
-                    }, function () {
-                        window.location.reload();
-                    });
-                });
-            return;
-        }
 
         var nameField = document.getElementById("filePickerName");
         var pwField = document.getElementById("filePickerPassword");
@@ -510,8 +354,6 @@ document.querySelectorAll(".collection-delete").forEach(function (button) {
             }
             var row = document.getElementById("collection-" + id);
             if (row) row.remove();
-            var files = document.getElementById("files-" + id);
-            if (files) files.remove();
         }).catch(function (e) {
             window.alert("Could not delete: " + e);
             button.disabled = false;

@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"slices"
-	"sort"
 	"time"
 
 	"github.com/forceu/gokapi/internal/configuration"
@@ -61,9 +60,13 @@ type CollectionView struct {
 	// GroupBanner is set when the collection was turned into a group and
 	// its link invites to join (R4)
 	GroupBanner *collectionGroupBanner
-	// Browser is the shared file list (context collection-public): no
-	// management actions, downloads through /cd, previews scoped with &c=
+	// Browser is the shared file list. For visitors it is collection-public:
+	// no management actions, downloads through /cd, previews scoped with &c=.
+	// For the owner and an admin (CanManage) it is collection-admin, the
+	// management list of the Files tab with "Remove from collection".
 	Browser fileBrowser
+	// ServerUrl feeds the management dialogs (CanManage only)
+	ServerUrl string
 }
 
 // showCollection serves the public page for a collection. No login required -
@@ -84,7 +87,7 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 	if answered {
 		return
 	}
-	manages := managesCollection(r, collection)
+	manager, manages := collectionManager(r, collection)
 	ownerName := collectionOwnerName(collection)
 
 	// Password gate. Same token/cookie scheme as password-protected files,
@@ -152,15 +155,36 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 		CanTurnIntoGroup: manages && !linked,
 		GroupBanner:      banner,
 	}
-	// Visitors are not users: the zero User gives no uploader, ownership or
-	// permissions, and the context keeps every management action out
-	items := make([]browserItem, 0, len(collection.Files))
-	for _, f := range collection.Files {
-		items = append(items, browserItemFromFile(r, f, models.User{}, ctxCollectionPublic, collection.Id, nil))
+	if manages {
+		// The owner and an admin get the management list: "Remove from
+		// collection" and the file actions of the Files tab. The page loads
+		// the admin bundle and the dialogs it needs (html_collection.tmpl).
+		// Names are shown as display names ("anna"), like the byline above
+		users := database.GetAllUsers()
+		names := make(map[int]string, len(users))
+		for _, u := range users {
+			names[u.Id] = displayName(u)
+		}
+		items := make([]browserItem, 0, len(collection.Files))
+		for _, f := range collection.Files {
+			items = append(items, browserItemFromFile(r, f, manager, ctxCollectionAdmin, "", names))
+		}
+		shown := manager
+		shown.Name = displayName(manager) // the list renders the active user's name
+		view.Browser = newFileBrowser("fgs-collection", ctxCollectionAdmin, items, shown)
+		view.Browser.WithCollection(collection)
+		view.ServerUrl = config.ServerUrl
+	} else {
+		// Visitors are not users: the zero User gives no uploader, ownership
+		// or permissions, and the context keeps every management action out
+		items := make([]browserItem, 0, len(collection.Files))
+		for _, f := range collection.Files {
+			items = append(items, browserItemFromFile(r, f, models.User{}, ctxCollectionPublic, collection.Id, nil))
+		}
+		view.Browser = newFileBrowser("fgs-collection", ctxCollectionPublic, items, models.User{})
+		view.Browser.CollectionId = collection.Id
+		view.Browser.ZipUrl = "./cz?id=" + collection.Id + "&files="
 	}
-	view.Browser = newFileBrowser("fgs-collection", ctxCollectionPublic, items, models.User{})
-	view.Browser.CollectionId = collection.Id
-	view.Browser.ZipUrl = "./cz?id=" + collection.Id + "&files="
 	// Expiry is derived from the longest-lived member, not stored.
 	latest, never := collection.LatestExpiry()
 	view.NeverExpires = never
@@ -298,9 +322,6 @@ func deleteCollection(w http.ResponseWriter, r *http.Request) {
 
 // collectionInfo is one row in the admin collections list
 type collectionInfo struct {
-	// Browser lists the members in the shared file list (context
-	// collection-admin), one per collection
-	Browser      fileBrowser
 	Id           string
 	Name         string
 	Url          string
@@ -350,20 +371,7 @@ func showCollectionsAdmin(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		expiry, never := collectionExpiry(&collection)
-		items := make([]browserItem, 0, len(collection.Files))
-		for _, f := range collection.Files {
-			items = append(items, browserItemFromFile(r, f, user, ctxCollectionAdmin, "", userNames))
-		}
-		sort.SliceStable(items, func(i, j int) bool {
-			if items[i].File.UploadDate != items[j].File.UploadDate {
-				return items[i].File.UploadDate > items[j].File.UploadDate
-			}
-			return items[i].File.Id > items[j].File.Id
-		})
-		browser := newFileBrowser("col-"+collection.Id, ctxCollectionAdmin, items, user)
-		browser.WithCollection(collection)
 		rows = append(rows, collectionInfo{
-			Browser:      browser,
 			Id:           collection.Id,
 			Name:         collection.Name,
 			Url:          config.ServerUrl + "c?id=" + collection.Id,
@@ -406,15 +414,25 @@ func isValidCollectionPwCookie(r *http.Request, collection models.Collection) bo
 	return access.ValidCollectionPwCookie(r, collection.Id)
 }
 
-// managesCollection reports whether the visitor is signed in as the
+// collectionManager returns the visitor if they are signed in as the
 // collection's owner or as an admin. Only a real session counts
 // (SessionIdentity), so an anonymous visitor is never anyone.
-func managesCollection(r *http.Request, collection models.Collection) bool {
+func collectionManager(r *http.Request, collection models.Collection) (models.User, bool) {
 	user, signedIn := authentication.SessionIdentity(r)
 	if !signedIn {
-		return false
+		return models.User{}, false
 	}
-	return user.Id == collection.UserId || (user.IsAdmin() && user.Id != 0)
+	if user.Id == collection.UserId || (user.IsAdmin() && user.Id != 0) {
+		return user, true
+	}
+	return models.User{}, false
+}
+
+// managesCollection reports whether the visitor is the collection's owner or
+// an admin (collectionManager)
+func managesCollection(r *http.Request, collection models.Collection) bool {
+	_, ok := collectionManager(r, collection)
+	return ok
 }
 
 // collectionUnlocked is the password gate of /c, /cd and /cz: no password,

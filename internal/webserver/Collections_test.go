@@ -92,10 +92,10 @@ func TestCollectionPasswordChangeRevokesUnlocks(t *testing.T) {
 	test.IsEqualBool(t, access.ValidCollectionPwCookie(check, collection.Id), true)
 }
 
-// The Collections tab shows each collection's members in the shared file list
-// (context collection-admin, List by default, one browser per collection) with
-// Remove from collection, and nothing of the old member <ul>.
-func TestCollectionsAdminPageUsesFileBrowser(t *testing.T) {
+// The Collections tab is a table of summary rows and nothing else: no
+// per-collection file list, no dropdown row behind the file count. Members are
+// managed on the collection page.
+func TestCollectionsAdminPageHasNoFileLists(t *testing.T) {
 	one := accessFile("coladmfile000001", func(f *models.File) { f.Name = "first-member.pdf"; f.SHA1 = "coladmsha1" })
 	two := accessFile("coladmfile000002", func(f *models.File) { f.Name = "second-member.pdf"; f.SHA1 = "coladmsha2" })
 	owner := models.User{Id: 7}
@@ -113,15 +113,65 @@ func TestCollectionsAdminPageUsesFileBrowser(t *testing.T) {
 		IsHtml:  true,
 		Cookies: []test.Cookie{{Name: "session_token", Value: "validsession"}},
 		RequiredContent: []string{
-			`id="col-` + a.Id + `"`, `id="col-` + b.Id + `"`,
-			`data-context="collection-admin"`, `data-default-view="list"`,
-			`data-collection-id="` + a.Id + `"`, `data-collection-id="` + b.Id + `"`,
-			`data-menu="remove-from-collection"`, `data-act="remove-from-collection"`,
-			"first-member.pdf", "second-member.pdf",
-			`id="fgs-viewer"`, `id="fgs-collect-modal"`, `id="fgs-expiry-modal"`, "collection-addfiles",
+			`id="collection-` + a.Id + `"`, `id="collection-` + b.Id + `"`,
+			`href="./c?id=` + a.Id + `"`, "newCollectionButton",
 		},
-		ExcludedContent: []string{"member-remove", "collection-member-list", foreign.Id, "foreign-member.pdf"},
+		ExcludedContent: []string{
+			"data-fgs-browser", `data-context="collection-admin"`, `id="files-`, `id="col-`,
+			"collection-files", "collection-addfiles",
+			"remove-from-collection", "fgs:collection-members-added", foreign.Id, "foreign-member.pdf",
+		},
 	})
+}
+
+// On the collection page the owner and an admin get the management list
+// (context collection-admin: "Remove from collection" in the menu and the
+// selection bar) and what it needs to run; everyone else, signed in or not,
+// gets exactly the public list and none of it.
+func TestCollectionPageManagementList(t *testing.T) {
+	collectionOwnerUsers()
+	one := accessFile("colmanage00000001", func(f *models.File) { f.Name = "manage-one.jpg"; f.UserId = 8; f.SHA1 = "colmanagesha1" })
+	two := accessFile("colmanage00000002", func(f *models.File) { f.Name = "manage-two.jpg"; f.UserId = 8; f.SHA1 = "colmanagesha2" })
+	c, err := storage.CreateCollection(storage.CollectionParameters{Name: "Anna manage", FileIds: []string{one.Id, two.Id}}, models.User{Id: 8})
+	test.IsNil(t, err)
+	defer database.DeleteCollection(c.Id)
+
+	managing := []string{
+		`data-context="collection-admin"`,
+		`data-menu="remove-from-collection"`, `data-act="remove-from-collection"`, "Remove from collection",
+		"admin.min.", "datatables.min.js", "flatpickr.min.js", "clipboard.min.js",
+		`id="fgs-collect-modal"`, `id="fgs-expiry-modal"`, `id="toastnotification"`,
+	}
+	publicOnly := []string{`data-context="collection-public"`, "./cd?id=" + c.Id + "&amp;file=" + one.Id}
+	for _, tc := range []struct {
+		who, token string
+		manages    bool
+	}{
+		{"anonymous", "", false},
+		{"stranger", "validsession", false},
+		{"owner", "colowner8", true},
+		{"admin", "colowner5", true},
+	} {
+		body := openCollection(c.Id, tc.token)
+		for _, want := range []string{"manage-one.jpg", "manage-two.jpg", "./cz?id=" + c.Id, "by anna"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s: the page lacks %q", tc.who, want)
+			}
+		}
+		for _, want := range managing {
+			if strings.Contains(body, want) != tc.manages {
+				t.Errorf("%s: %q present = %v, want %v", tc.who, want, !tc.manages, tc.manages)
+			}
+		}
+		for _, want := range publicOnly {
+			if strings.Contains(body, want) == tc.manages {
+				t.Errorf("%s: %q present = %v, want %v", tc.who, want, tc.manages, !tc.manages)
+			}
+		}
+		if strings.Contains(body, `data-context="collection-admin"`) == strings.Contains(body, `data-context="collection-public"`) {
+			t.Errorf("%s: the page must hold exactly one list", tc.who)
+		}
+	}
 }
 
 // Remove from collection posts removeFileIds: the named members go, every
@@ -283,8 +333,7 @@ func collectionRow(t *testing.T, page, id string) string {
 
 // The Actions column is one compact group: Copy share link, Rename, Password,
 // Turn into a group (labelled "Group") and Delete. The name opens the
-// collection, so there is no Open button; the member list opens from the
-// Files count, so there is no list button either.
+// collection, so there is no Open button, and the Files count is plain text.
 func TestCollectionsTableActions(t *testing.T) {
 	f := accessFile("coltableactions001", func(f *models.File) { f.Name = "table.pdf"; f.SHA1 = "coltableactionssha" })
 	c, err := storage.CreateCollection(storage.CollectionParameters{Name: "table-actions", FileIds: []string{f.Id}}, models.User{Id: 7})
@@ -300,22 +349,22 @@ func TestCollectionsTableActions(t *testing.T) {
 		`aria-label="Set or change password"`, "collection-password",
 		`aria-label="Turn into a group"`, "collection-togroup", "bi-people-fill", `d-md-inline">Group</span>`,
 		`aria-label="Delete"`, "collection-delete",
-		// the member list is still reachable, from the Files count
-		"collection-files", `aria-controls="files-` + c.Id + `"`, `aria-expanded="false"`,
 		`href="./c?id=` + c.Id + `"`,
 	} {
 		if !strings.Contains(row, want) {
 			t.Errorf("row lacks %q:\n%s", want, row)
 		}
 	}
-	for _, gone := range []string{"Copy link", "bi-list-ul", "bi-box-arrow-up-right", `title="Open"`, `title="Show files"`} {
+	for _, gone := range []string{"Copy link", "bi-list-ul", "bi-box-arrow-up-right", `title="Open"`, `title="Show files"`,
+		"collection-files", "aria-controls", "aria-expanded", "bi-chevron"} {
 		if strings.Contains(row, gone) {
 			t.Errorf("row still has %q", gone)
 		}
 	}
-	// The member list itself, with Add files, is still on the page
-	test.IsEqualBool(t, strings.Contains(page, `id="files-`+c.Id+`"`), true)
-	test.IsEqualBool(t, strings.Contains(page, `id="col-`+c.Id+`"`), true)
+	// The file count is plain text, and no member list sits behind it
+	test.IsEqualBool(t, strings.Contains(row, "<td>1</td>"), true)
+	test.IsEqualBool(t, strings.Contains(page, `id="files-`+c.Id+`"`), false)
+	test.IsEqualBool(t, strings.Contains(page, `id="col-`+c.Id+`"`), false)
 }
 
 // collectionOwnerUsers saves anna (8), who owns the collections of these

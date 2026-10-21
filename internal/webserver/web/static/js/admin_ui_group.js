@@ -1,6 +1,7 @@
 // The group page (Part 2, G10): "Remove from group" on the board, the
-// header controls (Rename, Extend, Reset code, Remove member, Delete group,
-// Leave group), the near-copy entries and the copy buttons. Merged into the
+// header controls (Rename, Extend, Reset code, Delete group, Leave group),
+// the members panel (and Remove member in it), the near-copy entries
+// (Compare, Keep both, Remove) and the copy buttons. Merged into the
 // admin bundle with every other admin_*.js file, so everything is inside
 // this function and does nothing unless #groupPage is on the page. Names
 // only ever reach the DOM through textContent and attribute setters.
@@ -255,6 +256,35 @@
             });
         }
 
+        // The members button shows the first five initials, "+N" for the rest
+        // and the count; after a removal it is rebuilt from the panel's list
+        var STACK_SIZE = 5;
+        var membersButton = document.getElementById("groupMembersButton");
+        function refreshMembers() {
+            var stack = document.getElementById("groupMembersStack");
+            var count = document.getElementById("groupMembersCount");
+            var rows = page.querySelectorAll("#groupPeople [data-group-person]");
+            var n = rows.length;
+            if (stack !== null) {
+                stack.textContent = "";
+                Array.prototype.slice.call(rows, 0, STACK_SIZE).forEach(function (row) {
+                    var circle = document.createElement("span");
+                    circle.className = "fgs-avatar";
+                    circle.style.backgroundColor = "hsl(" + (parseInt(row.getAttribute("data-hue"), 10) || 0) + ", 45%, 45%)";
+                    circle.textContent = row.getAttribute("data-initials") || "";
+                    stack.appendChild(circle);
+                });
+                if (n > STACK_SIZE) {
+                    var more = document.createElement("span");
+                    more.className = "fgs-avatar fgs-avatar-more";
+                    more.textContent = "+" + (n - STACK_SIZE);
+                    stack.appendChild(more);
+                }
+            }
+            if (count !== null) count.textContent = n + (n === 1 ? " member" : " members");
+            if (membersButton !== null) membersButton.setAttribute("aria-label", "Members: " + n);
+        }
+
         // Remove member: their files stay in the group. They have seen the
         // invite code and link, so the dialog offers to reset both (I4),
         // ticked by default; otherwise they could join again at once.
@@ -265,6 +295,11 @@
             button.addEventListener("click", function () {
                 if (removeModal === null || removeForm === null || !window.bootstrap) return;
                 removing = button;
+                // The dialog opens over the page: close the panel behind it
+                if (membersButton !== null) {
+                    var panel = bootstrap.Dropdown.getInstance(membersButton);
+                    if (panel !== null) panel.hide();
+                }
                 var name = button.getAttribute("data-name") || "this person";
                 document.getElementById("groupRemoveMemberText").textContent =
                     "Remove " + name + " from the group? Their files stay in it.";
@@ -288,6 +323,7 @@
                     .then(function () {
                         var person = button.closest("[data-group-person]");
                         if (person !== null) person.parentNode.removeChild(person);
+                        refreshMembers();
                         removing = null;
                         bootstrap.Modal.getOrCreateInstance(removeModal).hide();
                         if (!alsoReset) {
@@ -328,8 +364,43 @@
             return "Leave “" + groupName() + "”? The files you put in stay in the group.";
         }, "Could not leave the group");
 
-        // Near-copies: Keep both hides the entry for good; Remove mine takes
-        // the file out of the group (it stays in your files)
+        // Near-copies. Compare opens the viewer on the pair, older first, so a
+        // swipe goes between the two at full preview size. The board's own
+        // tile is used when it is on the page; a tile that is filtered out
+        // is rebuilt from the banner's data-*.
+        function itemFromBanner(button) {
+            var d = function (k) { return button.getAttribute("data-" + k) || ""; };
+            return { id: d("id"), name: d("name"), view: d("view"), video: "", kind: "", download: d("download"),
+                uploader: d("uploader"), taken: 0, uploaded: 0, size: "", bytes: 0,
+                w: parseInt(d("w"), 10) || 0, h: parseInt(d("h"), 10) || 0 };
+        }
+        function pairItem(button) {
+            var tile = null;
+            Array.prototype.forEach.call(byAttr("data-id", button.getAttribute("data-id")), function (el) {
+                if (tile === null && el.classList.contains("fgs-tile")) tile = el;
+            });
+            return tile !== null ? FGS.itemFromEl(tile) : itemFromBanner(button);
+        }
+        function compare(entry, startAtNewer) {
+            if (!window.FGS || !FGS.openViewer || !FGS.itemFromEl) return;
+            var older = entry.querySelector('[data-near-open="0"]');
+            var newer = entry.querySelector('[data-near-open="1"]');
+            if (older === null || newer === null) return;
+            FGS.openViewer([pairItem(older), pairItem(newer)], startAtNewer ? 1 : 0);
+        }
+        Array.prototype.forEach.call(page.querySelectorAll("[data-near-open]"), function (button) {
+            button.addEventListener("click", function () {
+                compare(button.closest("[data-near-file]"), button.getAttribute("data-near-open") === "1");
+            });
+        });
+        Array.prototype.forEach.call(page.querySelectorAll("[data-near-compare]"), function (button) {
+            button.addEventListener("click", function () {
+                compare(button.closest("[data-near-file]"), false);
+            });
+        });
+
+        // Keep both hides the entry for good, for everyone; Remove takes the
+        // newer item out of the group (it stays in its uploader's files)
         Array.prototype.forEach.call(page.querySelectorAll("[data-near-keep]"), function (button) {
             button.addEventListener("click", function () {
                 var fileId = button.getAttribute("data-near-keep");

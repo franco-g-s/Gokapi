@@ -37,18 +37,40 @@ type groupExtendChoice struct {
 	Disabled bool
 }
 
-// groupNearCopy is one "Looks like Anna's photo from 14:32" entry
-type groupNearCopy struct {
-	FileId     string
-	FileName   string
-	Thumb      string
-	MatchId    string
-	MatchName  string
-	MatchThumb string
-	MatchUser  string
-	MatchAt    int64
-	MatchTime  string // HH:MM in the server's zone; the browser rewrites it in its own
+// groupNearSide is one item of a near-copy pair, with what the full-screen
+// compare needs when its tile is filtered out of the board
+type groupNearSide struct {
+	Id       string
+	Name     string
+	Thumb    string
+	View     string
+	Download string
+	Uploader string
+	Width    int
+	Height   int
 }
+
+// groupNearCopy is one "Looks like Anna's photo from 14:32" entry: the newer
+// item and the older one it looks like
+type groupNearCopy struct {
+	Newer     groupNearSide
+	Older     groupNearSide
+	Mine      bool   // the viewer uploaded the newer item: "Remove mine"; otherwise "Remove newer"
+	MatchUser string // who uploaded the older item
+	NewerUser string // who uploaded the newer item
+	MatchAt   int64
+	MatchTime string // HH:MM in the server's zone; the browser rewrites it in its own
+}
+
+// groupNearSideOf describes one item of a pair
+func groupNearSideOf(item browserItem) groupNearSide {
+	return groupNearSide{Id: item.File.Id, Name: item.File.Name, Thumb: item.Preview.Thumb,
+		View: item.Preview.View, Download: item.DownloadUrl, Uploader: item.Uploader,
+		Width: item.Preview.Width, Height: item.Preview.Height}
+}
+
+// groupStackSize is how many avatars the members button shows before "+N"
+const groupStackSize = 5
 
 // GroupView is the group page
 type GroupView struct {
@@ -58,6 +80,8 @@ type GroupView struct {
 	InviteUrl     string
 	Code          string
 	People        []groupPagePerson
+	Stack         []groupPagePerson // the first few People, for the members button
+	MoreMembers   int               // how many People the stack leaves out
 	IsMember      bool
 	CanManage     bool
 	CanLeave      bool
@@ -182,7 +206,7 @@ func showGroup(w http.ResponseWriter, r *http.Request) {
 		view.ExtendChoices = groupExtendChoices(g, now.Unix())
 	}
 
-	// The header lists every member. The person filter lists everyone with
+	// The members panel lists every member. The person filter lists everyone with
 	// an item: members first, in member order, then people who have left
 	// (their files stay, D8), in shooting order of their first item.
 	hasItems := make(map[int]bool)
@@ -210,6 +234,8 @@ func showGroup(w http.ResponseWriter, r *http.Request) {
 			people = append(people, browserPerson{Id: m.UserId, Name: name})
 		}
 	}
+	view.Stack = view.People[:min(groupStackSize, len(view.People))]
+	view.MoreMembers = len(view.People) - len(view.Stack)
 	for _, f := range files {
 		name, known := names[f.UserId]
 		if !known || listed[f.UserId] {
@@ -223,22 +249,23 @@ func showGroup(w http.ResponseWriter, r *http.Request) {
 	for _, item := range items {
 		itemById[item.File.Id] = item
 	}
-	for _, near := range storage.NearCopies(files, user.Id, database.GetNearCopiesKept(g.Id)) {
-		mine, match := itemById[near.FileId], itemById[near.MatchId]
-		matchUser := names[near.MatchUser]
-		if matchUser == "" {
-			matchUser = "someone" // the uploader's account is gone
+	// The newer item's uploader sees a pair; the group's creator and the
+	// admin see every one
+	someone := func(userId int) string {
+		if name := names[userId]; name != "" {
+			return name
 		}
+		return "someone" // the uploader's account is gone
+	}
+	for _, near := range storage.NearCopies(files, user.Id, database.GetNearCopiesKept(g.Id), manager) {
 		view.NearCopies = append(view.NearCopies, groupNearCopy{
-			FileId:     near.FileId,
-			FileName:   mine.File.Name,
-			Thumb:      mine.Preview.Thumb,
-			MatchId:    near.MatchId,
-			MatchName:  match.File.Name,
-			MatchThumb: match.Preview.Thumb,
-			MatchUser:  matchUser,
-			MatchAt:    near.MatchAt,
-			MatchTime:  time.Unix(near.MatchAt, 0).Format("15:04"),
+			Newer:     groupNearSideOf(itemById[near.FileId]),
+			Older:     groupNearSideOf(itemById[near.MatchId]),
+			Mine:      user.Id != 0 && near.FileUser == user.Id,
+			MatchUser: someone(near.MatchUser),
+			NewerUser: someone(near.FileUser),
+			MatchAt:   near.MatchAt,
+			MatchTime: time.Unix(near.MatchAt, 0).Format("15:04"),
 		})
 	}
 
@@ -341,11 +368,12 @@ func groupItem(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-var errNotYourFile = errors.New("only the file's uploader can keep it")
+var errNotYourFile = errors.New("only the file's uploader, or the group's creator, can keep it")
 
 // Handling of /groups/nearkeep
-// POST {id, fileId}: "Keep both" for a near-copy. Only the file's uploader
-// decides, so it is a 403 for anyone else, the creator and the admin too.
+// POST {id, fileId}: "Keep both" for a near-copy. The file's uploader decides,
+// and so do the group's creator and the admin, who see every pair; it is a
+// 403 for any other member. It settles the pair for everyone.
 func keepNearCopy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		groupIdRequest
@@ -364,7 +392,7 @@ func keepNearCopy(w http.ResponseWriter, r *http.Request) {
 		writeJsonError(w, http.StatusNotFound, storage.ErrGroupNotFound)
 		return
 	}
-	if user.Id == 0 || file.UserId != user.Id {
+	if !storage.CanManageGroup(g, user) && (user.Id == 0 || file.UserId != user.Id) {
 		writeJsonError(w, http.StatusForbidden, errNotYourFile)
 		return
 	}

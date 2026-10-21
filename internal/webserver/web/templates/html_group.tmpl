@@ -11,19 +11,35 @@
 
   <h3 class="card-title mb-0" id="groupName">{{ .Group.Name }}</h3>
 
-  <ul class="fgs-group-people list-unstyled d-flex flex-wrap column-gap-3 row-gap-2 mt-3 mb-2" id="groupPeople">
-    {{ range .People }}
-    <li class="d-flex align-items-center gap-2" data-group-person="{{ .Id }}">
-      <span class="fgs-avatar" style="background-color: hsl({{ .Hue }}, 45%, 45%)" aria-hidden="true">{{ .Initials }}</span>
-      <span class="fgs-group-person-name">{{ .Name }}</span>
-      {{- if .IsCreator }} <span class="badge bg-secondary">Creator</span>{{ end }}
-      {{- if .Removable }}
-      <button type="button" class="btn btn-sm btn-link link-light p-0 lh-1" data-group-remove-member="{{ .Id }}"
-              data-name="{{ .Name }}" aria-label="Remove {{ .Name }} from the group" title="Remove member"><i class="bi bi-x-lg"></i></button>
-      {{- end }}
-    </li>
-    {{ end }}
-  </ul>
+  {{/* The members: a stack of initials that opens a panel. The panel is a
+       Bootstrap dropdown; admin_ui_group.js keeps the stack and the count in
+       step when someone is removed. */}}
+  <div class="dropdown fgs-members mt-3 mb-2" id="groupMembers">
+    <button type="button" class="btn fgs-members-button" id="groupMembersButton" data-bs-toggle="dropdown"
+            data-bs-auto-close="outside" aria-expanded="false" aria-haspopup="true" aria-label="Members: {{ len .People }}">
+      <span class="fgs-avatar-stack" id="groupMembersStack" aria-hidden="true">
+        {{- range .Stack }}<span class="fgs-avatar" style="background-color: hsl({{ .Hue }}, 45%, 45%)">{{ .Initials }}</span>{{ end -}}
+        {{- if gt .MoreMembers 0 }}<span class="fgs-avatar fgs-avatar-more">+{{ .MoreMembers }}</span>{{ end -}}
+      </span>
+      <span class="fgs-members-count" id="groupMembersCount">{{ len .People }} {{ if eq (len .People) 1 }}member{{ else }}members{{ end }}</span>
+    </button>
+    <div class="dropdown-menu fgs-members-panel p-2" data-bs-theme="dark" aria-labelledby="groupMembersButton">
+      <h6 class="dropdown-header px-1 pt-0">Members</h6>
+      <ul class="fgs-group-people list-unstyled mb-0" id="groupPeople">
+        {{ range .People }}
+        <li class="d-flex align-items-center gap-2 px-1 py-1" data-group-person="{{ .Id }}" data-hue="{{ .Hue }}" data-initials="{{ .Initials }}">
+          <span class="fgs-avatar" style="background-color: hsl({{ .Hue }}, 45%, 45%)" aria-hidden="true">{{ .Initials }}</span>
+          <span class="fgs-group-person-name me-auto">{{ .Name }}</span>
+          {{- if .IsCreator }} <span class="badge bg-secondary">Creator</span>{{ end }}
+          {{- if .Removable }}
+          <button type="button" class="btn btn-sm btn-link link-light p-0 lh-1" data-group-remove-member="{{ .Id }}"
+                  data-name="{{ .Name }}" aria-label="Remove {{ .Name }} from the group" title="Remove member"><i class="bi bi-x-lg"></i></button>
+          {{- end }}
+        </li>
+        {{ end }}
+      </ul>
+    </div>
+  </div>
   <p class="text-muted mb-3" id="groupCloses">{{ .Closes }}</p>
 
   <div class="d-flex flex-wrap column-gap-3 row-gap-2 mb-3">
@@ -58,12 +74,23 @@
   <div class="mb-3" id="groupNearCopies">
     {{ range .NearCopies }}
     <div class="d-flex flex-wrap align-items-center gap-2 border border-secondary rounded p-2 mb-2"
-         data-near-file="{{ .FileId }}" data-near-match="{{ .MatchId }}">
-      <img class="fgs-near-thumb" src="{{ .Thumb }}" alt="{{ .FileName }}" title="{{ .FileName }}" loading="lazy" decoding="async">
-      <img class="fgs-near-thumb" src="{{ .MatchThumb }}" alt="{{ .MatchName }}" title="{{ .MatchName }}" loading="lazy" decoding="async">
-      <span class="me-auto">Looks like {{ .MatchUser }}'s photo from <span data-fgs-hm="{{ .MatchAt }}">{{ .MatchTime }}</span></span>
-      <button type="button" class="btn btn-sm btn-outline-light" data-near-keep="{{ .FileId }}">Keep both</button>
-      <button type="button" class="btn btn-sm btn-outline-danger" data-near-remove="{{ .FileId }}">Remove mine</button>
+         data-near-file="{{ .Newer.Id }}" data-near-match="{{ .Older.Id }}">
+      {{- with .Newer }}
+      <button type="button" class="fgs-near-open" data-near-open="1" data-id="{{ .Id }}" data-name="{{ .Name }}" data-view="{{ .View }}"
+              data-download="{{ .Download }}" data-uploader="{{ .Uploader }}" data-w="{{ .Width }}" data-h="{{ .Height }}"
+              aria-label="Compare {{ .Name }} with the other photo" title="{{ .Name }}">
+        <img class="fgs-near-thumb" src="{{ .Thumb }}" alt="" loading="lazy" decoding="async"></button>
+      {{- end }}
+      {{- with .Older }}
+      <button type="button" class="fgs-near-open" data-near-open="0" data-id="{{ .Id }}" data-name="{{ .Name }}" data-view="{{ .View }}"
+              data-download="{{ .Download }}" data-uploader="{{ .Uploader }}" data-w="{{ .Width }}" data-h="{{ .Height }}"
+              aria-label="Compare {{ .Name }} with the other photo" title="{{ .Name }}">
+        <img class="fgs-near-thumb" src="{{ .Thumb }}" alt="" loading="lazy" decoding="async"></button>
+      {{- end }}
+      <span class="me-auto">Looks like {{ .MatchUser }}'s photo from <span data-fgs-hm="{{ .MatchAt }}">{{ .MatchTime }}</span>{{ if not .Mine }} (uploaded by {{ .NewerUser }}){{ end }}</span>
+      <button type="button" class="btn btn-sm btn-outline-light" data-near-compare="{{ .Newer.Id }}">Compare</button>
+      <button type="button" class="btn btn-sm btn-outline-light" data-near-keep="{{ .Newer.Id }}">Keep both</button>
+      <button type="button" class="btn btn-sm btn-outline-danger" data-near-remove="{{ .Newer.Id }}">{{ if .Mine }}Remove mine{{ else }}Remove newer{{ end }}</button>
     </div>
     {{ end }}
   </div>

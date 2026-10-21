@@ -164,11 +164,29 @@ func TestNearCopies(t *testing.T) {
 		reshape(t, mine, "#3668d0", 4, 3) // 6 in red and 8 in green: 10 apart
 		reshape(t, theirs, "#3060d0", 4, 3)
 		test.IsEqualInt(t, len(NearCopies([]models.File{mine, theirs}, anna, nil, false)), 1)
-		// 40 is the limit, 41 is over it
-		reshape(t, mine, "#3060f8", 4, 3) // 40 in blue
+		// 20 is the limit, 21 is over it
+		reshape(t, mine, "#3060e4", 4, 3) // 20 in blue
 		test.IsEqualInt(t, len(NearCopies([]models.File{mine, theirs}, anna, nil, false)), 1)
-		reshape(t, mine, "#3060f9", 4, 3)
+		reshape(t, mine, "#3060e5", 4, 3)
 		test.IsEqualInt(t, len(NearCopies([]models.File{mine, theirs}, anna, nil, false)), 0)
+	})
+
+	t.Run("two different wallpapers 39 apart in colour are not near-copies", func(t *testing.T) {
+		// Real preview data: photo3 (#9a8be0, 900x900) against photo1 (#789de8, 1200x1200), dHash distance 1
+		mine := nearFile(t, "nearminewp", anna, "", base^0b1, 0)
+		theirs := nearFile(t, "nearwallpaper", ben, "", base, 0)
+		reshape(t, mine, "#9a8be0", 900, 900)
+		reshape(t, theirs, "#789de8", 1200, 1200)
+		test.IsEqualInt(t, len(NearCopies([]models.File{mine, theirs}, anna, nil, false)), 0)
+	})
+
+	t.Run("a re-encoded, resized copy is a near-copy", func(t *testing.T) {
+		// Real preview data: photo1 at quality 35 resized to 1000 (#789de7) against the original (#789de8), dHash distance 1
+		mine := nearFile(t, "nearminerc", anna, "", base^0b1, 0)
+		theirs := nearFile(t, "nearoriginal", ben, "", base, 0)
+		reshape(t, mine, "#789de7", 1000, 1000)
+		reshape(t, theirs, "#789de8", 1200, 1200)
+		test.IsEqualInt(t, len(NearCopies([]models.File{mine, theirs}, anna, nil, false)), 1)
 	})
 
 	t.Run("landscape and portrait are not near-copies", func(t *testing.T) {

@@ -17,7 +17,7 @@ import (
 // wallpapers) collide on it alone; colour and shape tell them apart.
 const (
 	nearCopyMaxDistance = 6    // dHash bits; tuned on the preview with real photos (D11)
-	nearCopyMaxColour   = 40   // Euclidean distance between average colours, in RGB units
+	nearCopyMaxColour   = 20   // Euclidean distance between average colours, in RGB units; separates colour variants of one design (two wallpapers measured 39 apart) while keeping re-encoded or recompressed copies, which shift the average by a few units
 	nearCopyMaxAspect   = 0.03 // relative difference of width / height, after rotation
 )
 

@@ -259,8 +259,18 @@ check("page has the New collection button", 'id="newCollectionButton"' in page)
 check("page has the file picker modal", 'id="filePickerModal"' in page)
 check("picker lists selectable files", page.count("file-picker-check") >= 2,
       f"{page.count('file-picker-check')} entries")
-check("each collection row offers Add files", "collection-addfiles" in page)
-check("member rows are rendered for removal", 'data-menu="remove-from-collection"' in page)
+# Since the final Part 2 fixes the Collections tab holds no file lists: files
+# are added from the Files tab ("Add to collection…") and removed on the
+# collection's own page, which its owner sees as a management list.
+check("Collections tab has no per-collection file lists", "collection-addfiles" not in page
+      and 'data-context="collection-admin"' not in page)
+live = [c for c in json.loads(opener.open(BASE + "/collections/list").read().decode()) if c.get("files")]
+own_page = opener.open(BASE + "/c?id=" + live[0]["id"]).read().decode() if live else ""
+check("owner's collection page renders members for removal",
+      'data-context="collection-admin"' in own_page and 'data-menu="remove-from-collection"' in own_page,
+      ",".join(sorted(set(re.findall(r'data-context="([^"]+)"', own_page)))) or own_page[:80])
+anon_page = anon.open(BASE + "/c?id=" + live[0]["id"]).read().decode() if live else ""
+check("visitors' collection page has no management", 'data-menu="remove-from-collection"' not in anon_page)
 
 # ---- 16. no chained dialogs left in the create flows -----------------------
 page = opener.open(BASE + "/collections").read().decode()

@@ -484,3 +484,53 @@ func TestCollectionOwnerPasswordKeepsOwnerIn(t *testing.T) {
 	// and the password form says who made it too
 	test.IsEqualBool(t, strings.Contains(openCollection(c.Id, ""), "by anna"), true)
 }
+
+// An admin who may not list other people's uploads (PERM_LIST revoked) is
+// still an admin, so they keep the owner bar, but the management list would
+// download through /files/download, which refuses files they may not list.
+// They get the public list, whose /cd downloads work for them.
+func TestCollectionPageAdminWithoutPermListGetsPublicList(t *testing.T) {
+	collectionOwnerUsers()
+	database.SaveUser(models.User{Id: 12, Name: "nolist@example.com", UserLevel: models.UserLevelAdmin,
+		Permissions: models.UserPermissionAll &^ models.UserPermListOtherUploads}, false)
+	database.SaveSession("colnolist12", models.Session{RenewAt: 2147483645, ValidUntil: 2147483646, UserId: 12})
+	f := accessFile("colnolist00000001", func(f *models.File) { f.Name = "nolist.jpg"; f.UserId = 8; f.SHA1 = "colnolistsha1" })
+	c, err := storage.CreateCollection(storage.CollectionParameters{Name: "Anna nolist", FileIds: []string{f.Id}}, models.User{Id: 8})
+	test.IsNil(t, err)
+	defer database.DeleteCollection(c.Id)
+
+	body := openCollection(c.Id, "colnolist12")
+	for _, want := range []string{`data-context="collection-public"`, "./cd?id=" + c.Id + "&amp;file=" + f.Id, "data-fgs-owner-bar"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page lacks %q", want)
+		}
+	}
+	for _, gone := range append([]string{`data-context="collection-admin"`, "/files/download", "remove-from-collection"}, collectionPublicExcluded...) {
+		if strings.Contains(body, gone) {
+			t.Errorf("the page contains %q", gone)
+		}
+	}
+	// the download the page offers works for them
+	r := httptest.NewRequest("GET", "/cd?id="+c.Id+"&file="+f.Id, nil)
+	r.AddCookie(&http.Cookie{Name: "session_token", Value: "colnolist12"})
+	w := httptest.NewRecorder()
+	downloadCollectionFile(w, r)
+	test.IsEqualInt(t, w.Code, http.StatusOK)
+}
+
+// The owner of a password-protected collection gets the management list
+// without entering the password
+func TestCollectionOwnerOfPasswordProtectedGetsManagementList(t *testing.T) {
+	collectionOwnerUsers()
+	f := accessFile("colownerlist0000001", func(f *models.File) { f.Name = "ownerlist.jpg"; f.UserId = 8; f.SHA1 = "colownerlistsha1" })
+	c, err := storage.CreateCollection(storage.CollectionParameters{Name: "Anna locked list", FileIds: []string{f.Id}, Password: "secret"}, models.User{Id: 8})
+	test.IsNil(t, err)
+	defer database.DeleteCollection(c.Id)
+
+	body := openCollection(c.Id, "colowner8")
+	test.IsEqualBool(t, strings.Contains(body, `data-context="collection-admin"`), true)
+	test.IsEqualBool(t, strings.Contains(body, "Remove from collection"), true)
+	anonymous := openCollection(c.Id, "")
+	test.IsEqualBool(t, strings.Contains(anonymous, "This collection is password protected."), true)
+	test.IsEqualBool(t, strings.Contains(anonymous, `data-context=`), false)
+}

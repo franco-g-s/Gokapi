@@ -54,6 +54,10 @@ type CollectionView struct {
 	// visitor is signed in as the owner or an admin (managesCollection)
 	CanManage   bool
 	HasPassword bool
+	// CanManageList gives the file list its management actions and loads the
+	// admin bundle: the collection's owner, or an admin who may also list
+	// other people's uploads (collectionListManager)
+	CanManageList bool
 	// CanTurnIntoGroup offers "Turn into a group" in the owner bar: not
 	// once the collection is a group (R4)
 	CanTurnIntoGroup bool
@@ -62,10 +66,10 @@ type CollectionView struct {
 	GroupBanner *collectionGroupBanner
 	// Browser is the shared file list. For visitors it is collection-public:
 	// no management actions, downloads through /cd, previews scoped with &c=.
-	// For the owner and an admin (CanManage) it is collection-admin, the
+	// For the owner and an admin who may list uploads (CanManageList) it is collection-admin, the
 	// management list of the Files tab with "Remove from collection".
 	Browser fileBrowser
-	// ServerUrl feeds the management dialogs (CanManage only)
+	// ServerUrl feeds the management dialogs (CanManageList only)
 	ServerUrl string
 }
 
@@ -87,7 +91,8 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 	if answered {
 		return
 	}
-	manager, manages := collectionManager(r, collection)
+	manages := managesCollection(r, collection)
+	manager, managesList := collectionListManager(r, collection)
 	ownerName := collectionOwnerName(collection)
 
 	// Password gate. Same token/cookie scheme as password-protected files,
@@ -150,13 +155,14 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 		Buttons:        mediaButtons{Count: len(collection.Files), ZipUrl: "./cz?id=" + collection.Id},
 		OwnerName:      ownerName,
 		CanManage:      manages,
+		CanManageList:  managesList,
 		HasPassword:    collection.IsPasswordProtected(),
 		// R4: a collection becomes a group once
 		CanTurnIntoGroup: manages && !linked,
 		GroupBanner:      banner,
 	}
-	if manages {
-		// The owner and an admin get the management list: "Remove from
+	if managesList {
+		// The owner and an admin who may list uploads get the management list: "Remove from
 		// collection" and the file actions of the Files tab. The page loads
 		// the admin bundle and the dialogs it needs (html_collection.tmpl).
 		// Names are shown as display names ("anna"), like the byline above
@@ -423,6 +429,23 @@ func collectionManager(r *http.Request, collection models.Collection) (models.Us
 		return models.User{}, false
 	}
 	if user.Id == collection.UserId || (user.IsAdmin() && user.Id != 0) {
+		return user, true
+	}
+	return models.User{}, false
+}
+
+// collectionListManager is who gets the management list on /c: the owner, or
+// an admin who also holds PERM_LIST. The list downloads through
+// /files/download and zips through /files/zip, which serve only files the user
+// may list, so an admin without PERM_LIST would get a list whose downloads
+// all 404: they keep the public list (and the owner bar, see
+// collectionManager).
+func collectionListManager(r *http.Request, collection models.Collection) (models.User, bool) {
+	user, ok := collectionManager(r, collection)
+	if !ok {
+		return models.User{}, false
+	}
+	if user.Id == collection.UserId || user.HasPermissionListOtherUploads() {
 		return user, true
 	}
 	return models.User{}, false

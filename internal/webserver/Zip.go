@@ -12,7 +12,8 @@ import (
 
 // downloadCollectionZip serves every live member of a collection as one zip,
 // or with files= only the selected ones (selectedMembers). Same gate as /cd:
-// a password-protected collection needs its pc cookie.
+// a password-protected collection needs its pc cookie, unless the visitor
+// manages it (collectionUnlocked).
 func downloadCollectionZip(w http.ResponseWriter, r *http.Request) {
 	addNoCacheHeader(w)
 	collection, ok := storage.GetCollection(r.URL.Query().Get("id"))
@@ -20,7 +21,7 @@ func downloadCollectionZip(w http.ResponseWriter, r *http.Request) {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeFileNotFound)
 		return
 	}
-	if collection.IsPasswordProtected() && !isValidCollectionPwCookie(r, collection) {
+	if !collectionUnlocked(r, collection) {
 		redirect(w, r, "c?id="+collection.Id)
 		return
 	}

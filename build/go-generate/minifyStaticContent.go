@@ -107,6 +107,12 @@ func getPaths() []converter {
 		Type:       "text/javascript",
 		Name:       "Public upload JS",
 	})
+	result = append(result, converter{
+		InputPath:  pathPrefix + "js/collection_owner.js",
+		OutputPath: pathPrefix + "js/min/collection_owner.min.js",
+		Type:       "text/javascript",
+		Name:       "Collection owner bar JS",
+	})
 	return result
 }
 

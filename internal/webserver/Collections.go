@@ -48,6 +48,13 @@ type CollectionView struct {
 	ExpiryString   string
 	NeverExpires   bool
 	Buttons        mediaButtons
+	// OwnerName is who made the collection, by display name ("by anna");
+	// empty when that user no longer exists
+	OwnerName string
+	// CanManage shows the owner bar and loads collection_owner.js: the
+	// visitor is signed in as the owner or an admin (managesCollection)
+	CanManage   bool
+	HasPassword bool
 	// Browser is the shared file list (context collection-public): no
 	// management actions, downloads through /cd, previews scoped with &c=
 	Browser fileBrowser
@@ -66,10 +73,12 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeFileNotFound)
 		return
 	}
+	manages := managesCollection(r, collection)
+	ownerName := collectionOwnerName(collection)
 
 	// Password gate. Same token/cookie scheme as password-protected files,
-	// keyed on the collection id.
-	if collection.IsPasswordProtected() && !isValidCollectionPwCookie(r, collection) {
+	// keyed on the collection id. Its owner and an admin pass without it.
+	if !collectionUnlocked(r, collection) {
 		_ = r.ParseForm()
 		entered := r.PostForm.Get("password")
 		view := CollectionView{
@@ -77,6 +86,7 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 			BaseUrl: configuration.Get().ServerUrl, IsDownloadView: true,
 			IsPasswordView: true, CustomContent: customStaticInfo,
 			Collection: models.Collection{Id: collection.Id, Name: collection.Name},
+			OwnerName:  ownerName,
 		}
 		if entered == "" {
 			err := templateFolder.ExecuteTemplate(w, "collection", view)
@@ -118,6 +128,9 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 		FileCount:      len(collection.Files),
 		TotalSize:      helper.ByteCountSI(collection.TotalSizeBytes),
 		Buttons:        mediaButtons{Count: len(collection.Files), ZipUrl: "./cz?id=" + collection.Id},
+		OwnerName:      ownerName,
+		CanManage:      manages,
+		HasPassword:    collection.IsPasswordProtected(),
 	}
 	// Visitors are not users: the zero User gives no uploader, ownership or
 	// permissions, and the context keeps every management action out
@@ -151,7 +164,7 @@ func downloadCollectionFile(w http.ResponseWriter, r *http.Request) {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeFileNotFound)
 		return
 	}
-	if collection.IsPasswordProtected() && !isValidCollectionPwCookie(r, collection) {
+	if !collectionUnlocked(r, collection) {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeFileNotFound)
 		return
 	}
@@ -367,6 +380,35 @@ func writeCollectionPwCookie(w http.ResponseWriter, collection models.Collection
 // isValidCollectionPwCookie returns true if the request carries a valid token
 func isValidCollectionPwCookie(r *http.Request, collection models.Collection) bool {
 	return access.ValidCollectionPwCookie(r, collection.Id)
+}
+
+// managesCollection reports whether the visitor is signed in as the
+// collection's owner or as an admin. Only a real session counts
+// (SessionIdentity), so an anonymous visitor is never anyone.
+func managesCollection(r *http.Request, collection models.Collection) bool {
+	user, signedIn := authentication.SessionIdentity(r)
+	if !signedIn {
+		return false
+	}
+	return user.Id == collection.UserId || (user.IsAdmin() && user.Id != 0)
+}
+
+// collectionUnlocked is the password gate of /c, /cd and /cz: no password,
+// a valid unlock cookie, or the owner or an admin, who never have to type
+// the password of a collection they manage. Setting one from the owner bar
+// therefore cannot lock its owner out.
+func collectionUnlocked(r *http.Request, collection models.Collection) bool {
+	return !collection.IsPasswordProtected() || isValidCollectionPwCookie(r, collection) ||
+		managesCollection(r, collection)
+}
+
+// collectionOwnerName is the "by …" of a collection page: the owner's display
+// name, or empty when that user no longer exists
+func collectionOwnerName(collection models.Collection) string {
+	if owner, ok := database.GetUser(collection.UserId); ok {
+		return displayName(owner)
+	}
+	return ""
 }
 
 // collectionModifyRequest renames a collection and/or replaces its members

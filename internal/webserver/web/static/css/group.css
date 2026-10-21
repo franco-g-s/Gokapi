@@ -21,3 +21,95 @@
     border-radius: 0.25rem;
     background: #333;
 }
+
+/* Revisions R1: the near-copy thumbnails open the compare view */
+.fgs-near-open {
+    display: inline-flex;
+    padding: 0;
+    border: 0;
+    background: none;
+    border-radius: 0.25rem;
+    cursor: zoom-in;
+}
+
+.fgs-near-open:focus-visible {
+    outline: 2px solid #0d6efd;
+    outline-offset: 2px;
+}
+
+/* The members button: overlapping initials, "+N", then the count. The ring
+   is the card's own background so each circle reads as sitting on the next. */
+.fgs-members-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.15rem 0.4rem 0.15rem 0.15rem;
+    color: inherit;
+    border-radius: 2rem;
+}
+
+.fgs-members-button:hover,
+.fgs-members-button:focus-visible,
+.fgs-members-button.show {
+    background: rgba(255, 255, 255, 0.08);
+    color: inherit;
+}
+
+.fgs-avatar-stack {
+    display: inline-flex;
+    align-items: center;
+}
+
+.fgs-avatar-stack .fgs-avatar {
+    box-shadow: 0 0 0 2px #212529;
+}
+
+.fgs-avatar-stack .fgs-avatar + .fgs-avatar {
+    margin-left: -0.6rem;
+}
+
+.fgs-avatar-more {
+    background: #495057;
+    font-size: 0.7rem;
+}
+
+.fgs-members-panel {
+    min-width: 16rem;
+    max-width: calc(100vw - 2rem);
+}
+
+/* About eight rows, then it scrolls */
+.fgs-members-panel .fgs-group-people {
+    max-height: 18rem;
+    overflow-y: auto;
+}
+
+/* Phones: the header and the drop zone share the first screen (up to 576px) */
+@media (max-width: 576px) {
+    .fgs-group-upload .upload-box {
+        min-height: 0;
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+    }
+
+    .fgs-group-upload .upload-box .dz-message {
+        margin: 0;
+    }
+
+    .fgs-group-upload #uploadBoxTitle {
+        font-size: 1rem !important;
+        margin-bottom: 0.25rem !important;
+    }
+
+    .fgs-group-upload #uploadBoxSubtitle {
+        font-size: 0.875rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .fgs-group-upload > p.small {
+        font-size: 0.75rem;
+        margin-top: 0.25rem !important;
+    }
+}

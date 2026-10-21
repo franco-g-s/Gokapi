@@ -163,6 +163,14 @@ func TestCollectionPageManagementList(t *testing.T) {
 				t.Errorf("%s: %q present = %v, want %v", tc.who, want, !tc.manages, tc.manages)
 			}
 		}
+		if !tc.manages {
+			// exactly the public page: nothing a management page has
+			for _, gone := range collectionPublicExcluded {
+				if strings.Contains(body, gone) {
+					t.Errorf("%s: the public page contains %q", tc.who, gone)
+				}
+			}
+		}
 		for _, want := range publicOnly {
 			if strings.Contains(body, want) == tc.manages {
 				t.Errorf("%s: %q present = %v, want %v", tc.who, want, tc.manages, !tc.manages)

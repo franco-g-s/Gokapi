@@ -253,3 +253,35 @@ Do **not** change "Turn into a group" behaviour; that is R4. R2 only adds a seco
 - **Remove the file dropdown.** Clicking the file count in the Collections table no longer opens a per-collection file list. Remove the dropdown row and its JS; the count is plain text or a link to the collection page.
 - **Manage members on the collection page.** On `/c?id=`, the owner and admins get the management list (context `collection-admin`, so "Remove from collection" is in the "⋯" menu and the selection bar), loading what that needs. Visitors keep the public list.
   - Adding files stays on the Files tab ("Add to collection…").
+
+
+---
+
+## Rulings during execution (2026-10-21)
+
+- Franco picked both 'old link invites' and 'old link requires joining' — implemented as a per-conversion radio (invite default) — cost if wrong: one control.
+- Users icon -> bi-person-gear (branding), Groups keeps bi-people-fill.
+- R1 previews lacking colour or dimensions never match as near-copies — conservative, avoids false flags — cost: a true copy without preview data goes unflagged.
+- R1 Compare opens on the older item — cost: none.
+- R2 owner and admin (IsAdmin && Id!=0) pass a collection's password gate on /c, /cd, /cz — consistent with CanView and needed for the owner bar — cost if wrong: admins see protected collections without the password.
+- R2 keeps the per-collection file list (it hosts Remove from collection / Add files), opened from the Files count — cost: none.
+- R3 may edit admin_ui_filerequest.js (6 lines, dates for its photos handler) — no other task owns it.
+- R4 consolidates the Turn-into-a-group dialog into one shared non-admin script used by both pages — R4 rewrites that dialog anyway — cost if wrong: none.
+- R4 extras accepted — second conversion refused (400); admin in require mode goes to the group; password gate still before join redirect; converted collections hidden from /collections/list too — cost: none. Deferred: Shared-with-me still lists converted collections (link still works).
+- when an admin converts someone else's collection, the collection's OWNER becomes the group's creator (admin keeps admin rights, is not added as member) — it is the owner's collection; avoids cutting them off — cost if wrong: admin not listed as member. Task R4: fix round 1 started.
+- nearCopyMaxColour 40 -> 20 (real wallpaper pair at 39.3 matched; true re-encode ~1.4) — e1adff8, verified on preview data — cost if wrong: heavily recompressed copies with colour shift >20 go unflagged.
+- F2 keptId must be a live group file AND a near-copy of each removed file (stricter) — cost: none. Kept pairs offer no Keep both (already kept).
+- F3 owner/admin per-file downloads on /c use the uncounted owner route; Download all still counted /cz — cost: none.
+- F1 per-group view keys; old shared group key ignored (everyone back to Board) — intended.
+- F2 check view lists one pair per newer item (closest older match) — removing it surfaces the next — cost: a 3-burst shows 2 rows, not 3.
+- F3 owner/admin downloads on /c are uncounted (owner route), including Download all; only "Download as .zip" hits counted /cz — managers' own downloads should not count — cost: none.
+- F3 management list on /c only for the owner, or an admin who also has PERM_LIST (so the owner download route works).
+
+## Deployed
+
+Live since 2026-10-21 10:53 (about 20 s of downtime) as `gokapi-fgs:groups-2026-10-21` from `a8362af`. PR franco-g-s/Gokapi#2.
+
+**Rollback:**
+- restore `~/apps/gokapi/docker-compose.yml.bak.2026-10-21` (image `gokapi-fgs:previews`);
+- restore `custom/*.bak.2026-10-21`;
+- the database backup is `~/apps/gokapi/backups/backup-pre-groups-2026-10-21.sqlite` (integrity ok, schema 17, 222 files).

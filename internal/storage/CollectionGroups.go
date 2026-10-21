@@ -25,6 +25,9 @@ type FromCollectionOptions struct {
 	// LinkMode is how the old link behaves: models.CollectionLinkInvite
 	// (also when empty) or models.CollectionLinkRequire
 	LinkMode string
+	// ViewerIds limits AddViewers to the people the dialog showed; nil adds
+	// every current viewer
+	ViewerIds []int
 }
 
 // FromCollectionResult is what GroupFromCollection did
@@ -46,6 +49,9 @@ type CollectionLink struct {
 // signed in become members if asked. The collection itself is not modified:
 // it is linked to the group, which hides it from the Collections list, and
 // its link lives on in the chosen mode. A collection becomes a group once.
+// The collection's owner is the group's creator, also when the admin turns
+// it into one: hiding it from their list must not cut them off, and the
+// admin sees and manages every group without being a member.
 func GroupFromCollection(collectionId string, days int, opts FromCollectionOptions, actor models.User) (models.Group, FromCollectionResult, error) {
 	if !database.SupportsGroups() {
 		return models.Group{}, FromCollectionResult{}, ErrGroupsUnsupported
@@ -64,7 +70,13 @@ func GroupFromCollection(collectionId string, days int, opts FromCollectionOptio
 	if _, linked := database.GetCollectionGroup(collection.Id); linked {
 		return models.Group{}, FromCollectionResult{}, ErrCollectionAlreadyGroup
 	}
-	g, err := CreateGroup(collection.Name, days, actor)
+	creator := actor
+	if collection.UserId != actor.Id {
+		if owner, exists := database.GetUser(collection.UserId); exists {
+			creator = owner
+		}
+	}
+	g, err := CreateGroup(collection.Name, days, creator)
 	if err != nil {
 		return models.Group{}, FromCollectionResult{}, err
 	}
@@ -85,9 +97,13 @@ func GroupFromCollection(collectionId string, days int, opts FromCollectionOptio
 		return models.Group{}, result, ErrGroupNothingAdded
 	}
 	if opts.AddViewers {
+		shown := make(map[int]bool, len(opts.ViewerIds))
+		for _, id := range opts.ViewerIds {
+			shown[id] = true
+		}
 		now := time.Now().Unix()
 		for _, viewer := range CollectionViewers(collection, actor) {
-			if IsGroupMember(g, viewer.Id) {
+			if (opts.ViewerIds != nil && !shown[viewer.Id]) || IsGroupMember(g, viewer.Id) {
 				continue
 			}
 			database.SaveGroupMember(models.GroupMember{GroupId: g.Id, UserId: viewer.Id, Joined: now, Role: models.GroupRoleMember})
@@ -213,23 +229,28 @@ func StopGroupLink(g models.Group, actor models.User) error {
 	for _, link := range links {
 		deleteLinkedCollection(link.CollectionId)
 	}
+	fmt.Println("groups: stopped the link of " + g.Id)
 	return nil
 }
 
 // deleteLinkedCollection deletes a collection whose link was the group's,
-// and the link with it
+// and the link with it. Callers log the group id: the collection id is the
+// share link's secret.
 func deleteLinkedCollection(collectionId string) {
 	database.DeleteCollection(collectionId)
 	database.DeleteCollectionGroup(collectionId)
-	fmt.Println("groups: deleted collection " + collectionId + " behind a group link")
 }
 
 // deleteGroupAndLinks deletes a group and the collections behind its old
 // links: those links were only living on as the group's. The links are read
 // first, because deleting the group drops them.
 func deleteGroupAndLinks(groupId string) {
-	for _, link := range database.GetCollectionGroupsOfGroup(groupId) {
+	links := database.GetCollectionGroupsOfGroup(groupId)
+	for _, link := range links {
 		deleteLinkedCollection(link.CollectionId)
+	}
+	if len(links) > 0 {
+		fmt.Println("groups: deleted the linked collection of " + groupId)
 	}
 	database.DeleteGroup(groupId)
 }

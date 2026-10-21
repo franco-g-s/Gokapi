@@ -20,6 +20,7 @@
     var confirmButton = document.getElementById("togroup-confirm");
     var status = document.getElementById("togroup-status");
     var collectionId = null;
+    var viewerIds = [];
     var opens = 0;
 
     function errorText(error) { return error && error.message ? error.message : String(error); }
@@ -56,6 +57,7 @@
     }
 
     function showViewers(viewers) {
+        viewerIds = viewers.map(function (v) { return v.id; });
         viewerNames.textContent = viewers.map(function (v) { return v.name; }).join(", ");
         viewersCheck.checked = true;
         viewersBox.classList.toggle("d-none", viewers.length === 0);
@@ -71,6 +73,7 @@
         document.getElementById("togroup-link-invite").checked = true;
         viewersBox.classList.add("d-none");
         viewerNames.textContent = "";
+        viewerIds = [];
         setStatus("", "");
         confirmButton.disabled = true;
         fetch("./groups/fromcollection/preview?collectionId=" + encodeURIComponent(id), { credentials: "same-origin" })
@@ -102,6 +105,8 @@
             collectionId: collectionId,
             days: parseInt(days.value, 10),
             addViewers: !viewersBox.classList.contains("d-none") && viewersCheck.checked,
+            // Only the people listed: someone opening the link meanwhile is not added unseen
+            viewerIds: viewerIds,
             linkMode: mode.value
         })
             .then(function (data) { window.location.href = data.Url; })

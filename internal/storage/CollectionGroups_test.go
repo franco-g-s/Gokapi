@@ -225,3 +225,50 @@ func TestGroupDeletionRemovesLinkedCollection(t *testing.T) {
 	_, linked = database.GetCollectionGroup(expiring.Id)
 	test.IsEqualBool(t, linked, false)
 }
+
+// Fix round 1: the collection's owner becomes the creator when the admin converts it
+func TestGroupFromCollectionByAdminKeepsOwner(t *testing.T) {
+	owner, ann, _, admin, _ := cgUsers()
+	collection, files := cgCollection("cgbyadmin", owner.Id)
+	defer dropGroupFiles(files...)
+	defer database.DeleteCollection(collection.Id)
+	database.SaveCollectionSeen(models.CollectionSeen{UserId: ann.Id, CollectionId: collection.Id, FirstOpened: 10})
+	database.SaveCollectionSeen(models.CollectionSeen{UserId: admin.Id, CollectionId: collection.Id, FirstOpened: 20})
+
+	g, res, err := GroupFromCollection(collection.Id, 30, FromCollectionOptions{AddViewers: true}, admin)
+	test.IsNil(t, err)
+	defer DeleteGroup(g, owner)
+	test.IsEqualInt(t, g.CreatorId, owner.Id)
+	test.IsEqualInt(t, len(res.Added), 2)
+	test.IsEqualInt(t, res.MembersAdded, 1) // ann; the admin sees every group anyway
+	members := memberIds(g)
+	test.IsEqualInt(t, len(members), 2)
+	test.IsEqualString(t, members[owner.Id], models.GroupRoleCreator)
+	test.IsEqualString(t, members[ann.Id], models.GroupRoleMember)
+	_, adminIn := members[admin.Id]
+	test.IsEqualBool(t, adminIn, false)
+	// The owner manages the link
+	test.IsNil(t, SetGroupLinkMode(g, models.CollectionLinkRequire, owner))
+	test.IsEqualBool(t, CollectionClosedTo(collection.Id, owner), false)
+}
+
+// Fix round 1: only the viewers the dialog showed are added
+func TestGroupFromCollectionOnlyShownViewers(t *testing.T) {
+	owner, ann, ben, _, _ := cgUsers()
+	collection, files := cgCollection("cgshown", owner.Id)
+	defer dropGroupFiles(files...)
+	defer database.DeleteCollection(collection.Id)
+	database.SaveCollectionSeen(models.CollectionSeen{UserId: ann.Id, CollectionId: collection.Id, FirstOpened: 10})
+	database.SaveCollectionSeen(models.CollectionSeen{UserId: ben.Id, CollectionId: collection.Id, FirstOpened: 20})
+
+	// ben opened the link after the dialog listed only ann; 99 was never a viewer
+	g, res, err := GroupFromCollection(collection.Id, 30,
+		FromCollectionOptions{AddViewers: true, ViewerIds: []int{ann.Id, 99}}, owner)
+	test.IsNil(t, err)
+	defer DeleteGroup(g, owner)
+	test.IsEqualInt(t, res.MembersAdded, 1)
+	members := memberIds(g)
+	_, benIn := members[ben.Id]
+	test.IsEqualBool(t, benIn, false)
+	test.IsEqualString(t, members[ann.Id], models.GroupRoleMember)
+}

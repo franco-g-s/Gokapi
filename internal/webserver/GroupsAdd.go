@@ -89,7 +89,9 @@ func addToGroup(w http.ResponseWriter, r *http.Request) {
 
 // groupFromCollection answers POST /groups/fromcollection {collectionId,
 // days, addViewers, linkMode}: a new group named after the collection, with
-// its files and, if asked, the people who opened its link while signed in.
+// its files and, if asked, the people who opened its link while signed in
+// (only those the dialog showed, when viewerIds is given). The collection's
+// owner is the creator, also when an admin converts it.
 // The collection leaves the Collections list; its link lives on in linkMode
 // ("invite" when empty, or "require"). Part 2, G8 and R4.
 func groupFromCollection(w http.ResponseWriter, r *http.Request) {
@@ -106,13 +108,16 @@ func groupFromCollection(w http.ResponseWriter, r *http.Request) {
 		Days         int    `json:"days"`
 		AddViewers   bool   `json:"addViewers"`
 		LinkMode     string `json:"linkMode"`
+		// ViewerIds are the people the dialog showed; omitted, every viewer
+		ViewerIds []int `json:"viewerIds"`
 	}
 	if err = readJsonBody(r, &request); err != nil {
 		writeJsonError(w, http.StatusBadRequest, errors.New("invalid request"))
 		return
 	}
 	group, result, err := storage.GroupFromCollection(request.CollectionId, request.Days,
-		storage.FromCollectionOptions{AddViewers: request.AddViewers, LinkMode: request.LinkMode}, user)
+		storage.FromCollectionOptions{AddViewers: request.AddViewers,
+			LinkMode: request.LinkMode, ViewerIds: request.ViewerIds}, user)
 	if err != nil {
 		status := groupErrorStatus(err)
 		if errors.Is(err, storage.ErrorCollectionNoFiles) {

@@ -336,3 +336,54 @@ func TestR4DeleteGroupRemovesCollection(t *testing.T) {
 	_, ok = database.GetMetaDataById(files[0].Id)
 	test.IsEqualBool(t, ok, true) // the files stay
 }
+
+// Fix round 1: an admin turning user 7's collection into a group makes 7 its
+// creator, so 7 keeps the link, and the admin does not become a member
+func TestR4AdminConvertsSomeoneElsesCollection(t *testing.T) {
+	r4Users()
+	owner, ok := database.GetUser(7)
+	test.IsEqualBool(t, ok, true)
+	admin, ok := database.GetUser(5)
+	test.IsEqualBool(t, ok, true)
+	a := accessFile("r4adminconvfa", func(f *models.File) { f.UserId = 7; f.SHA1 = "r4adminconvsha-a" })
+	b := accessFile("r4adminconvfb", func(f *models.File) { f.UserId = 7; f.SHA1 = "r4adminconvsha-b" })
+	c, err := storage.CreateCollection(storage.CollectionParameters{Name: "Seven's trip", FileIds: []string{a.Id, b.Id}}, owner)
+	test.IsNil(t, err)
+	t.Cleanup(func() {
+		database.DeleteCollection(c.Id)
+		database.DeleteMetaData(a.Id)
+		database.DeleteMetaData(b.Id)
+	})
+
+	raw, _ := json.Marshal(map[string]any{"collectionId": c.Id, "days": 30, "addViewers": true, "linkMode": models.CollectionLinkRequire})
+	w := groupPageCall(groupFromCollection, "POST", "/groups/fromcollection", admin, string(raw))
+	test.IsEqualInt(t, w.Code, http.StatusOK)
+	answer := map[string]any{}
+	test.IsNil(t, json.Unmarshal(w.Body.Bytes(), &answer))
+	g, ok := storage.GetGroup(answer["Id"].(string))
+	test.IsEqualBool(t, ok, true)
+	t.Cleanup(func() { database.DeleteGroup(g.Id) })
+
+	// 7 is the creator, as a member with that role; the admin is not a member
+	test.IsEqualInt(t, g.CreatorId, 7)
+	role, member := storage.GroupRole(g, 7)
+	test.IsEqualBool(t, member, true)
+	test.IsEqualString(t, role, models.GroupRoleCreator)
+	_, adminMember := storage.GroupRole(g, 5)
+	test.IsEqualBool(t, adminMember, false)
+	test.IsEqualInt(t, len(database.GetGroupMembers(g.Id)), 1)
+
+	// In require mode, 7's own link lands on the group
+	resp, _ := groupsTabDo(t, "GET", "/c?id="+c.Id, "validsession", "", "")
+	test.IsEqualInt(t, resp.StatusCode, http.StatusSeeOther)
+	test.IsEqualString(t, resp.Header.Get("Location"), "g?id="+g.Id)
+
+	// 7 may switch the mode and stop the link
+	test.IsEqualInt(t, groupPageCall(setGroupLinkMode, "POST", "/groups/linkmode", owner,
+		`{"id":"`+g.Id+`","mode":"invite"}`).Code, http.StatusOK)
+	link, _ := database.GetCollectionGroup(c.Id)
+	test.IsEqualString(t, link.LinkMode, models.CollectionLinkInvite)
+	test.IsEqualInt(t, groupPageCall(stopGroupLink, "POST", "/groups/stoplink", owner, `{"id":"`+g.Id+`"}`).Code, http.StatusOK)
+	_, ok = database.GetCollection(c.Id)
+	test.IsEqualBool(t, ok, false)
+}

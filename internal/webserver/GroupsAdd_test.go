@@ -218,13 +218,15 @@ func TestGroupFromCollection(t *testing.T) {
 	test.IsEqualInt(t, w.Code, http.StatusBadRequest)
 	test.IsEqualString(t, answer.ErrorMessage, storage.ErrCollectionAlreadyGroup.Error())
 
-	// The admin may turn anyone's collection into a group of their own
+	// The admin may turn anyone's collection into a group; its owner is the
+	// creator (R4 fix round 1)
 	w, answer = call("POST", admin, foreign.Id, 0)
 	test.IsEqualInt(t, w.Code, 200)
 	test.IsEqualString(t, answer.Result, "OK")
 	defer database.DeleteGroup(answer.Id)
 	g, _ = storage.GetGroup(answer.Id)
 	test.IsEqualBool(t, g.NeverExpires(), true)
+	test.IsEqualInt(t, g.CreatorId, owner.Id)
 }
 
 // "Turn into a group" is on the collections the user owns, and on every row

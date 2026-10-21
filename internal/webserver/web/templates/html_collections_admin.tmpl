@@ -40,42 +40,45 @@
                     <a class="collection-name-link" href="./c?id={{ .Id }}">{{ .Name }}</a>
                     {{ if not .IsOwn }}<span class="badge bg-secondary ms-2">{{ .OwnerName }}</span>{{ end }}
                   </td>
-                  <td data-col-count>{{ .FileCount }}</td>
+                  <td data-col-count>
+                    {{/* The member list opens from its count: the name opens the collection itself */}}
+                    <button class="btn btn-link btn-sm p-0 text-reset collection-files" type="button"
+                            data-id="{{ .Id }}" aria-expanded="false" aria-controls="files-{{ .Id }}"
+                            title="Show the files"><span data-col-count-text>{{ .FileCount }}</span><span class="visually-hidden"> files</span> <i class="bi bi-chevron-down small" aria-hidden="true"></i></button>
+                  </td>
                   <td data-col-size>{{ .TotalSize }}</td>
                   <td>{{ .Created }}</td>
                   <td data-col-expiry>{{ if .NeverExpires }}Unlimited{{ else }}{{ .Expiry }}{{ end }}</td>
                   <td>
-                    <button class="btn btn-sm btn-outline-light collection-files"
-                            type="button" data-id="{{ .Id }}" title="Show files">
-                      <i class="bi bi-list-ul"></i>
-                    </button>
-                    <button class="btn btn-sm btn-outline-light collection-password"
-                            type="button" data-id="{{ .Id }}" data-name="{{ .Name }}"
-                            data-haspassword="{{ .HasPassword }}" title="Set or change password">
-                      <i class="bi bi-key"></i>
-                    </button>
-                    <button class="btn btn-sm btn-outline-light collection-rename"
-                            type="button" data-id="{{ .Id }}" data-name="{{ .Name }}" title="Rename">
-                      <i class="bi bi-pencil"></i>
-                    </button>
-                    {{ if or .IsOwn $.ActiveUser.IsAdmin }}
-                    <button class="btn btn-sm btn-outline-light collection-togroup"
-                            type="button" data-id="{{ .Id }}" data-name="{{ .Name }}" title="Turn into a group">
-                      <i class="bi bi-people"></i>
-                    </button>
-                    {{ end }}
-                    <button class="btn btn-sm btn-outline-light collection-copy"
-                            type="button" data-url="{{ .Url }}" title="Copy link">
-                      <i class="bi bi-clipboard"></i> Copy link
-                    </button>
-                    <a class="btn btn-sm btn-outline-light" href="{{ .Url }}"
-                       target="_blank" rel="noopener" title="Open">
-                      <i class="bi bi-box-arrow-up-right"></i>
-                    </a>
-                    <button class="btn btn-sm btn-outline-danger collection-delete"
-                            type="button" data-id="{{ .Id }}" data-name="{{ .Name }}" title="Delete">
-                      <i class="bi bi-trash3"></i>
-                    </button>
+                    <div class="btn-group text-nowrap" role="group" aria-label="Actions">
+                      <button class="btn btn-sm btn-outline-light copyurl collection-copy"
+                              type="button" data-clipboard-text="{{ .Url }}" onclick="showToast(1000, 'Share link copied')"
+                              title="Copy share link" aria-label="Copy share link">
+                        <i class="bi bi-copy"></i>
+                      </button>
+                      <button class="btn btn-sm btn-outline-light collection-rename"
+                              type="button" data-id="{{ .Id }}" data-name="{{ .Name }}"
+                              title="Rename" aria-label="Rename">
+                        <i class="bi bi-pencil"></i>
+                      </button>
+                      <button class="btn btn-sm btn-outline-light collection-password"
+                              type="button" data-id="{{ .Id }}" data-name="{{ .Name }}" data-haspassword="{{ .HasPassword }}"
+                              title="Set or change password" aria-label="Set or change password">
+                        <i class="bi bi-key"></i>
+                      </button>
+                      {{ if or .IsOwn $.ActiveUser.IsAdmin }}
+                      <button class="btn btn-sm btn-outline-light collection-togroup"
+                              type="button" data-id="{{ .Id }}" data-name="{{ .Name }}"
+                              title="Turn into a group" aria-label="Turn into a group">
+                        <i class="bi bi-people-fill"></i><span class="ms-1 d-none d-md-inline">Group</span>
+                      </button>
+                      {{ end }}
+                      <button class="btn btn-sm btn-outline-danger collection-delete"
+                              type="button" data-id="{{ .Id }}" data-name="{{ .Name }}"
+                              title="Delete" aria-label="Delete">
+                        <i class="bi bi-trash3"></i>
+                      </button>
+                    </div>
                   </td>
                 </tr>
                 <tr class="collection-files-row" id="files-{{ .Id }}" style="display:none">
@@ -225,15 +228,6 @@
 {{ template "file_browser_support" }}
 
 <script>
-document.querySelectorAll(".collection-copy").forEach(function (button) {
-    button.addEventListener("click", function () {
-        navigator.clipboard.writeText(button.getAttribute("data-url")).then(function () {
-            var original = button.innerHTML;
-            button.textContent = "Copied";
-            window.setTimeout(function () { button.innerHTML = original; }, 1500);
-        });
-    });
-});
 // An expired session answers with the login page rather than JSON; say so
 // instead of failing on the parse. Never rejects: callers show ErrorMessage.
 function postCollection(url, payload) {
@@ -267,12 +261,17 @@ function laidOutWhenShown(row) {
     if (browser) browser.relayout();
 }
 
+// The Files count opens and closes the collection's member list
 document.querySelectorAll(".collection-files").forEach(function (button) {
     button.addEventListener("click", function () {
         var row = document.getElementById("files-" + button.getAttribute("data-id"));
         if (!row) return;
-        row.style.display = row.style.display === "none" ? "" : "none";
-        if (row.style.display !== "none") laidOutWhenShown(row);
+        var open = row.style.display === "none";
+        row.style.display = open ? "" : "none";
+        button.setAttribute("aria-expanded", String(open));
+        var icon = button.querySelector(".bi");
+        if (icon) icon.className = "bi bi-chevron-" + (open ? "up" : "down") + " small";
+        if (open) laidOutWhenShown(row);
     });
 });
 
@@ -326,7 +325,7 @@ document.addEventListener("fgs:collection-changed", function (e) {
     var row = document.getElementById("collection-" + d.collectionId);
     if (!row) return;
     var set = function (sel, text) { var c = row.querySelector(sel); if (c && text !== undefined) c.textContent = text; };
-    set("[data-col-count]", d.fileCount === undefined ? undefined : String(d.fileCount));
+    set("[data-col-count-text]", d.fileCount === undefined ? undefined : String(d.fileCount));
     set("[data-col-size]", d.totalSize);
     if (d.neverExpires !== undefined) set("[data-col-expiry]", d.neverExpires ? "Unlimited" : d.expiry);
 });
@@ -547,6 +546,8 @@ document.querySelectorAll(".collection-delete").forEach(function (button) {
             }
             var row = document.getElementById("collection-" + id);
             if (row) row.remove();
+            var files = document.getElementById("files-" + id);
+            if (files) files.remove();
         }).catch(function (e) {
             window.alert("Could not delete: " + e);
             button.disabled = false;

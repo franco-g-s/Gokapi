@@ -265,3 +265,55 @@ func collectionModify(t *testing.T, user models.User, body map[string]any) (int,
 	_ = json.Unmarshal(w.Body.Bytes(), &result)
 	return w.Code, result
 }
+
+// collectionRow returns the summary row of the collection on the Collections
+// tab, up to its </tr>: the page's file menus have their own "Copy link"
+func collectionRow(t *testing.T, page, id string) string {
+	t.Helper()
+	start := strings.Index(page, `id="collection-`+id+`"`)
+	if start < 0 {
+		t.Fatalf("collection %s is not listed", id)
+	}
+	end := strings.Index(page[start:], "</tr>")
+	if end < 0 {
+		t.Fatalf("row of collection %s does not end", id)
+	}
+	return page[start : start+end]
+}
+
+// The Actions column is one compact group: Copy share link, Rename, Password,
+// Turn into a group (labelled "Group") and Delete. The name opens the
+// collection, so there is no Open button; the member list opens from the
+// Files count, so there is no list button either.
+func TestCollectionsTableActions(t *testing.T) {
+	f := accessFile("coltableactions001", func(f *models.File) { f.Name = "table.pdf"; f.SHA1 = "coltableactionssha" })
+	c, err := storage.CreateCollection(storage.CollectionParameters{Name: "table-actions", FileIds: []string{f.Id}}, models.User{Id: 7})
+	test.IsNil(t, err)
+	defer database.DeleteCollection(c.Id)
+
+	page := collectionsPageAs(t, "validsession")
+	row := collectionRow(t, page, c.Id)
+	for _, want := range []string{
+		`class="btn-group`, `aria-label="Actions"`,
+		`aria-label="Copy share link"`, `title="Copy share link"`, "collection-copy", `data-clipboard-text="`,
+		`aria-label="Rename"`, "collection-rename",
+		`aria-label="Set or change password"`, "collection-password",
+		`aria-label="Turn into a group"`, "collection-togroup", "bi-people-fill", `d-md-inline">Group</span>`,
+		`aria-label="Delete"`, "collection-delete",
+		// the member list is still reachable, from the Files count
+		"collection-files", `aria-controls="files-` + c.Id + `"`, `aria-expanded="false"`,
+		`href="./c?id=` + c.Id + `"`,
+	} {
+		if !strings.Contains(row, want) {
+			t.Errorf("row lacks %q:\n%s", want, row)
+		}
+	}
+	for _, gone := range []string{"Copy link", "bi-list-ul", "bi-box-arrow-up-right", `title="Open"`, `title="Show files"`} {
+		if strings.Contains(row, gone) {
+			t.Errorf("row still has %q", gone)
+		}
+	}
+	// The member list itself, with Add files, is still on the page
+	test.IsEqualBool(t, strings.Contains(page, `id="files-`+c.Id+`"`), true)
+	test.IsEqualBool(t, strings.Contains(page, `id="col-`+c.Id+`"`), true)
+}

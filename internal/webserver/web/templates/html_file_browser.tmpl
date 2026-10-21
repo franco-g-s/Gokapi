@@ -189,6 +189,9 @@
     <li><button type="button" class="dropdown-item" data-menu="open"><i class="bi bi-arrows-fullscreen"></i> Open</button></li>{{ end }}
     {{- if $b.HasMenu "download" }}
     <li><button type="button" class="dropdown-item" data-menu="download"{{ if $f.IsEndToEndEncrypted }} disabled{{ end }}><i class="bi bi-download"></i> {{ if $b.Manages }}Download original{{ else }}Download{{ end }}</button></li>{{ end }}
+    {{- if $b.HasMenu "photos" }}
+    {{/* Hidden until media.js decides it applies (iOS, navigator.canShare, a photo or video it can fetch), as the selection bar's button is */}}
+    <li class="d-none"><button type="button" class="dropdown-item" data-menu="photos"><i class="bi bi-box-arrow-down"></i> Save to Photos</button></li>{{ end }}
     {{- if $b.HasMenu "copy" }}
     <li><button type="button" class="dropdown-item copyurl" data-menu="copy" data-clipboard-text="{{ $f.UrlDownload }}"{{ if $it.Foreign }} disabled{{ end }}><i class="bi bi-copy"></i> Copy link</button></li>{{ end }}
     {{- if $b.HasMenu "hotlink" }}

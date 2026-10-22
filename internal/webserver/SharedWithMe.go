@@ -31,6 +31,10 @@ func sharedWithMe(user models.User, serverUrl string) []sharedCollectionInfo {
 		if !ok || collection.UserId == user.Id {
 			continue
 		}
+		// R4: a collection turned into a group lives on as the group's link
+		if _, linked := storage.CollectionLinkOf(collection.Id); linked {
+			continue
+		}
 		owner := "Unknown"
 		if u, found := database.GetUser(collection.UserId); found {
 			owner = displayName(u)

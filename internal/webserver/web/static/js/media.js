@@ -982,14 +982,27 @@
     }
 
     // The viewer, over everything visible, starting at this file. Reaching
-    // the last one asks for the next batch.
+    // the last one asks for what follows it: the files listed after it since
+    // (a batch the sentinel loaded meanwhile), else the next batch
+    // (loadMore). Never what loadMore alone returned, which would skip a
+    // batch that arrived while the viewer was open.
     function openAt(tile) {
       if (!tile) return;
       var tiles = visibleTiles();
-      FGS.openViewer(tiles.map(FGS.itemFromEl), Math.max(0, tiles.indexOf(tile)), listUrl ? moreForViewer : null);
-    }
-    function moreForViewer() {
-      return loadMore().then(function (added) { return added.map(FGS.itemFromEl); });
+      var last = tiles.length ? idOf(tiles[tiles.length - 1]) : "";
+      function after() {
+        var now = visibleTiles();
+        var at = now.findIndex(function (t) { return idOf(t) === last; });
+        var rest = at >= 0 ? now.slice(at + 1) : [];
+        if (rest.length) last = idOf(rest[rest.length - 1]);
+        return rest.map(FGS.itemFromEl);
+      }
+      function more() {
+        var listed = after();
+        if (listed.length) return Promise.resolve(listed);
+        return loadMore().then(after);
+      }
+      FGS.openViewer(tiles.map(FGS.itemFromEl), Math.max(0, tiles.indexOf(tile)), listUrl ? more : null);
     }
 
     // Board: the grid's own tiles in masonry, true proportions, no captions

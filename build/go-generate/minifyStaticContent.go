@@ -84,6 +84,12 @@ func getPaths() []converter {
 		Name:       "SHA-1 JS",
 	})
 	result = append(result, converter{
+		InputPath:  pathPrefix + "js/photos_probe.js",
+		OutputPath: pathPrefix + "js/min/photos_probe.min.js",
+		Type:       "text/javascript",
+		Name:       "Photos probe JS",
+	})
+	result = append(result, converter{
 		InputPath:  pathPrefix + "js/sha1-worker.js",
 		OutputPath: pathPrefix + "js/min/sha1-worker.min.js",
 		Type:       "text/javascript",

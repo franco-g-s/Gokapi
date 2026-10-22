@@ -152,6 +152,12 @@ check("kind: no extension", FGS.fileKind("", "README"), "other");
 check("isPhotoOrVideo follows it", FGS.isPhotoOrVideo("", "notes.txt") || !FGS.isPhotoOrVideo("", "a.mov"), false);
 check("files: view key", FGS.browserPrefKey(makeRoot(files), "view"), "fgsBrowser.files.view");
 
+// Filters are remembered only where a feed backs the list; the upload page starts at All
+const upload = { "data-context": "upload", "data-default-view": "grid" };
+const fgsStore = { "fgsBrowser.upload.kind": "video", "fgsBrowser.files.kind": "video" };
+check("upload: type not restored", loadMedia(storage(fgsStore)).initialQuery(makeRoot(upload)).kind, "");
+check("feed list: type restored", loadMedia(storage(fgsStore)).initialQuery(makeRoot(Object.assign({ "data-list-url": "/x" }, files))).kind, "video");
+
 // R3 (V9): the slider counts columns. The left end is the most that fit at
 // >= 96 px (gap 12), the right end 1; the default is the old 160 px look
 // (never under 2 columns); a remembered count is clamped to what fits.

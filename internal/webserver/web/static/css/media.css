@@ -32,7 +32,7 @@
 /* Search: in the toolbar, in every view. Sortable headers: the title is the button, an arrow on the active one. */
 .fgs-toolbar [data-fgs-search]{width:12rem;max-width:100%}
 /* Sort & filter (R1): one dropdown with the sort, the direction and the filters; a badge counts the filters on */
-.fgs-sortfilter>.dropdown-menu.fgs-sortfilter-menu{min-width:16rem;max-width:calc(100vw - 1.5rem);padding:.5rem .85rem}
+.fgs-sortfilter>.dropdown-menu.fgs-sortfilter-menu{min-width:16rem;max-width:calc(100vw - 1.5rem);padding:.5rem .85rem;max-height:calc(100vh - 5rem);max-height:calc(100dvh - 5rem);overflow-y:auto}
 .fgs-sf-group{margin:0 0 .4rem;padding:0;border:0;min-width:0}
 .fgs-sf-group .dropdown-header{padding:.35rem 0 .2rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:#9a9992}
 .fgs-sf-row{display:flex;flex-wrap:wrap;gap:.1rem 1rem}

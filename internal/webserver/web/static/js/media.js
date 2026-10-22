@@ -1052,12 +1052,16 @@
   // are never remembered.
   function initialQuery(root) {
     var order = rememberedOrder(root) || defaultOrder(root);
-    var kind = loadBrowserPref(root, "kind");
+    // A list without a feed (the upload page) starts unfiltered every visit:
+    // a remembered filter would hide an upload of another type as it lands.
+    var feed = !!root.getAttribute("data-list-url");
+    var kind = feed ? loadBrowserPref(root, "kind") : null;
     var q = { scope: "", person: "", hide: false, kind: KINDS.indexOf(kind) >= 0 ? kind : "", q: "", sort: order.sort, desc: order.desc };
-    if (root.querySelector("button[data-scope]")) q.scope = loadBrowserPref(root, "scope") === "all" ? "all" : "mine";
-    if (root.querySelector("[data-fgs-hide-downloaded]")) q.hide = loadBrowserPref(root, "hideDownloaded") === "true";
+    if (feed && root.querySelector("button[data-scope]")) q.scope = loadBrowserPref(root, "scope") === "all" ? "all" : "mine";
+    if (feed && root.querySelector("[data-fgs-hide-downloaded]")) q.hide = loadBrowserPref(root, "hideDownloaded") === "true";
     return q;
   }
+  FGS.initialQuery = initialQuery;
   // The server rendered another first batch than the remembered query asks
   // for: the list reloads it before showing anything
   function needsReload(root) {

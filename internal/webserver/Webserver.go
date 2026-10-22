@@ -144,6 +144,8 @@ func Start() {
 	mux.HandleFunc("/p/poster", servePreviewFile("poster"))
 	mux.HandleFunc("/p/video", streamVideo)
 	mux.HandleFunc("/p/info", publicPreviewInfo)
+	// Part 3, P: photos probe
+	mux.HandleFunc("/photosprobe", requireLogin(photosProbe, false, false))
 	// Part 2, F2: the group creator's "Check for duplicates"
 	mux.HandleFunc("/groups/neardupes", requireLogin(nearCopyCheck, false, false))
 	// Part 2, R4: a collection turned into a group, its old link's modes and stopping it

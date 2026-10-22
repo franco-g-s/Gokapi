@@ -300,9 +300,21 @@
       holder.parentNode.removeChild(holder);
     }
   }
+  // While the viewer is open the note sits above its caption bar, so it
+  // never covers "Download original" or "Save to Photos"; else at the foot.
+  function placeFloatingNotes(holder) {
+    var viewer = document.getElementById("fgs-viewer");
+    var info = viewer && !viewer.hidden ? viewer.querySelector(".fgs-v-info") : null;
+    var top = info ? info.getBoundingClientRect().top : 0;
+    holder.style.bottom = top > 0 ? Math.max(12, window.innerHeight - top + 8) + "px" : "0.75rem";
+  }
   function showLeftOut(button, state) {
     var big = state.plan.bigVideos.concat(state.lateVideos);
+    // The Files tab's zip only takes the viewer's own files: big videos from
+    // their groups are zipped on the group's page instead
+    var zippable = state.opts.zipSkipsForeign ? big.filter(function (it) { return !it.foreign; }) : big;
     var notes = [];
+    if (big.length > zippable.length) notes.push((big.length - zippable.length) + " video(s) from your groups: zip them on their group's page.");
     if (state.plan.notMedia.length) notes.push(state.plan.notMedia.length + " file(s) aren't photos or videos and were left out.");
     if (state.plan.noUrl.length) notes.push(state.plan.noUrl.length + " file(s) can't be fetched here. Use Download as .zip for those.");
     if (state.failed) notes.push(state.failed + " file(s) could not be fetched. Try again, or use Download as .zip.");
@@ -312,14 +324,15 @@
     var note = document.createElement("span");
     note.className = "fgs-photos-note";
     if (bigText) {
-      note.appendChild(document.createTextNode(bigText + " "));
-      var ids = big.map(function (it) { return it.id; }).filter(Boolean);
-      if (state.opts.zipIds && ids.length === big.length) {
+      note.appendChild(document.createTextNode(bigText));
+      var ids = zippable.map(function (it) { return it.id; }).filter(Boolean);
+      if (state.opts.zipIds && ids.length && ids.length === zippable.length) {
         var zip = document.createElement("button");
         zip.type = "button";
         zip.className = "btn btn-link btn-sm p-0 align-baseline";
         zip.textContent = "Download those as .zip";
         zip.addEventListener("click", function () { state.opts.zipIds(ids); });
+        note.appendChild(document.createTextNode(" "));
         note.appendChild(zip);
       }
     }
@@ -334,6 +347,7 @@
       Array.prototype.forEach.call(holder.querySelectorAll(".fgs-photos-note"), function (n) { holder.removeChild(n); });
       if (note.querySelector("button")) note.querySelector("button").classList.add("link-light");
       holder.insertBefore(note, holder.firstChild);
+      placeFloatingNotes(holder);
     }
     button._fgsNote = note;
   }
@@ -370,6 +384,7 @@
       state.files = null;
       state.k++;
       if (state.k < state.plan.batches.length) { showNext(button, state); return; }
+      if (offerRetry(button, state)) return;
       setPhotosLabel(button, "Saved ✓", false); button._fgs = null;
       // Back to the first-tap label, so a later tap reads as a new action
       button._fgsTimer = window.setTimeout(function () {
@@ -385,6 +400,25 @@
       showReady(button, state);
       if (!err || (err.name !== "AbortError" && err.name !== "NotAllowedError")) FGS.openHelpSheet();
     });
+  }
+
+  function failedOne(state, it) {
+    state.failed++;
+    state.failedItems.push(it);
+  }
+  // The set is done but some files could not be fetched: the button offers
+  // those again, and its tap fetches only them, so nothing already saved is
+  // fetched (and counted) twice
+  function offerRetry(button, state) {
+    var again = state.failedItems;
+    if (!again.length) return false;
+    var plan = FGS.planPhotos(again);
+    // What else was left out stays in the note
+    plan.bigVideos = state.plan.bigVideos; plan.noUrl = state.plan.noUrl; plan.notMedia = state.plan.notMedia;
+    button._fgs = { plan: plan, k: 0, files: null, busy: false, failed: 0, failedItems: [],
+      lateVideos: state.lateVideos, opts: state.opts, freshNote: true };
+    setPhotosLabel(button, "Try the " + again.length + " again", true);
+    return true;
   }
 
   // Fetches batch state.k, one file after another, then shares it on this
@@ -409,7 +443,7 @@
           return fetch(url, { credentials: "same-origin" });
         }).then(function (r) {
           // An error page must never be wrapped up as a photo
-          if (!r.ok) { state.failed++; return null; }
+          if (!r.ok) { failedOne(state, it); return null; }
           if (it.id) fetched.push(it.id);
           // Fallback only (size unknown): by now the request has been counted
           var len = parseInt(r.headers.get("Content-Length") || "0", 10);
@@ -425,7 +459,7 @@
           var date = photoDate(it);
           if (date) opts.lastModified = date;
           files.push(new File([b], it.name, opts));
-        }).catch(function () { state.failed++; }).then(tick);
+        }).catch(function () { failedOne(state, it); }).then(tick);
       });
     }, Promise.resolve()).then(function () {
       // Group pages: these are downloaded now (kept visible), whatever
@@ -439,7 +473,7 @@
         // Nothing usable in this batch: on to the next, or back to the first tap
         state.k++;
         if (state.k < state.plan.batches.length) showNext(button, state);
-        else { button._fgs = null; restoreLabel(button); }
+        else if (!offerRetry(button, state)) { button._fgs = null; restoreLabel(button); }
         showLeftOut(button, state);
         return;
       }
@@ -476,14 +510,19 @@
     // A set under way: this tap shares the prepared batch, or fetches the
     // next one. The list is the same selection (a change resets the set).
     if (state && state.files) { sharePrepared(button, state); return; }
-    if (state && state.plan) { prepareBatch(button, state); return; }
+    if (state && state.plan) {
+      // A retry: the note no longer says these could not be fetched
+      if (state.freshNote) { state.freshNote = false; showLeftOut(button, state); }
+      prepareBatch(button, state);
+      return;
+    }
 
     // Spend no download on files this browser can't share anyway
     var probeOk = false;
     try { probeOk = navigator.canShare({ files: [new File([""], "probe.jpg", { type: "image/jpeg" })] }); } catch (e) { /* unsupported */ }
     if (!probeOk) { button._fgs = null; FGS.openHelpSheet(); return; }
 
-    state = { plan: FGS.planPhotos(list), k: 0, files: null, busy: false, failed: 0, lateVideos: [], opts: opts || {} };
+    state = { plan: FGS.planPhotos(list), k: 0, files: null, busy: false, failed: 0, failedItems: [], lateVideos: [], opts: opts || {} };
     showLeftOut(button, state);
     if (!state.plan.batches.length) { button._fgs = null; restoreLabel(button); return; }
     button._fgs = state;
@@ -505,7 +544,8 @@
     var d = function (k) { return el.getAttribute("data-" + k) || ""; };
     return { id: d("id"), name: d("name"), view: d("view"), video: d("video"), kind: d("kind"), download: d("download"),
       uploader: d("uploader"), taken: parseInt(d("taken"), 10) || 0, uploaded: parseInt(d("uploaded"), 10) || 0,
-      size: d("size"), bytes: parseInt(d("bytes"), 10), w: parseInt(d("w"), 10) || 0, h: parseInt(d("h"), 10) || 0 };
+      size: d("size"), bytes: parseInt(d("bytes"), 10), w: parseInt(d("w"), 10) || 0, h: parseInt(d("h"), 10) || 0,
+      foreign: d("foreign") === "true" };
   };
 
   // One file's data for the actions (Part 3), from its tile (whose "⋯" menu
@@ -546,6 +586,8 @@
   };
 
   var v = null, items = [], at = 0, touchX = null, returnFocus = null;
+  // The opening page's Save to Photos options (its zip for big videos)
+  var viewerPhotos = null;
   // Paging (Part 3): more() promises the list's next files, asked for when
   // the reader reaches the last one; moreBusy while it is on its way,
   // moreWanted when they asked to go on meanwhile. session drops an answer
@@ -711,8 +753,10 @@
   }
 
   // list: FGS.itemFromEl items; more (optional): a function returning a
-  // Promise of the items that follow the list's last one
-  FGS.openViewer = function (list, index, moreItems) {
+  // Promise of the items that follow the list's last one; photosOpts
+  // (optional): FGS.saveToPhotos options for the viewer's Save to Photos
+  // (zipIds, zipSkipsForeign; never a status, which the viewer covers)
+  FGS.openViewer = function (list, index, moreItems, photosOpts) {
     if (!v) {
       v = document.getElementById("fgs-viewer");
       if (v) {
@@ -727,6 +771,7 @@
     if (v.hidden) returnFocus = document.activeElement;
     items = list.slice(); at = Math.min(Math.max(0, index | 0), list.length - 1);
     session++; more = typeof moreItems === "function" ? moreItems : null; moreBusy = false; moreWanted = false;
+    viewerPhotos = photosOpts || null;
     wheelSum = 0; wheelLockUntil = 0;
     v.hidden = false; document.body.style.overflow = "hidden";
     render();
@@ -736,7 +781,8 @@
   function savePhotoInViewer(button) {
     var it = items[at];
     if (!it || !it.download) return;
-    FGS.saveToPhotos([{ id: it.id, url: it.download, name: it.name, kind: it.kind, bytes: it.bytes, taken: it.taken, uploaded: it.uploaded }], button);
+    FGS.saveToPhotos([{ id: it.id, url: it.download, name: it.name, kind: it.kind, bytes: it.bytes, taken: it.taken,
+      uploaded: it.uploaded, foreign: it.foreign }], button, viewerPhotos ? { zipIds: viewerPhotos.zipIds, zipSkipsForeign: viewerPhotos.zipSkipsForeign } : null);
   }
   // Empty space: the backdrop, the bare stage, or any other wrapper that is not
   // the picture, a control, a link, the caption bar or a note.
@@ -1256,7 +1302,9 @@
         if (listed.length) return Promise.resolve(listed);
         return loadMore().then(after);
       }
-      FGS.openViewer(tiles.map(FGS.itemFromEl), Math.max(0, tiles.indexOf(tile)), listUrl ? more : null);
+      var po = photosOpts();
+      FGS.openViewer(tiles.map(FGS.itemFromEl), Math.max(0, tiles.indexOf(tile)), listUrl ? more : null,
+        { zipIds: po.zipIds, zipSkipsForeign: po.zipSkipsForeign });
     }
 
     // Board: the grid's own tiles in masonry, true proportions, no captions
@@ -1435,6 +1483,9 @@
     // that takes the ids ("./files/zip?ids=", "./cz?id=C&files="); that
     // parameter becomes the form field. A context with its own zip (request
     // pages: presigned) is handed the ids instead.
+    function hasZip() {
+      return !!fileAction(context, "zip") || /[?&][^=&?]+=$/.test(zipUrl || "");
+    }
     function zipIds(ids) {
       var handler = fileAction(context, "zip");
       if (handler) {
@@ -1518,12 +1569,20 @@
     }
 
     // Save to Photos' options: what was left out goes to the status, big
-    // videos to the zip, and on group pages each batch is ticked downloaded
-    // once fetched, kept shown (hidden only later, or the set would be dropped)
+    // videos to the zip (where the page has one), and on group pages each
+    // batch is ticked downloaded once fetched, kept shown (hidden only later,
+    // or the set would be dropped). The Files tab's zip only takes the
+    // viewer's own files, so big videos from their groups are pointed at the
+    // group's page rather than sent to a zip that would drop them.
     function photosOpts() {
+      var skipForeign = context === "files";
       return {
         status: status,
-        zipIds: function (ids) { if (zipIds(ids) && groupTools) markDownloaded(ids, true); },
+        zipSkipsForeign: skipForeign,
+        zipIds: hasZip() ? function (ids) {
+          if (skipForeign) ids = ids.filter(function (id) { return !(tilesById[id] && FGS.itemData(tilesById[id]).foreign); });
+          if (ids.length && zipIds(ids) && groupTools) markDownloaded(ids, true);
+        } : null,
         fetched: groupTools ? function (ids) { markDownloaded(ids, true); } : null
       };
     }

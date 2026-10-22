@@ -67,22 +67,27 @@ func TestServeZipFiltersAndCounts(t *testing.T) {
 	test.IsEqualInt(t, ServeZip([]models.File{limited}, "trip", w2, r, true), 0)
 }
 
-// Only a GET counts: HEAD and other methods are refused before anything is
-// counted.
+// Only a GET or a POST (a long selection, Part 3) counts: HEAD and other
+// methods are refused before anything is counted.
 func TestServeZipCountedIsGetOnly(t *testing.T) {
 	limited := zipTestFile(t, "zipgetonly000000001", "LIMITED", func(f *models.File) {
 		f.UnlimitedDownloads = false
 		f.DownloadsRemaining = 2
 	})
-	for _, method := range []string{"HEAD", "POST", "PUT"} {
+	for _, method := range []string{"HEAD", "PUT", "DELETE"} {
 		w := httptest.NewRecorder()
 		test.IsEqualInt(t, ServeZip([]models.File{limited}, "trip", w, httptest.NewRequest(method, "/cz", nil), true), 0)
 		test.IsEqualInt(t, w.Code, 405)
-		test.IsEqualString(t, w.Header().Get("Allow"), "GET")
+		test.IsEqualString(t, w.Header().Get("Allow"), "GET, POST")
 	}
 	test.IsEqualInt(t, database.GetDownloadsRemaining(limited.Id), 2)
 	stored, _ := database.GetMetaDataById(limited.Id)
 	test.IsEqualInt(t, stored.DownloadCount, 0)
+	// A POST is served and counted like a GET
+	w := httptest.NewRecorder()
+	test.IsEqualInt(t, ServeZip([]models.File{limited}, "trip", w, httptest.NewRequest("POST", "/cz", nil), true), 1)
+	test.IsEqualInt(t, w.Code, 200)
+	test.IsEqualInt(t, database.GetDownloadsRemaining(limited.Id), 1)
 }
 
 // The owner's zip from the Files tab spends nothing, but still skips what

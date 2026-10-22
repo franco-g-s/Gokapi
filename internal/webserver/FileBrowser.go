@@ -114,6 +114,13 @@ type browserItem struct {
 // management data, so no page or JSON answer can carry it
 func (item *browserItem) makeForeign() {
 	item.Foreign = true
+	item.blankManagement()
+}
+
+// blankManagement drops the file's management data (its own /d link and
+// hotlink, download counts and terms) from an item whose list never shows
+// it, so a JSON feed cannot carry it either
+func (item *browserItem) blankManagement() {
 	f := &item.File
 	f.UrlDownload, f.UrlHotlink, f.HotlinkId = "", "", ""
 	f.ExpireAt, f.ExpireAtString = 0, ""
@@ -166,6 +173,25 @@ type fileBrowser struct {
 	GroupTools bool
 	People     []browserPerson // the person filter's choices
 	UploadSink bool            // finished uploads on this page are added here (G7)
+	// List batching (Part 3, WithList)
+	ListUrl string // the feed with its fixed parameters and a trailing "&", e.g. "./gl?id=G&"; "" = not batched
+	Total   int    // matching the default query
+	All     int
+	New     int
+	Next    string // cursor after the rendered first batch
+	Sort    string // the default sort and direction, for the List headers
+	Desc    bool
+}
+
+// WithList renders the first batch of s under its default query and fills
+// the fields above. Items becomes that batch.
+func (b *fileBrowser) WithList(s listSource, listUrl string) {
+	batch, err := s.batch(listQuery{Limit: listBatch})
+	helper.Check(err) // no cursor, so no error
+	b.Items = batch.Items
+	b.ListUrl = listUrl
+	b.Total, b.All, b.New, b.Next = batch.Total, batch.All, batch.New, batch.Next
+	b.Sort, b.Desc = s.DefaultSort, s.DefaultDesc
 }
 
 // newFileBrowser fills Menu, Bulk and DefaultView from the action table.

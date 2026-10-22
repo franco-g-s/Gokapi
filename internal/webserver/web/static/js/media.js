@@ -262,10 +262,44 @@
     if (button._fgsLabel !== undefined) button.innerHTML = button._fgsLabel;
   }
 
-  // What was left out, in the status (aria-live) where the caller gave one:
-  // big videos with their zip button, then the rest. Without a status (the
-  // viewer) an alert, which is only ever shown while no share sheet waits on
-  // the tap's activation.
+  // What was left out: big videos with their zip button, then the rest. It
+  // goes in the caller's status (aria-live) where that is on screen; else
+  // (the "⋯" menu outside select mode, where the selection bar is hidden, or
+  // the viewer, which has no status) in a note fixed at the foot of the page.
+  // Neither costs the tap its activation, unlike an alert.
+  function onScreen(el) { return !!el && el.isConnected && el.getClientRects().length > 0; }
+  function floatingNotes() {
+    var holder = document.getElementById("fgs-photos-float");
+    if (holder) return holder;
+    holder = document.createElement("div");
+    holder.id = "fgs-photos-float";
+    holder.setAttribute("role", "status");
+    holder.setAttribute("aria-live", "polite");
+    var st = holder.style;
+    st.position = "fixed"; st.left = "0.75rem"; st.right = "0.75rem"; st.bottom = "0.75rem"; st.zIndex = "2000";
+    st.padding = "0.6rem 2.2rem 0.6rem 0.8rem"; st.borderRadius = "10px"; st.fontSize = "0.875rem";
+    st.background = "#212529"; st.color = "#fff"; st.boxShadow = "0 4px 16px rgba(0,0,0,.35)";
+    var close = document.createElement("button");
+    close.type = "button";
+    close.className = "btn-close btn-close-white";
+    close.setAttribute("aria-label", "Close");
+    close.style.position = "absolute"; close.style.top = "0.6rem"; close.style.right = "0.6rem";
+    close.addEventListener("click", function () { if (holder.parentNode) holder.parentNode.removeChild(holder); });
+    holder.appendChild(close);
+    document.body.appendChild(holder);
+    return holder;
+  }
+  function removeNote(button) {
+    var note = button._fgsNote;
+    button._fgsNote = null;
+    if (!note || !note.parentNode) return;
+    var holder = note.parentNode;
+    holder.removeChild(note);
+    // The fixed note goes once it holds nothing but its close button
+    if (holder.id === "fgs-photos-float" && !holder.querySelector(".fgs-photos-note") && holder.parentNode) {
+      holder.parentNode.removeChild(holder);
+    }
+  }
   function showLeftOut(button, state) {
     var big = state.plan.bigVideos.concat(state.lateVideos);
     var notes = [];
@@ -273,14 +307,8 @@
     if (state.plan.noUrl.length) notes.push(state.plan.noUrl.length + " file(s) can't be fetched here. Use Download as .zip for those.");
     if (state.failed) notes.push(state.failed + " file(s) could not be fetched. Try again, or use Download as .zip.");
     var bigText = big.length ? big.length + " video(s) are too big to save to Photos from Safari. Download them as a .zip, then save them from the Files app." : "";
-    var status = state.opts.status;
-    if (button._fgsNote && button._fgsNote.parentNode) button._fgsNote.parentNode.removeChild(button._fgsNote);
-    button._fgsNote = null;
+    removeNote(button);
     if (!bigText && !notes.length) return;
-    if (!status) {
-      alert((bigText ? [bigText] : []).concat(notes).join(" "));
-      return;
-    }
     var note = document.createElement("span");
     note.className = "fgs-photos-note";
     if (bigText) {
@@ -296,8 +324,17 @@
       }
     }
     if (notes.length) note.appendChild(document.createTextNode((bigText ? " " : "") + notes.join(" ")));
-    status.textContent = "";
-    status.appendChild(note);
+    var status = state.opts.status;
+    if (onScreen(status)) {
+      status.textContent = "";
+      status.appendChild(note);
+    } else {
+      var holder = floatingNotes();
+      // One note at a time: a newer one replaces any earlier one
+      Array.prototype.forEach.call(holder.querySelectorAll(".fgs-photos-note"), function (n) { holder.removeChild(n); });
+      if (note.querySelector("button")) note.querySelector("button").classList.add("link-light");
+      holder.insertBefore(note, holder.firstChild);
+    }
     button._fgsNote = note;
   }
 
@@ -308,8 +345,7 @@
     if (button._fgs) button._fgs.cancelled = true;
     button._fgs = null;
     if (button._fgsTimer) { window.clearTimeout(button._fgsTimer); button._fgsTimer = null; }
-    if (button._fgsNote && button._fgsNote.parentNode) button._fgsNote.parentNode.removeChild(button._fgsNote);
-    button._fgsNote = null;
+    removeNote(button);
     button.disabled = false;
     restoreLabel(button);
   };
@@ -409,10 +445,10 @@
       }
       state.files = files;
       showReady(button, state);
-      // One tap: the sheet now, while the tap still counts. A note in the
-      // status costs no activation; an alert (no status) waits for the next tap.
+      // One tap: the sheet now, while the tap still counts. The note costs
+      // no activation, so it can follow.
       if (activationAlive()) sharePrepared(button, state);
-      if (changed && (state.opts.status || !state.busy)) showLeftOut(button, state);
+      if (changed) showLeftOut(button, state);
     }).catch(function () {
       // Anything unexpected: leave the button usable rather than stuck
       if (!state.cancelled) FGS.resetSaveToPhotos(button);

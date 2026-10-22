@@ -5,6 +5,7 @@ import (
 
 	"github.com/forceu/gokapi/internal/models"
 	"github.com/forceu/gokapi/internal/webserver/authentication/sessionmanager"
+	"github.com/forceu/gokapi/internal/webserver/viewas"
 )
 
 // SessionIdentity returns the user behind a real login session cookie, and
@@ -20,7 +21,15 @@ import (
 func SessionIdentity(r *http.Request) (models.User, bool) {
 	switch authSettings.Method {
 	case models.AuthenticationInternal, models.AuthenticationOAuth2:
-		return sessionmanager.PeekSession(r)
+		u, ok := sessionmanager.PeekSession(r)
+		if !ok {
+			return models.User{}, false
+		}
+		// Part 3, V1: an admin in "View as…" is the target here too, as the guard decided
+		if t, ok := viewas.SwapFor(r, u); ok {
+			return t, true
+		}
+		return u, true
 	}
 	return models.User{}, false
 }

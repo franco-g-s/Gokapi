@@ -24,6 +24,7 @@ import (
 	"github.com/forceu/gokapi/internal/webserver/authentication"
 	"github.com/forceu/gokapi/internal/webserver/errorHandling"
 	"github.com/forceu/gokapi/internal/webserver/ratelimiter"
+	"github.com/forceu/gokapi/internal/webserver/viewas"
 )
 
 var errTooManyJoins = errors.New("Too many attempts — wait a minute")
@@ -372,6 +373,11 @@ func showJoin(w http.ResponseWriter, r *http.Request) {
 	if user.ResetPassword && configuration.Get().Authentication.Method == models.AuthenticationInternal {
 		redirect(w, r, "changePassword")
 		return
+	}
+	// Part 3, V1: an admin in "View as…" sees the card as the target
+	if target, ok := viewas.SwapFor(r, user); ok {
+		viewas.Touch(user.Id)
+		user = target
 	}
 	if !database.SupportsGroups() {
 		showJoinMessage(w, user, http.StatusBadRequest, capitalise(storage.ErrGroupsUnsupported.Error()))

@@ -134,7 +134,7 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 	// A signed-in visitor who is not the owner finds the collection under
 	// "Shared with me" from now on. Anonymous visits and the password form
 	// (which returned above) record nothing.
-	if visitor, signedIn := authentication.SessionIdentity(r); signedIn && visitor.Id != collection.UserId {
+	if visitor, signedIn := authentication.SessionIdentity(r); signedIn && visitor.Id != collection.UserId && !viewasActive(r) {
 		database.SaveCollectionSeen(models.CollectionSeen{
 			UserId: visitor.Id, CollectionId: collection.Id, FirstOpened: time.Now().Unix()})
 	}

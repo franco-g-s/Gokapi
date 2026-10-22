@@ -210,7 +210,10 @@ func (p DatabaseProvider) init(dbConfig models.DbConnection) (DatabaseProvider, 
 		if err = p.ensurePreviewsTable(); err != nil {
 			return p, err
 		}
-		return p, p.ensureGroupTables()
+		if err = p.ensureGroupTables(); err != nil {
+			return p, err
+		}
+		return p, p.ensureViewAsTable()
 	}
 	return p, nil
 }

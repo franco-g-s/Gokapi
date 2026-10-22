@@ -492,6 +492,18 @@ func GetCollectionGroupsOfGroup(groupId string) []models.CollectionGroup {
 // DeleteCollectionGroup removes the group link of a collection
 func DeleteCollectionGroup(collectionId string) { db.DeleteCollectionGroup(collectionId) }
 
+// GetViewAs returns the admin's active "View as…", or false
+func GetViewAs(adminId int) (models.ViewAs, bool) { return db.GetViewAs(adminId) }
+
+// GetAllViewAs returns every active "View as…"
+func GetAllViewAs() []models.ViewAs { return db.GetAllViewAs() }
+
+// SaveViewAs inserts or replaces the admin's "View as…"
+func SaveViewAs(v models.ViewAs) { db.SaveViewAs(v) }
+
+// DeleteViewAs ends the admin's "View as…"
+func DeleteViewAs(adminId int) { db.DeleteViewAs(adminId) }
+
 // Statistics
 
 // GetStatTraffic returns the total traffic from statistics

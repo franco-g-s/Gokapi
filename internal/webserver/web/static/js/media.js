@@ -392,11 +392,12 @@
         }).catch(function () { state.failed++; }).then(tick);
       });
     }, Promise.resolve()).then(function () {
+      // Group pages: these are downloaded now (kept visible), whatever
+      // happens to the set: the server has counted them
+      if (fetched.length && state.opts.fetched) state.opts.fetched(fetched);
       if (state.cancelled) return;  // selection changed meanwhile: drop it all
       state.busy = false;
       button.disabled = false;
-      // Group pages: these are downloaded now (kept visible)
-      if (fetched.length && state.opts.fetched) state.opts.fetched(fetched);
       var changed = state.failed !== failedBefore || state.lateVideos.length !== lateBefore;
       if (!files.length) {
         // Nothing usable in this batch: on to the next, or back to the first tap

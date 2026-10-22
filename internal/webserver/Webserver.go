@@ -145,8 +145,6 @@ func Start() {
 	mux.HandleFunc("/p/poster", servePreviewFile("poster"))
 	mux.HandleFunc("/p/video", streamVideo)
 	mux.HandleFunc("/p/info", publicPreviewInfo)
-	// Part 3, P: photos probe
-	mux.HandleFunc("/photosprobe", requireLogin(photosProbe, false, false))
 	// Part 3, T1: list feeds
 	mux.HandleFunc("/files/list", requireLogin(fileListFeed, false, false))
 	mux.HandleFunc("/files/replacecandidates", requireLogin(replaceCandidates, false, false))
@@ -904,8 +902,6 @@ const (
 	ViewFiles = 6
 	// ViewGroups is the identifier for the Groups tab
 	ViewGroups = 7
-	// ViewViewAs is the identifier for the "View as…" picker (Part 3, V1)
-	ViewViewAs = 8
 )
 
 // Converts the globalConfig variable to an AdminView struct to pass the infos to

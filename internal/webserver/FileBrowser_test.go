@@ -506,7 +506,7 @@ func TestTemplateListAttributes(t *testing.T) {
 		`data-list-url="./gl?id=G1&amp;"`, `data-total="230"`, `data-all="250"`, `data-new="12"`,
 		`data-next="CURSOR1"`, `data-sort-key="taken"`, `data-sort-desc="false"`,
 		`data-fgs-select-all>Select all (230)</button>`,
-		`<input type="search" class="form-control form-control-sm fgs-list-only" data-fgs-search placeholder="Search names" aria-label="Search names">`,
+		`<input type="search" class="form-control form-control-sm" data-fgs-search placeholder="Search names" aria-label="Search names">`,
 		`<th data-fgs-sortkey="name"><button type="button" class="fgs-sort">Name`,
 		`<th data-fgs-sortkey="uploaded"><button type="button" class="fgs-sort">Uploaded`,
 		`<th data-fgs-sortkey="taken" aria-sort="ascending"><button type="button" class="fgs-sort">Taken<span class="fgs-sort-arrow" aria-hidden="true">↑</span>`,
@@ -523,6 +523,28 @@ func TestTemplateListAttributes(t *testing.T) {
 	test.IsEqualBool(t, regexp.MustCompile(`</table>\s*`+regexp.QuoteMeta(sentinel)).MatchString(html), true)
 	// Group pages have no Expires and Downloads columns; "Uploaded by" is not sortable
 	test.IsEqualBool(t, strings.Contains(html, `data-fgs-sortkey="expires"`), false)
+	// R1: one "Sort & filter" dropdown holds the sort, the direction, Type and
+	// the group tools; the search stays in the toolbar, in every view
+	test.IsEqualBool(t, strings.Contains(html, "fgs-list-only"), false)
+	menuAt := strings.Index(html, `data-fgs-sortfilter`)
+	menuEnd := strings.Index(html, `data-fgs-filter-reset`)
+	if menuAt < 0 || menuEnd < menuAt {
+		t.Fatalf("no Sort & filter dropdown")
+	}
+	menu := html[menuAt:menuEnd]
+	for _, want := range []string{`data-fgs-person`, `<option value="">Everyone</option>`, `data-fgs-hide-downloaded`,
+		`name="g-list-sort" value="name" data-fgs-sort-option`, `name="g-list-sort" value="uploaded" data-fgs-sort-option`,
+		`name="g-list-sort" value="taken" data-fgs-sort-option checked`, `name="g-list-sort" value="size" data-fgs-sort-option`,
+		`name="g-list-dir" value="asc" data-fgs-sort-dir checked`, `name="g-list-dir" value="desc" data-fgs-sort-dir>`,
+		`name="g-list-kind" value="" data-fgs-kind checked`, `name="g-list-kind" value="image" data-fgs-kind`,
+		`name="g-list-kind" value="video" data-fgs-kind`, `name="g-list-kind" value="other" data-fgs-kind`} {
+		if !strings.Contains(menu, want) {
+			t.Errorf("Sort & filter lacks %s", want)
+		}
+	}
+	test.IsEqualBool(t, strings.Contains(menu, `value="expires"`), false)
+	test.IsEqualBool(t, strings.Contains(html, `data-fgs-filter-badge`), true)
+	test.IsEqualBool(t, strings.Contains(html, `Sort &amp; filter`), true)
 	test.IsEqualBool(t, strings.Contains(html, `<th>Uploaded by</th>`), true)
 	// No DataTables hooks are left
 	test.IsEqualBool(t, strings.Contains(html, "data-fgs-sort "), false)
@@ -535,11 +557,21 @@ func TestTemplateListAttributes(t *testing.T) {
 	for _, want := range []string{`data-sort-key="uploaded"`, `data-sort-desc="true"`, `Select all (3)`,
 		`<th data-fgs-sortkey="uploaded" aria-sort="descending"><button type="button" class="fgs-sort">Uploaded<span class="fgs-sort-arrow" aria-hidden="true">↓</span>`,
 		`<th data-fgs-sortkey="expires"><button type="button" class="fgs-sort">Expires`,
-		`<th data-fgs-sortkey="downloads"><button type="button" class="fgs-sort">Downloads`} {
+		`<th data-fgs-sortkey="downloads"><button type="button" class="fgs-sort">Downloads`,
+		`name="f-list-sort" value="uploaded" data-fgs-sort-option checked`, `name="f-list-dir" value="desc" data-fgs-sort-dir checked`,
+		`name="f-list-sort" value="expires" data-fgs-sort-option`, `name="f-list-sort" value="downloads" data-fgs-sort-option`,
+		`name="f-list-kind" value="video" data-fgs-kind`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("files list lacks %s", want)
 		}
 	}
+	// No group tools on the Files tab; My files / Everything where it shows
+	test.IsEqualBool(t, strings.Contains(html, `data-fgs-person`), false)
+	files.ShowScope = true
+	html = renderBrowser(t, files)
+	menu = html[strings.Index(html, `data-fgs-sortfilter`):strings.Index(html, `data-fgs-filter-reset`)]
+	test.IsEqualBool(t, strings.Contains(menu, `data-scope="mine"`), true)
+	test.IsEqualBool(t, strings.Contains(menu, `data-scope="all"`), true)
 }
 
 // R3: Save to Photos in one tap where the tap's activation survives the

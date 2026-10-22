@@ -186,6 +186,16 @@ func TestGroupFeedSecondBatch(t *testing.T) {
 	test.IsEqualInt(t, w.Code, http.StatusBadRequest)
 	w = feedCall(groupListFeed, "GET", "/gl?id="+bg.group.Id+"&sort=size&after="+b.Next, &bg.member, "")
 	test.IsEqualInt(t, w.Code, http.StatusBadRequest)
+	// Type (R1): every file is a .jpg without a preview
+	photos := decodeList(t, feedCall(groupListFeed, "GET", "/gl?id="+bg.group.Id+"&kind=image", &bg.member, ""))
+	test.IsEqualInt(t, photos.Total, 130)
+	test.IsEqualInt(t, photos.All, 130)
+	videos := decodeList(t, feedCall(groupListFeed, "GET", "/gl?id="+bg.group.Id+"&kind=video", &bg.member, ""))
+	test.IsEqualInt(t, videos.Total, 0)
+	test.IsEqualInt(t, videos.All, 130)
+	test.IsEqualInt(t, len(videos.Items), 0)
+	w = feedCall(groupListFeed, "GET", "/gl?id="+bg.group.Id+"&kind=bogus", &bg.member, "")
+	test.IsEqualInt(t, w.Code, http.StatusBadRequest)
 }
 
 // collectionFixture is a collection of two of user 8's files, with a password

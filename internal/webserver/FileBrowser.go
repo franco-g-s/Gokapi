@@ -301,6 +301,18 @@ func (b fileBrowser) TileAt(index int, item browserItem) browserTile {
 // Blank is the empty item the live-add <template>s are rendered from
 func (b fileBrowser) Blank() browserItem { return browserItem{} }
 
+// browserSortOption feeds one sort key of the Sort & filter dropdown
+type browserSortOption struct {
+	B     fileBrowser
+	Key   string // a listSorts value
+	Label string
+}
+
+// SortOption pairs a sort key and its label with the browser
+func (b fileBrowser) SortOption(key, label string) browserSortOption {
+	return browserSortOption{B: b, Key: key, Label: label}
+}
+
 // browserBulk feeds the selection-bar button sub-template
 type browserBulk struct {
 	Key string

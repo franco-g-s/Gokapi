@@ -22,9 +22,17 @@
 /* The sentinel after the grid and after the table: "Loading…", or the failure and Retry. The grid's is not List's. */
 .fgs-more{text-align:center;color:#9a9992;font-size:.85rem}.fgs-more:not(:empty){padding:.75rem 0}
 .fgs-browser[data-current-view=list]>.fgs-views>.fgs-more{display:none}
-/* Search: List only. Sortable headers: the title is the button, an arrow on the active one. */
-.fgs-browser:not([data-current-view=list]) .fgs-list-only{display:none!important}
+/* Search: in the toolbar, in every view. Sortable headers: the title is the button, an arrow on the active one. */
 .fgs-toolbar [data-fgs-search]{width:12rem;max-width:100%}
+/* Sort & filter (R1): one dropdown with the sort, the direction and the filters; a badge counts the filters on */
+.fgs-sortfilter>.dropdown-menu.fgs-sortfilter-menu{min-width:16rem;max-width:calc(100vw - 1.5rem);padding:.5rem .85rem}
+.fgs-sf-group{margin:0 0 .4rem;padding:0;border:0;min-width:0}
+.fgs-sf-group .dropdown-header{padding:.35rem 0 .2rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:#9a9992}
+.fgs-sf-row{display:flex;flex-wrap:wrap;gap:.1rem 1rem}
+.fgs-sortfilter-menu .form-check-label{padding:.2rem 0;cursor:pointer}
+.fgs-sortfilter-menu .form-check-input{margin-right:.4rem}
+.fgs-sortfilter-menu [data-fgs-filter-reset]{margin-top:.15rem}
+.fgs-filter-badge{margin-left:.15rem;font-size:.7rem}
 .fgs-sort{padding:0;border:0;background:none;color:inherit;font:inherit;white-space:nowrap}
 .fgs-sort:hover,.fgs-sort:focus-visible{text-decoration:underline}
 .fgs-sort-arrow{margin-left:.25rem}.fgs-sort-arrow:empty{display:none}

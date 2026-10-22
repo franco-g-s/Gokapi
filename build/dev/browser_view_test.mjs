@@ -134,7 +134,22 @@ check("no root: no exception", threw, false);
 // Choosing a view stores it under the same per-group key presetView reads;
 // every other choice stays per context
 check("group: view key per group", FGS.browserPrefKey(makeRoot(group), "view"), "fgsBrowser.group.g123.view");
-check("group: other choices per context", FGS.browserPrefKey(makeRoot(group), "hideDownloaded"), "fgsBrowser.group.hideDownloaded");
+// R1 (V1): the choices are remembered per list, as the view is
+check("group: hide per group", FGS.browserPrefKey(makeRoot(group), "hideDownloaded"), "fgsBrowser.group.g123.hideDownloaded");
+check("group: type per group", FGS.browserPrefKey(makeRoot(group), "kind"), "fgsBrowser.group.g123.kind");
+check("group: sort per group", FGS.browserPrefKey(makeRoot(group), "sort"), "fgsBrowser.group.g123.sort");
+check("group: shape stays per context", FGS.browserPrefKey(makeRoot(group), "shape"), "fgsBrowser.group.shape");
+check("files: type key", FGS.browserPrefKey(makeRoot(files), "kind"), "fgsBrowser.files.kind");
+
+// R1: Type, as the server's kindOf: the preview's kind, else the extension
+check("kind: preview video", FGS.fileKind("video", "clip.bin"), "video");
+check("kind: preview image", FGS.fileKind("image", "scan.bin"), "image");
+check("kind: HEIC by name", FGS.fileKind("", "IMG_1.HEIC"), "image");
+check("kind: m4v by name", FGS.fileKind("", "a.M4V"), "video");
+check("kind: text", FGS.fileKind("", "notes.txt"), "other");
+check("kind: svg", FGS.fileKind("", "logo.svg"), "other");
+check("kind: no extension", FGS.fileKind("", "README"), "other");
+check("isPhotoOrVideo follows it", FGS.isPhotoOrVideo("", "notes.txt") || !FGS.isPhotoOrVideo("", "a.mov"), false);
 check("files: view key", FGS.browserPrefKey(makeRoot(files), "view"), "fgsBrowser.files.view");
 
 if (failures) {

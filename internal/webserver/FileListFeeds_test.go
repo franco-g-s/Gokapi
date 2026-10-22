@@ -374,8 +374,10 @@ func TestFilesFeedScope(t *testing.T) {
 		if item.Mine {
 			test.IsEqualBool(t, item.Foreign, false)
 			test.IsEqualString(t, item.Download, "./files/download?id="+item.Id)
+			test.IsEqualInt(t, item.UploaderId, bg.member.Id)
 			continue
 		}
+		test.IsEqualInt(t, item.UploaderId, bg.creator.Id)
 		test.IsEqualBool(t, item.Foreign, true)
 		test.IsEqualString(t, item.UrlDownload, "")
 		test.IsEqualString(t, item.HotlinkId, "")

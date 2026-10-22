@@ -300,9 +300,9 @@ func (s listSource) pageAfter(matching []browserItem, q listQuery) ([]browserIte
 // listItemJson is one item of a feed: everything its tile renders
 type listItemJson struct {
 	models.FileApiOutput // already blanked for Foreign items (makeForeign)
-	// UploaderId shadows FileApiOutput's: it is browserItem.UploaderId,
-	// which is 0 wherever the page does not show uploaders by id (a public
-	// collection must not learn who uploaded what)
+	// UploaderId shadows FileApiOutput's: browserItem.UploaderId (group
+	// items), else the file's own. collectionPublicSource zeroes the file's,
+	// so a public collection never learns who uploaded what.
 	UploaderId   int
 	UploaderName string
 	Mine         bool
@@ -323,7 +323,7 @@ type listItemJson struct {
 func listItemOf(item browserItem) listItemJson {
 	return listItemJson{
 		FileApiOutput: item.File,
-		UploaderId:    item.UploaderId,
+		UploaderId:    cmp.Or(item.UploaderId, item.File.UploaderId),
 		UploaderName:  item.Uploader,
 		Mine:          item.Mine,
 		Downloaded:    item.Downloaded,

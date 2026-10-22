@@ -486,6 +486,43 @@ func TestZipPostIds(t *testing.T) {
 	// an empty selection is still nothing, not everything
 	w = postForm(downloadGroupZip, "/gz?id="+bg.group.Id, bg.member, "files=")
 	test.IsEqualInt(t, w.Code, http.StatusGone)
+
+	// A POST whose body is not a urlencoded form, or lacks the field, is an
+	// empty selection: 410, nothing counted or recorded, never every member
+	before := downloadRows(t, bg.member.Id, models.DownloadViaZip, bg.files[0].Id, bg.files[1].Id, bg.files[2].Id)
+	remaining, count := downloadState(t, fx.one.Id)
+	odd := func(handler http.HandlerFunc, target, contentType, body string) int {
+		r := httptest.NewRequest("POST", target, strings.NewReader(body))
+		if contentType != "" {
+			r.Header.Set("Content-Type", contentType)
+		}
+		rec := httptest.NewRecorder()
+		handler(rec, authentication.SetUserInRequest(r, bg.member))
+		return rec.Code
+	}
+	multipart := "--XB\r\nContent-Disposition: form-data; name=\"files\"\r\n\r\n" + a.Id + "\r\n--XB--\r\n"
+	for _, target := range []string{"/gz?id=" + bg.group.Id, "/cz?id=" + fx.collection.Id} {
+		handler := downloadGroupZip
+		if strings.HasPrefix(target, "/cz") {
+			handler = downloadCollectionZip
+		}
+		test.IsEqualInt(t, odd(handler, target, "multipart/form-data; boundary=XB", multipart), http.StatusGone)
+		test.IsEqualInt(t, odd(handler, target, "application/json", `{"files":"x"}`), http.StatusGone)
+		test.IsEqualInt(t, odd(handler, target, "", ""), http.StatusGone)
+		test.IsEqualInt(t, odd(handler, target, "application/x-www-form-urlencoded", "other=1"), http.StatusGone)
+		// the files= of the URL does not count for a POST either
+		test.IsEqualInt(t, odd(handler, target+"&files="+a.Id, "application/x-www-form-urlencoded", ""), http.StatusGone)
+	}
+	test.IsEqualInt(t, downloadRows(t, bg.member.Id, models.DownloadViaZip, bg.files[0].Id, bg.files[1].Id, bg.files[2].Id), before)
+	r2, c2 := downloadState(t, fx.one.Id)
+	test.IsEqualInt(t, r2, remaining)
+	test.IsEqualInt(t, c2, count)
+	// /files/zip likewise; b is the member's own, so only the body decides
+	test.IsEqualInt(t, odd(downloadFilesZip, "/files/zip?ids="+b.Id, "multipart/form-data; boundary=XB", strings.Replace(multipart, `name="files"`, `name="ids"`, 1)), http.StatusGone)
+	test.IsEqualInt(t, odd(downloadFilesZip, "/files/zip", "application/x-www-form-urlencoded", "ids="+b.Id), http.StatusOK)
+	// and a urlencoded POST still works after all that
+	w = postForm(downloadGroupZip, "/gz?id="+bg.group.Id, bg.member, "files="+a.Id)
+	test.IsEqualInt(t, w.Code, http.StatusOK)
 }
 
 var tileAttrRe = regexp.MustCompile(`\s(data-[a-z-]+)="([^"]*)"`)

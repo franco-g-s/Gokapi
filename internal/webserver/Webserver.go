@@ -611,6 +611,9 @@ type LoginView struct {
 func showDownload(w http.ResponseWriter, r *http.Request) {
 	addNoCacheHeader(w)
 	keyId := queryUrl(w, r, "id", errorHandling.TypeFileNotFound)
+	if keyId == "" {
+		return // queryUrl has already redirected
+	}
 	file, ok := storage.GetFile(keyId)
 	if !ok || file.IsFileRequest() {
 		redirectOnIncorrectId(w, r, "error")
@@ -1045,6 +1048,9 @@ type userInfo struct {
 func showPublicUpload(w http.ResponseWriter, r *http.Request) {
 	addNoCacheHeader(w)
 	fileRequestId := queryUrl(w, r, "id", errorHandling.TypeInvalidFileRequest)
+	if fileRequestId == "" {
+		return // queryUrl has already redirected
+	}
 	request, ok := filerequest.Get(fileRequestId)
 	if !ok {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeInvalidFileRequest)
@@ -1059,6 +1065,9 @@ func showPublicUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apiKey := queryUrl(w, r, "key", errorHandling.TypeInvalidFileRequest)
+	if apiKey == "" {
+		return // queryUrl has already redirected
+	}
 	if subtle.ConstantTimeCompare([]byte(request.ApiKey), []byte(apiKey)) != 1 {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeInvalidFileRequest)
 		return
@@ -1114,6 +1123,9 @@ func downloadFileWithNameInUrl(w http.ResponseWriter, r *http.Request) {
 // Outputs the file to the user and reduces the download remaining count for the file
 func downloadFile(w http.ResponseWriter, r *http.Request) {
 	id := queryUrl(w, r, "id", errorHandling.TypeFileNotFound)
+	if id == "" {
+		return // queryUrl has already redirected
+	}
 	serveFile(id, true, w, r)
 }
 

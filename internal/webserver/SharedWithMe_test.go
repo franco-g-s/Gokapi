@@ -128,3 +128,66 @@ func TestSharedWithMePasswordGate(t *testing.T) {
 	test.IsEqualBool(t, strings.Contains(body, "./cz?id="+collection.Id), true)
 	test.IsEqualBool(t, sharedSeen(8, collection.Id), true)
 }
+
+// A seen collection that is then turned into a group is no longer listed
+// under "Shared with me": it lives on as the group's link (R4).
+func TestSharedWithMeHidesConverted(t *testing.T) {
+	database.SaveUser(models.User{Id: 8, Name: "anna@example.com", Permissions: models.UserPermissionNone, UserLevel: models.UserLevelUser}, false)
+	database.SaveSession("sharedanna", models.Session{RenewAt: 2147483645, ValidUntil: 2147483646, UserId: 8})
+	database.SaveUser(models.User{Id: 7, Name: "ben@example.com", Permissions: models.UserPermissionNone, UserLevel: models.UserLevelUser}, false)
+
+	f := accessFile("sharedconv0000001", func(f *models.File) { f.Name = "conv.jpg"; f.SHA1 = "sharedconvsha1" })
+	collection, err := storage.CreateCollection(storage.CollectionParameters{Name: "Converted trip", FileIds: []string{f.Id}}, models.User{Id: 7})
+	test.IsNil(t, err)
+	openCollection(collection.Id, "sharedanna")
+	test.IsEqualBool(t, strings.Contains(collectionsPageAs(t, "sharedanna"), "Converted trip"), true)
+
+	database.SaveCollectionGroup(models.CollectionGroup{CollectionId: collection.Id, GroupId: "nogroup", LinkMode: models.CollectionLinkInvite})
+	defer database.DeleteCollectionGroup(collection.Id)
+	test.IsEqualBool(t, sharedSeen(8, collection.Id), true)
+	test.IsEqualBool(t, strings.Contains(collectionsPageAs(t, "sharedanna"), "Converted trip"), false)
+}
+
+// countingWriter counts WriteHeader calls, as net/http logs "superfluous
+// response.WriteHeader call" on the second.
+type countingWriter struct {
+	*httptest.ResponseRecorder
+	headers int
+}
+
+func (c *countingWriter) WriteHeader(code int) {
+	c.headers++
+	c.ResponseRecorder.WriteHeader(code)
+}
+
+func TestJoinBogusTokenWritesHeaderOnce(t *testing.T) {
+	for _, token := range []string{"", "sharedanna"} {
+		r := httptest.NewRequest("GET", "/join?t=bogus", nil)
+		if token != "" {
+			r.AddCookie(&http.Cookie{Name: "session_token", Value: token})
+		}
+		w := &countingWriter{ResponseRecorder: httptest.NewRecorder()}
+		showJoin(w, r)
+		test.IsEqualInt(t, w.headers, 1)
+	}
+}
+
+// The "superfluous response.WriteHeader" line is not from /join: queryUrl
+// redirects on a too-short id and returns "", and its callers used to carry
+// on and redirect a second time.
+func TestShortIdWritesHeaderOnce(t *testing.T) {
+	for _, path := range []string{"/d?id=123", "/downloadFile?id=123", "/publicUpload?id=123", "/publicUpload?id=" + strings.Repeat("a", 20) + "&key=1"} {
+		handler := showDownload
+		switch {
+		case strings.HasPrefix(path, "/downloadFile"):
+			handler = downloadFile
+		case strings.HasPrefix(path, "/publicUpload"):
+			handler = showPublicUpload
+		}
+		w := &countingWriter{ResponseRecorder: httptest.NewRecorder()}
+		handler(w, httptest.NewRequest("GET", path, nil))
+		if w.headers != 1 {
+			t.Errorf("%s: WriteHeader called %d times", path, w.headers)
+		}
+	}
+}

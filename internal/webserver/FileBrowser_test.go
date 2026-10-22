@@ -724,7 +724,7 @@ func TestSelectModePreviewAndColumnSlider(t *testing.T) {
 
 	// The slider counts columns: step 1, a default stop on its datalist
 	slider := regexp.MustCompile(`<input type="range"[^>]*>`).FindString(html)
-	for _, want := range []string{`step="1"`, `list="b-expand-cols-stops"`, `class="fgs-tiles-only fgs-size form-range"`, `aria-label="Icon size"`} {
+	for _, want := range []string{`step="1"`, `list="b-expand-cols-stops"`, `class="fgs-tiles-only fgs-size form-range fgs-tool2"`, `aria-label="Icon size"`} {
 		test.IsEqualBool(t, strings.Contains(slider, want), true)
 	}
 	test.IsEqualBool(t, strings.Contains(html, `<datalist id="b-expand-cols-stops"><option value="2"></option></datalist>`), true)
@@ -752,8 +752,58 @@ func TestSelectModePreviewAndColumnSlider(t *testing.T) {
 	test.IsEqualBool(t, strings.Contains(string(viewas), "2.5rem"), false)
 	js, err := staticFolderEmbedded.ReadFile("web/static/js/media.js")
 	test.IsNil(t, err)
-	for _, want := range []string{"FGS.tileColumns = function (width, remembered)", "FGS.snapColumns = function (position, def)",
+	for _, want := range []string{"FGS.tileColumns = function (width, remembered, view)", "FGS.snapColumns = function (position, def)",
 		`".fgs-tile-expand"`, `".fgs-row-expand"`, `"--fgs-toolbar-h"`, `[data-fgs-v-select]`} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("media.js lacks %s", want)
+		}
+	}
+}
+
+// R3 fix round 1: a one-row phone toolbar (search, shape and slider behind
+// a toggle), a one-row scrolling selection bar, the phone rules after the
+// base ones, a selection-bar offset no stale viewas.js rule can beat, and
+// a versioned viewas.min.js.
+func TestR3PhoneCompactionAndViewAsVersion(t *testing.T) {
+	user := models.User{Id: 7}
+	b := newFileBrowser("b-compact", ctxGroup, nil, user)
+	b.WithGroup(models.Group{Id: "grp42"}, nil)
+	html := renderBrowser(t, b)
+	test.IsEqualBool(t, strings.Contains(html, `<button type="button" class="btn btn-sm btn-outline-light fgs-tools-toggle" data-fgs-tools-toggle aria-expanded="false" aria-label="Search and tile size" title="Search and tile size"><i class="bi bi-search"></i></button>`), true)
+	test.IsEqualBool(t, strings.Contains(html, `<input type="search" class="form-control form-control-sm fgs-tool2" data-fgs-search`), true)
+	test.IsEqualBool(t, strings.Contains(html, `class="fgs-grid-only btn-group fgs-shape-toggle fgs-tool2"`), true)
+	test.IsEqualBool(t, strings.Contains(html, `class="fgs-tiles-only fgs-size form-range fgs-tool2"`), true)
+	// The bulk buttons in one row of their own, the count, status and link result outside it
+	actions := strings.Index(html, `<div class="fgs-selactions">`)
+	test.IsEqualBool(t, actions > strings.Index(html, `<span class="fgs-selcount"></span>`), true)
+	test.IsEqualBool(t, strings.Index(html, `data-fgs-select-all`) > actions, true)
+	test.IsEqualBool(t, strings.Index(html, `-selstatus"`) > strings.Index(html, `data-act="download"`), true)
+
+	css, err := staticFolderEmbedded.ReadFile("web/static/css/media.css")
+	test.IsNil(t, err)
+	s := string(css)
+	base := strings.Index(s, ".fgs-selectbar{position:sticky")
+	phone := strings.Index(s, "@media (max-width:575.98px)")
+	test.IsEqualBool(t, base > 0 && phone > base, true)
+	for _, want := range []string{
+		".fgs-browser>.fgs-selectbar[data-fgs-selectbar]{top:calc(var(--fgs-viewas-h,0px) + var(--fgs-toolbar-h,0px))}",
+		".fgs-selactions{display:contents}",
+		".fgs-selactions{display:flex;flex:1 1 0;min-width:0;flex-wrap:nowrap;overflow-x:auto",
+		".fgs-toolbar:not(.fgs-tools-open) .fgs-tool2{display:none!important}",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("media.css lacks %s", want)
+		}
+	}
+
+	header, err := templateFolderEmbedded.ReadFile("web/templates/html_header.tmpl")
+	test.IsNil(t, err)
+	test.IsEqualBool(t, strings.Contains(string(header), `<script src="./js/min/viewas.min.js?v={{ template "js_media_version"}}"></script>`), true)
+	test.IsEqualBool(t, strings.Contains(string(header), `<script src="./js/min/viewas.min.js"></script>`), false)
+
+	js, err := staticFolderEmbedded.ReadFile("web/static/js/media.js")
+	test.IsNil(t, err)
+	for _, want := range []string{`"cols-" + view`, "[data-fgs-tools-toggle]", `"fgs-tools-open"`} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("media.js lacks %s", want)
 		}

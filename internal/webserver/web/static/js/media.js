@@ -874,12 +874,14 @@
 
   // Grid and Board columns (R3, V9). The slider counts columns: its left
   // end is the most that fit at >= 96 px a tile, its right end 1. The
-  // default is the old 160 px look (never under two columns, as before).
-  // remembered is the stored count, clamped to what fits now.
-  var TILE_GAP = 12, MIN_TILE = 96, DEFAULT_TILE = 160;
-  FGS.tileColumns = function (width, remembered) {
+  // default is each view's old look, never under two columns, as before:
+  // Grid's 160 px tiles, Board's ~260 px columns. remembered is the
+  // view's stored count, clamped to what fits now.
+  var TILE_GAP = 12, MIN_TILE = 96, DEFAULT_TILE = 160, BOARD_COLUMN = 260;
+  FGS.tileColumns = function (width, remembered, view) {
     var max = Math.max(1, Math.floor((width + TILE_GAP) / (MIN_TILE + TILE_GAP)));
-    var def = Math.min(max, Math.max(2, Math.floor((width + TILE_GAP) / (DEFAULT_TILE + TILE_GAP))));
+    var old = view === "board" ? Math.round(width / BOARD_COLUMN) : Math.floor((width + TILE_GAP) / (DEFAULT_TILE + TILE_GAP));
+    var def = Math.min(max, Math.max(2, old));
     var n = parseInt(remembered, 10);
     var cols = n >= 1 && String(n) === String(remembered) ? Math.min(n, max) : def;
     return { max: max, def: def, cols: cols };
@@ -891,12 +893,16 @@
   FGS.snapColumns = function (position, def) {
     return Math.abs(position - def) < 1 ? def : Math.round(position);
   };
-  // The grid's columns for its width now (null while it is hidden), in
-  // place on the grid for Grid's CSS (--fgs-cols) and Board's masonry
-  function placeColumns(root, grid) {
+  // The view's columns for the grid's width now (null while it is
+  // hidden), in place on the grid for Grid's CSS (--fgs-cols) and Board's
+  // masonry. Each view remembers its own count ("cols-grid", "cols-board");
+  // the one shared "cols" of the first R3 build was Grid's.
+  function placeColumns(root, grid, view) {
     var width = grid.clientWidth;
     if (!width) return null;
-    var c = FGS.tileColumns(width, loadBrowserPref(root, "cols"));
+    var remembered = loadBrowserPref(root, "cols-" + view);
+    if (remembered === null && view === "grid") remembered = loadBrowserPref(root, "cols");
+    var c = FGS.tileColumns(width, remembered, view);
     grid.style.setProperty("--fgs-cols", String(c.cols));
     grid.classList.add("fgs-has-cols");
     return c;
@@ -1087,7 +1093,7 @@
     markActive(root, "data-layout", v);
     var grid = root.querySelector("[data-fgs-grid]");
     if (!grid || v === "list") return;
-    var c = placeColumns(root, grid);
+    var c = placeColumns(root, grid, v);
     if (v !== "board") return;
     grid.classList.add("fgs-board-mode");
     if (c) masonry(grid, Array.prototype.filter.call(grid.children, function (t) {
@@ -1247,7 +1253,15 @@
         counts.total = shown;
         counts.all = Object.keys(tilesById).length;
       }
-      if (countEl) countEl.textContent = (root.getAttribute("data-count-label") || "Files: ") + counts.total;
+      if (countEl) {
+        // The label is a word phones drop (media.css), the number stays
+        var label = document.createElement("span");
+        label.className = "fgs-label";
+        label.textContent = root.getAttribute("data-count-label") || "Files: ";
+        countEl.textContent = "";
+        countEl.appendChild(label);
+        countEl.appendChild(document.createTextNode(String(counts.total)));
+      }
       // Empty, unless a batch is on its way or failed (the sentinel says so)
       root.classList.toggle("fgs-is-empty", shown === 0 && moreState === "");
       if (emptyNote) emptyNote.textContent = counts.all > 0 ? "No matching files" : "No files yet";
@@ -1498,7 +1512,8 @@
       if (sizeStop) sizeStop.value = String(columns.max + 1 - columns.def);
     }
     function updateColumns() {
-      var c = placeColumns(root, grid);
+      if (view !== "grid" && view !== "board") return;
+      var c = placeColumns(root, grid, view);
       if (!c) return; // hidden (List): its width says nothing
       columns = c;
       showColumns();
@@ -1506,7 +1521,7 @@
     function setColumns(n) {
       if (!columns) return;
       n = Math.min(columns.max, Math.max(1, n | 0));
-      store("cols", String(n));
+      store("cols-" + view, String(n));
       columns = { max: columns.max, def: columns.def, cols: n };
       grid.style.setProperty("--fgs-cols", String(n));
       showColumns();
@@ -2704,6 +2719,18 @@
       });
       window.addEventListener("pointercancel", function (e) { if (e.pointerId === pressId) pressId = null; });
     }
+    // Phones: search, shape and the slider open below the one-row toolbar
+    var toolsToggle = root.querySelector("[data-fgs-tools-toggle]");
+    if (toolsToggle && toolbar) toolsToggle.addEventListener("click", function () {
+      var open = toolbar.classList.toggle("fgs-tools-open");
+      toolsToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      // Lit while open, or while a search hidden behind it is filtering
+      var lit = open || !!(searchBox && searchBox.value.trim());
+      toolsToggle.classList.toggle("btn-light", lit);
+      toolsToggle.classList.toggle("btn-outline-light", !lit);
+      if (open && searchBox) searchBox.focus();
+      updateColumns();
+    });
     if (toolbar) {
       if ("ResizeObserver" in window) new ResizeObserver(placeBarsSoon).observe(toolbar);
       window.addEventListener("scroll", placeBarsSoon, { passive: true });

@@ -87,11 +87,13 @@
    media.js measures the toolbar into --fgs-toolbar-h and, while stuck, insets both by the branding's fixed buttons (--fgs-inset-l/-r). */
 .fgs-toolbar{position:sticky;top:var(--fgs-viewas-h,0px);z-index:6;padding:.5rem var(--fgs-inset-r,0px) .5rem var(--fgs-inset-l,0px);margin-bottom:.5rem;background:var(--fgs-card,#1c1c1a)}
 .fgs-toolbar.fgs-stuck{box-shadow:0 6px 12px -8px rgba(0,0,0,.6)}
-/* Phones: icons without their words (each button keeps its title), Select on the first row, search and the slider sharing the next */
-@media (max-width:575.98px){.fgs-toolbar{gap:.4rem!important;padding-top:.35rem;padding-bottom:.35rem}.fgs-toolbar .fgs-label{display:none}.fgs-toolbar [data-fgs-select-toggle]{order:1}.fgs-toolbar .fgs-shape-toggle,.fgs-toolbar [data-fgs-search],.fgs-toolbar .fgs-size{order:2}.fgs-toolbar [data-fgs-search]{flex:1 1 6rem;width:auto}.fgs-toolbar .fgs-size{flex:1 1 5rem;width:auto!important}
-.fgs-selectbar{gap:.35rem;padding-top:.35rem;padding-bottom:.35rem}.fgs-selectbar .btn{--bs-btn-padding-x:.45rem;--bs-btn-padding-y:.15rem;--bs-btn-font-size:.8rem}}
 .fgs-selectbar{position:sticky;top:calc(var(--fgs-viewas-h,0px) + var(--fgs-toolbar-h,0px));z-index:5;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;padding:.5rem calc(.5rem + var(--fgs-inset-r,0px)) .5rem calc(.5rem + var(--fgs-inset-l,0px));background:#1c1c1a;border:1px solid #2e2e2b;border-radius:10px;margin-bottom:.75rem}
 .fgs-selcount{white-space:nowrap}
+/* Beats a stale viewas.js (pre-R3: html.fgs-viewas .fgs-selectbar{top:calc(2.5rem + …)}, 0,2,1) still in a browser's cache */
+.fgs-browser>.fgs-selectbar[data-fgs-selectbar]{top:calc(var(--fgs-viewas-h,0px) + var(--fgs-toolbar-h,0px))}
+/* The bulk buttons' row: laid out as part of the bar, except on phones (below) */
+.fgs-selactions{display:contents}
+.fgs-tools-toggle{display:none}
 .fgs-none-selected [data-act]{opacity:.5;pointer-events:none}
 .fgs-collect-list{max-height:40vh;overflow-y:auto}
 /* By id: showAutoLinkResult replaces the class */
@@ -131,3 +133,23 @@
 .btn.fgs-photos-ready,.btn.fgs-photos-ready:focus-visible,.fgs-menu .dropdown-item.fgs-photos-ready{background-color:#198754;border-color:#198754;color:#fff;animation:fgs-pulse 1.6s ease-out infinite}
 .btn.fgs-photos-ready:hover,.btn.fgs-photos-ready:active,.fgs-menu .dropdown-item.fgs-photos-ready:hover,.fgs-menu .dropdown-item.fgs-photos-ready:active{background-color:#157347;border-color:#146c43;color:#fff}
 @media (prefers-reduced-motion:reduce){.btn.fgs-photos-ready,.fgs-menu .dropdown-item.fgs-photos-ready{animation:none}}
+/* Phones (R3): last, so it wins over the rules above. The toolbar is one row (count, Sort & filter, layout, the
+   search-and-size toggle, Select; icons without their words, each button keeping its title); search, shape and
+   the slider open below it from the toggle. The selection bar is one row: the count, then the bulk buttons
+   scrolling sideways; its status and link result take a second row only when they have something to say. */
+@media (max-width:575.98px){
+.fgs-toolbar{gap:.3rem!important;padding-top:.35rem;padding-bottom:.35rem}
+.fgs-toolbar .fgs-label{display:none}
+.fgs-toolbar .btn{--bs-btn-padding-x:.4rem}
+.fgs-toolbar .fgs-count{white-space:nowrap}
+.fgs-toolbar .fgs-tools-toggle{display:inline-block}
+.fgs-toolbar [data-fgs-select-toggle]{order:1}
+.fgs-toolbar .fgs-tool2{order:2}
+.fgs-toolbar:not(.fgs-tools-open) .fgs-tool2{display:none!important}
+.fgs-toolbar [data-fgs-search]{flex:1 1 6rem;width:auto}
+.fgs-toolbar .fgs-size{flex:1 1 5rem;width:auto!important}
+.fgs-selectbar{gap:.35rem;padding-top:.3rem;padding-bottom:.3rem}
+.fgs-selectbar .btn{--bs-btn-padding-x:.45rem;--bs-btn-padding-y:.15rem;--bs-btn-font-size:.8rem;white-space:nowrap;flex:none}
+.fgs-selactions{display:flex;flex:1 1 0;min-width:0;flex-wrap:nowrap;overflow-x:auto;gap:.35rem;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+.fgs-selstatus:empty{display:none}
+}

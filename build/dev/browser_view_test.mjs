@@ -178,9 +178,31 @@ check("snap: 3 (left end) on a phone stays 3", FGS.snapColumns(3, 2), 3);
 // Before the first paint Board places its tiles in the remembered count
 r = makeRoot(group);
 r.grid.clientWidth = 324;
-loadMedia(storage({ "fgsBrowser.group.cols": "1" })).presetView(r);
+loadMedia(storage({ "fgsBrowser.group.cols-board": "1" })).presetView(r);
 check("preset: Board gets the remembered count", r.grid.style["--fgs-cols"], "1");
 check("preset: and the class that uses it", r.grid.classList.contains("fgs-has-cols"), true);
+
+// Fix round 1: Grid and Board each have their own count and default.
+// Board keeps its old look: max(2, round(W / 260)), within what fits.
+check("board 1214: default 5", FGS.tileColumns(1214, null, "board").def, 5);
+check("grid 1214: default 7", FGS.tileColumns(1214, null, "grid").def, 7);
+check("board 324: default 2", FGS.tileColumns(324, null, "board").def, 2);
+check("board 324: left end still 3", FGS.tileColumns(324, null, "board").max, 3);
+check("board 80: default within what fits", FGS.tileColumns(80, null, "board").def, 1);
+check("no view: Grid's default", FGS.tileColumns(1214, null).def, 7);
+// Remembered per view; the shared "cols" of the first R3 build is Grid's
+r = makeRoot(group); r.grid.clientWidth = 1214;
+loadMedia(storage({ "fgsBrowser.group.cols": "3" })).presetView(r);
+check("preset Board: the old shared count is not Board's", r.grid.style["--fgs-cols"], "5");
+r = makeRoot(group); r.grid.clientWidth = 1214;
+loadMedia(storage({ "fgsBrowser.group.cols-board": "4" })).presetView(r);
+check("preset Board: its own count", r.grid.style["--fgs-cols"], "4");
+r = makeRoot(files); r.grid.clientWidth = 1214;
+loadMedia(storage({ "fgsBrowser.files.cols": "3" })).presetView(r);
+check("preset Grid: the old shared count migrates to Grid", r.grid.style["--fgs-cols"], "3");
+r = makeRoot(files); r.grid.clientWidth = 1214;
+loadMedia(storage({ "fgsBrowser.files.cols": "3", "fgsBrowser.files.cols-grid": "9" })).presetView(r);
+check("preset Grid: its own key wins", r.grid.style["--fgs-cols"], "9");
 
 if (failures) {
     console.log(failures + " failed");

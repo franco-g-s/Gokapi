@@ -29,7 +29,7 @@ var allowedPaths = map[string]bool{
 	"/filerequests": true, "/c": true, "/cl": true, "/p/thumb": true, "/p/view": true,
 	"/p/poster": true, "/p/video": true, "/p/info": true, "/join": true, "/g/join": true,
 	"/users": true, "/logs": true, "/apiKeys": true, "/uploadStatus": true, "/index": true,
-	"/error": true, "/viewas": true,
+	"/error": true,
 }
 
 // allowedPrefixes may be read below these prefixes: static assets only

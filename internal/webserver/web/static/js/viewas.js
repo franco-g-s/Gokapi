@@ -46,7 +46,11 @@
 
   var name = displayName();
   if (!name) return;
-  document.documentElement.classList.add("fgs-viewas");
+  var root = document.documentElement;
+  root.classList.add("fgs-viewas");
+  // The banner's height (R2, V2): a guess until the banner is measured, so
+  // nothing is covered on the first paint either
+  root.style.setProperty("--fgs-viewas-h", "2.2rem");
 
   var style = document.createElement("style");
   style.textContent = [
@@ -54,7 +58,14 @@
     "padding:.35rem .75rem;font-size:.9rem;text-align:center}",
     ".fgs-viewas-banner button{margin-left:.25rem;padding:0 .6rem;border:1px solid #212529;border-radius:.25rem;",
     "background:transparent;color:#212529;font-size:.85rem}",
-    "html.fgs-viewas body{padding-top:2.2rem}",
+    // Everything fixed or sticky at the top moves down by the banner's height:
+    // the page, the branding's sidebar and its toggle, the user menu (whose
+    // top is an inline style) and the selection bar
+    "html.fgs-viewas body{padding-top:var(--fgs-viewas-h)}",
+    "html.fgs-viewas #fgs-sidebar{top:var(--fgs-viewas-h)}",
+    "html.fgs-viewas #fgs-sidebar-toggle{top:calc(.75rem + var(--fgs-viewas-h))}",
+    "html.fgs-viewas #fgs-usermenu{top:calc(.5rem + var(--fgs-viewas-h))!important}",
+    "html.fgs-viewas .fgs-selectbar{top:calc(2.5rem + var(--fgs-viewas-h))}",
     // The selection bar's actions
     ".fgs-viewas [data-act]",
     // The \"⋯\" entries other than Open, and the list's quick download and copy buttons
@@ -88,6 +99,14 @@
     exit.textContent = "Exit";
     banner.appendChild(exit);
     document.body.insertBefore(banner, document.body.firstChild);
+    // It wraps on narrow screens: measure it, and again whenever it changes
+    function measure() {
+      var height = Math.ceil(banner.getBoundingClientRect().height);
+      if (height > 0) root.style.setProperty("--fgs-viewas-h", height + "px");
+    }
+    measure();
+    if (window.ResizeObserver) new ResizeObserver(measure).observe(banner);
+    else window.addEventListener("resize", measure);
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", insertBanner);
   else insertBanner();

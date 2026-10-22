@@ -35,6 +35,11 @@
 		.nav-masthead {
 			float: right;
 		}
+		/* The user menu (R2, V3) */
+		.fgs-usermenu-btn { background: none; border: 0; padding: 0; color: inherit; line-height: 1; }
+		#fgs-usermenu .badge { cursor: pointer; }
+		#fgs-usermenu .dropdown-menu { text-align: start; max-width: min(22rem, 90vw); }
+		#fgs-usermenu .fgs-usermenu-name { overflow-wrap: anywhere; color: #fff; }
 	</style>
     {{ if .CustomContent.UseCustomCss }}
 	<link  href="./custom/custom.v{{.CustomContent.Version}}.css" rel="stylesheet">
@@ -68,11 +73,18 @@
   </head>
   <body class="d-flex h-100 text-center text-white bg-dark">
 {{ if .IsAdminView }}
-   {{ if .IsUserTabAvailable }}
-<div style="position:fixed;top:0.5rem;right:0.75rem;z-index:9999;">
-  <span class="badge bg-secondary opacity-75">
-    <i class="bi bi-person-fill"></i> {{.ActiveUser.Name}}
-  </span>
+   {{ if or .IsUserTabAvailable .IsLogoutAvailable }}
+<!-- The user menu (R2, V3). The inline style and the badge are what the
+     branding styles; viewas.js moves #fgs-usermenu below its banner. -->
+<div id="fgs-usermenu" class="dropdown" style="position:fixed;top:0.5rem;right:0.75rem;z-index:9999;">
+  <button type="button" class="fgs-usermenu-btn" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Account menu">
+    <span class="badge bg-secondary opacity-75"><i class="bi bi-person-fill"></i>{{ if .IsUserTabAvailable }} {{.ActiveUser.Name}}{{ end }}</span>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">
+    {{ if .IsUserTabAvailable }}<li><span class="dropdown-item-text fgs-usermenu-name">{{.ActiveUser.Name}}</span></li>{{ end }}
+    {{ if and .IsUserTabAvailable .IsLogoutAvailable }}<li><hr class="dropdown-divider"></li>{{ end }}
+    {{ if .IsLogoutAvailable }}<li><a class="dropdown-item" href="#" onclick="doLogout()">Logout</a></li>{{ end }}
+  </ul>
 </div>
   {{ end }}
   <div class="d-flex w-100 h-100 p-3 mx-auto flex-column">
@@ -96,8 +108,6 @@
             {{ if .ActiveUser.HasPermissionManageLogs }}
             <a class="nav-link {{ if eq .ActiveView 1 }}active{{ end }}" href="./logs">Status</a>
             {{ end }}
-            {{ if and .ActiveUser.IsAdmin (ne .ActiveUser.Id 0) }}<a class="nav-link {{ if eq .ActiveView 8 }}active{{ end }}" href="./viewas">View as…</a>{{ end }}
-            {{ if .IsLogoutAvailable }}<a class="nav-link" href="#" onclick="doLogout()">Logout</a>{{ end }}
           </nav>
         </div>
       </header>

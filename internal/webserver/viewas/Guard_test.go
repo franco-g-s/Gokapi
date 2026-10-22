@@ -132,7 +132,7 @@ func TestGuardAllowlist(t *testing.T) {
 }
 
 func TestAllowed(t *testing.T) {
-	for _, path := range []string{"/admin", "/files", "/files/list", "/gl", "/cl", "/c", "/viewas", "/css/x.css", "/favicon-32x32.png", "/custom/x"} {
+	for _, path := range []string{"/admin", "/files", "/files/list", "/gl", "/cl", "/c", "/css/x.css", "/favicon-32x32.png", "/custom/x"} {
 		test.IsEqualBool(t, Allowed("GET", path), true)
 		test.IsEqualBool(t, Allowed("HEAD", path), true)
 		test.IsEqualBool(t, Allowed("POST", path), false)
@@ -141,7 +141,7 @@ func TestAllowed(t *testing.T) {
 		test.IsEqualBool(t, Allowed("POST", path), true)
 		test.IsEqualBool(t, Allowed("GET", path), false)
 	}
-	for _, path := range []string{"/", "/d", "/gd", "/gz", "/files/download", "/files/zip", "/api/", "/auth/token", "/photosprobe", "/oauth-login", "/files/replacecandidates", "/filesx", "/admin/"} {
+	for _, path := range []string{"/", "/d", "/gd", "/gz", "/files/download", "/files/zip", "/api/", "/auth/token", "/photosprobe", "/oauth-login", "/files/replacecandidates", "/filesx", "/admin/", "/viewas"} {
 		test.IsEqualBool(t, Allowed("GET", path), false)
 		test.IsEqualBool(t, Allowed("POST", path), false)
 	}

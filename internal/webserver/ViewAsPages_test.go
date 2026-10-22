@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -234,14 +235,12 @@ func TestStartEndpoint(t *testing.T) {
 	fx := newViewAsFixture(t, 9140)
 	start := requireLogin(viewAsStart, false, false)
 	end := requireLogin(viewAsEnd, false, false)
-	page := requireLogin(showViewAs, true, false)
 	const jsonType = "application/json"
 	body := func(id int) string { return `{"userId":` + strconv.Itoa(id) + `}` }
 
 	// not a real admin: the endpoints do not exist
 	test.IsEqualInt(t, asSession(start, "POST", "/viewas/start", fx.bSession, jsonType, body(fx.c.Id)).Code, http.StatusNotFound)
 	test.IsEqualInt(t, asSession(end, "POST", "/viewas/end", fx.bSession, jsonType, `{}`).Code, http.StatusNotFound)
-	test.IsEqualInt(t, asSession(page, "GET", "/viewas", fx.bSession, "", "").Code, http.StatusNotFound)
 
 	// POST + JSON only
 	test.IsEqualInt(t, asSession(start, "GET", "/viewas/start", fx.adminSession, "", "").Code, http.StatusMethodNotAllowed)
@@ -256,26 +255,14 @@ func TestStartEndpoint(t *testing.T) {
 	_, ok := viewas.Target(fx.admin.Id)
 	test.IsEqualBool(t, ok, false)
 
-	// the picker lists b and c, not yourself or another admin
-	w := asSession(page, "GET", "/viewas", fx.adminSession, "", "")
-	test.IsEqualInt(t, w.Code, http.StatusOK)
-	html := w.Body.String()
-	test.IsEqualBool(t, strings.Contains(html, "View the site as…"), true)
-	test.IsEqualBool(t, strings.Contains(html, fx.b.Name), true)
-	test.IsEqualBool(t, strings.Contains(html, fx.c.Name), true)
-	test.IsEqualBool(t, strings.Contains(html, `data-fgs-viewas-user="`+strconv.Itoa(fx.b.Id)+`"`), true)
-	test.IsEqualBool(t, strings.Contains(html, fx.otherAdmin.Name), false)
-	test.IsEqualBool(t, strings.Contains(html, `data-fgs-viewas-user="`+strconv.Itoa(fx.admin.Id)+`"`), false)
-
-	w = asSession(start, "POST", "/viewas/start", fx.adminSession, jsonType, body(fx.b.Id))
+	w := asSession(start, "POST", "/viewas/start", fx.adminSession, jsonType, body(fx.b.Id))
 	test.IsEqualInt(t, w.Code, http.StatusOK)
 	test.IsEqualString(t, strings.TrimSpace(w.Body.String()), `{"Result":"OK"}`)
 	target, ok := viewas.Target(fx.admin.Id)
 	test.IsEqualBool(t, ok, true)
 	test.IsEqualInt(t, target.Id, fx.b.Id)
 
-	// while viewing as b, the real admin still reaches the picker and can switch
-	test.IsEqualInt(t, asSession(page, "GET", "/viewas", fx.adminSession, "", "").Code, http.StatusOK)
+	// while viewing as b, the real admin can switch
 	test.IsEqualInt(t, asSession(start, "POST", "/viewas/start", fx.adminSession, jsonType, body(fx.c.Id)).Code, http.StatusOK)
 	target, _ = viewas.Target(fx.admin.Id)
 	test.IsEqualInt(t, target.Id, fx.c.Id)
@@ -287,27 +274,58 @@ func TestStartEndpoint(t *testing.T) {
 	test.IsEqualBool(t, ok, false)
 }
 
-func TestNavLinkOnlyForRealAdmin(t *testing.T) {
+// R2 (V3, V4): "View as…" lives only on the Users tab, next to each eligible
+// person's name; the /viewas page is gone; Logout is in the user menu, not the nav
+func TestViewAsOnlyOnUsersTab(t *testing.T) {
 	t.Parallel()
 	fx := newViewAsFixture(t, 9150)
-	const link = `href="./viewas">View as…</a>`
 	files := requireLogin(showFiles, true, false)
-	w := asSession(files, "GET", "/files", fx.adminSession, "", "")
-	test.IsEqualBool(t, strings.Contains(w.Body.String(), link), true)
-	test.IsEqualBool(t, strings.Contains(w.Body.String(), "js/min/viewas.min.js"), true)
-	test.IsEqualBool(t, strings.Contains(asSession(files, "GET", "/files", fx.bSession, "", "").Body.String(), link), false)
+	page := asSession(files, "GET", "/files", fx.adminSession, "", "").Body.String()
+	nav := regexp.MustCompile(`(?s)<nav class="nav nav-masthead.*?</nav>`).FindString(page)
+	test.IsEqualBool(t, nav != "", true)
+	test.IsEqualBool(t, strings.Contains(nav, "viewas"), false)
+	test.IsEqualBool(t, strings.Contains(nav, "View as…"), false)
+	test.IsEqualBool(t, strings.Contains(nav, "Logout"), false)
+	test.IsEqualBool(t, strings.Contains(page, "js/min/viewas.min.js"), true)
 
-	// the Users page offers it for b, never for yourself or another admin
+	// the user menu: a dropdown button, with the full name and Logout
+	menu := regexp.MustCompile(`(?s)<div id="fgs-usermenu".*?</ul>`).FindString(page)
+	test.IsEqualBool(t, menu != "", true)
+	test.IsEqualBool(t, strings.Contains(menu, `<button type="button" class="fgs-usermenu-btn" data-bs-toggle="dropdown"`), true)
+	test.IsEqualBool(t, strings.Contains(menu, fx.admin.Name), true)
+	test.IsEqualBool(t, strings.Contains(menu, `onclick="doLogout()">Logout</a>`), true)
+
+	// the Users page offers it on b's and c's rows, never on yours or another admin's
 	users := asSession(requireLogin(showUserAdmin, true, false), "GET", "/users", fx.adminSession, "", "").Body.String()
-	test.IsEqualBool(t, strings.Contains(users, `data-fgs-viewas-user="`+strconv.Itoa(fx.b.Id)+`"`), true)
-	test.IsEqualBool(t, strings.Contains(users, `data-fgs-viewas-user="`+strconv.Itoa(fx.admin.Id)+`"`), false)
-	test.IsEqualBool(t, strings.Contains(users, `data-fgs-viewas-user="`+strconv.Itoa(fx.otherAdmin.Id)+`"`), false)
+	attr := func(u models.User) string { return `data-fgs-viewas-user="` + strconv.Itoa(u.Id) + `"` }
+	test.IsEqualBool(t, strings.Contains(userRow(t, users, strconv.Itoa(fx.b.Id)), attr(fx.b)), true)
+	test.IsEqualBool(t, strings.Contains(userRow(t, users, strconv.Itoa(fx.c.Id)), attr(fx.c)), true)
+	test.IsEqualBool(t, strings.Contains(userRow(t, users, strconv.Itoa(fx.admin.Id)), "data-fgs-viewas-user"), false)
+	test.IsEqualBool(t, strings.Contains(userRow(t, users, strconv.Itoa(fx.otherAdmin.Id)), "data-fgs-viewas-user"), false)
+	test.IsEqualBool(t, strings.Count(users, "data-fgs-viewas-user=") >= 2, true)
+	// b's "View as…" sits next to the name, in the first cell
+	firstCell := regexp.MustCompile(`(?s)<td[^>]*>.*?</td>`).FindString(userRow(t, users, strconv.Itoa(fx.b.Id)))
+	test.IsEqualBool(t, strings.Contains(firstCell, fx.b.Name), true)
+	test.IsEqualBool(t, strings.Contains(firstCell, ">View as…</button>"), true)
 
+	// while viewing as b, the page still loads the banner script
 	test.IsNil(t, viewas.Start(fx.admin, fx.b.Id))
-	w = asSession(files, "GET", "/files", fx.adminSession, "", "")
+	w := asSession(files, "GET", "/files", fx.adminSession, "", "")
 	test.IsEqualInt(t, w.Code, http.StatusOK)
-	test.IsEqualBool(t, strings.Contains(w.Body.String(), link), false)
 	test.IsEqualBool(t, strings.Contains(w.Body.String(), "js/min/viewas.min.js"), true)
+}
+
+// R2 (V4): the picker page is gone, through the real server
+func TestViewAsPageGone(t *testing.T) {
+	t.Parallel()
+	fx := newViewAsFixture(t, 9210)
+	req, err := http.NewRequest("GET", "http://localhost:53843/viewas", nil)
+	test.IsNil(t, err)
+	req.AddCookie(&http.Cookie{Name: "session_token", Value: fx.adminSession})
+	resp, err := http.DefaultClient.Do(req)
+	test.IsNil(t, err)
+	_ = resp.Body.Close()
+	test.IsEqualInt(t, resp.StatusCode, http.StatusNotFound)
 }
 
 // Through the real server, so the guard is what wraps the mux

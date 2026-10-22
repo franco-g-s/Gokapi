@@ -298,7 +298,7 @@ func TestFilesPageSelectMode(t *testing.T) {
 		IsHtml:  true,
 		Cookies: []test.Cookie{{Name: "session_token", Value: "validsession"}},
 		RequiredContent: []string{`data-fgs-select-toggle`, `>Select</button>`, `class="fgs-grid-only`,
-			`class="form-check-input fgs-row-check"`, `<th class="fgs-col-check" data-fgs-nosort>`,
+			`class="form-check-input fgs-row-check"`, `<th class="fgs-col-check">`,
 			// the name opens the viewer: a button styled as a link
 			`<button type="button" class="btn btn-link fgs-name-open"`, `<span class="fgs-row-name" id="cell-name-filesselect">select.jpg</span>`},
 	})

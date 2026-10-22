@@ -560,6 +560,13 @@ func TestSaveToPhotosScript(t *testing.T) {
 		`"NotAllowedError"`, `"AbortError"`,
 		"hide.bs.dropdown", "show.bs.dropdown", "clickEvent",
 		".fgs-v-photos", `what === "photos"`,
+		// Final review I1: the Files tab's zip skips other people's files,
+		// so their big videos are pointed at the group's page instead
+		"zipSkipsForeign: skipForeign", `" video(s) from your groups: zip them on their group's page."`,
+		// I2: a retry fetches only what failed, never what was saved
+		"state.failedItems.push(it)", "FGS.planPhotos(again)", `"Try the " + again.length + " again"`,
+		// Viewer: the note above the caption bar, with the page's zip
+		`querySelector(".fgs-v-info")`, "uploaded: it.uploaded, foreign: it.foreign }], button, viewerPhotos",
 	} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("media.js lacks %s", want)

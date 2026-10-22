@@ -2692,9 +2692,17 @@
       size.addEventListener("input", function () {
         if (columns) setColumns(columns.max + 1 - (parseInt(size.value, 10) || 1));
       });
-      size.addEventListener("pointerdown", function () {
-        window.addEventListener("pointerup", snapOnRelease, { once: true });
+      // Armed by a press on the slider, for that pointer only; a cancelled
+      // press (a touch turned into a scroll) disarms it, so a later tap
+      // elsewhere never snaps the slider
+      var pressId = null;
+      size.addEventListener("pointerdown", function (e) { pressId = e.pointerId; });
+      window.addEventListener("pointerup", function (e) {
+        if (pressId === null || e.pointerId !== pressId) return;
+        pressId = null;
+        snapOnRelease(e);
       });
+      window.addEventListener("pointercancel", function (e) { if (e.pointerId === pressId) pressId = null; });
     }
     if (toolbar) {
       if ("ResizeObserver" in window) new ResizeObserver(placeBarsSoon).observe(toolbar);

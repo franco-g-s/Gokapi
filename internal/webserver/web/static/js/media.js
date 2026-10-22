@@ -360,6 +360,11 @@
   };
 
   var v = null, items = [], at = 0, touchX = null, returnFocus = null;
+  // Paging (Part 3): more() promises the list's next files, asked for when
+  // the reader reaches the last one; moreBusy while it is on its way,
+  // moreWanted when they asked to go on meanwhile. session drops an answer
+  // that arrives after the viewer closed or opened another list.
+  var more = null, moreBusy = false, moreWanted = false, session = 0;
   // Backdrop-click bookkeeping: where the press began, and when a swipe last ended
   var downOnBackdrop = true, touchStart = null, swipeUntil = 0;
   function fmt(ts) { return ts ? new Date(ts * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : ""; }
@@ -422,13 +427,41 @@
     // Photos are shown as a smaller preview; say so wherever the original can be fetched.
     // Kind, not the stream URL: a capped video withholds the stream but still shows only a poster.
     v.querySelector(".fgs-v-lowres").hidden = !(it.view && it.kind === "image" && it.download);
-    v.querySelector(".fgs-v-prev").disabled = at === 0;
-    v.querySelector(".fgs-v-next").disabled = at === items.length - 1;
+    updateNav();
+    // The last one loaded: ask for the next files now
+    if (at === items.length - 1) fetchMore();
     // Warm the neighbour so arrowing feels instant
     [at - 1, at + 1].forEach(function (i) { if (items[i] && items[i].view) { (new Image()).src = items[i].view; } });
   }
-  function go(delta) { var n = at + delta; if (n >= 0 && n < items.length) { at = n; render(); } }
+  function updateNav() {
+    v.querySelector(".fgs-v-prev").disabled = at === 0;
+    v.querySelector(".fgs-v-next").disabled = at === items.length - 1 && !more;
+  }
+  // The list's next files onto the end. Nothing more (or a failure) ends
+  // the paging for this viewing.
+  function fetchMore() {
+    if (!more || moreBusy) return;
+    moreBusy = true;
+    var mine = session, ask = more;
+    var done = function (list) {
+      if (mine !== session) return;
+      moreBusy = false;
+      list = (list || []).filter(Boolean);
+      if (list.length) items = items.concat(list);
+      else more = null;
+      var onward = moreWanted && at < items.length - 1;
+      moreWanted = false;
+      if (onward) { at++; render(); } else updateNav();
+    };
+    Promise.resolve().then(ask).then(done, function () { done([]); });
+  }
+  function go(delta) {
+    var n = at + delta;
+    if (n >= 0 && n < items.length) { at = n; render(); }
+    else if (delta > 0 && more) { moreWanted = true; fetchMore(); }
+  }
   function close() {
+    session++; more = null; moreBusy = false; moreWanted = false;
     v.hidden = true; clearStage(v.querySelector(".fgs-v-stage")); document.body.style.overflow = "";
     FGS.resetSaveToPhotos(v.querySelector(".fgs-v-photos"));
     var back = returnFocus; returnFocus = null;
@@ -491,7 +524,9 @@
     }, { passive: false });
   }
 
-  FGS.openViewer = function (list, index) {
+  // list: FGS.itemFromEl items; more (optional): a function returning a
+  // Promise of the items that follow the list's last one
+  FGS.openViewer = function (list, index, moreItems) {
     if (!v) {
       v = document.getElementById("fgs-viewer");
       if (v) {
@@ -504,7 +539,8 @@
     }
     if (!v || !list || !list.length) return;
     if (v.hidden) returnFocus = document.activeElement;
-    items = list; at = Math.min(Math.max(0, index | 0), list.length - 1);
+    items = list.slice(); at = Math.min(Math.max(0, index | 0), list.length - 1);
+    session++; more = typeof moreItems === "function" ? moreItems : null; moreBusy = false; moreWanted = false;
     wheelSum = 0; wheelLockUntil = 0;
     v.hidden = false; document.body.style.overflow = "hidden";
     render();
@@ -651,6 +687,14 @@
     if (parts.length === 1) return first.toUpperCase();
     return (first + Array.from(parts[parts.length - 1])[0]).toUpperCase();
   }
+  // A cell's content as the template renders a time: <span data-ts>
+  function setTimeCell(cell, ts) {
+    cell.textContent = "";
+    var span = document.createElement("span");
+    span.setAttribute("data-ts", String(ts || 0));
+    span.textContent = ts ? fmt(ts) : "";
+    cell.appendChild(span);
+  }
   function formatTimes(scope) {
     Array.prototype.forEach.call(scope.querySelectorAll("[data-ts]"), function (el) {
       var ts = parseInt(el.getAttribute("data-ts"), 10);
@@ -659,15 +703,15 @@
   }
 
   // A list's remembered choices, per context: "fgsBrowser.<context>.<k>".
-  // The view of a group page is per group, so a tap on Grid in one group
-  // leaves every other group on Board. The Files tab falls back to the keys
-  // it used before it moved onto this component. localStorage throws in
-  // private mode: then nothing is remembered.
+  // The view and the List sort of a group page are per group, so a tap on
+  // Grid in one group leaves every other group on Board. The Files tab falls
+  // back to the keys it used before it moved onto this component.
+  // localStorage throws in private mode: then nothing is remembered.
   var LEGACY_FILES_KEYS = { view: "filesLayout", shape: "filesTileShape", size: "filesIconSize", scope: "filesScope" };
   function browserPrefKey(root, k) {
     var context = root.getAttribute("data-context") || "";
     var group = root.getAttribute("data-group-id") || "";
-    if (k === "view" && context === "group" && group) context = "group." + group;
+    if ((k === "view" || k === "sort") && context === "group" && group) context = "group." + group;
     return "fgsBrowser." + context + "." + k;
   }
   FGS.browserPrefKey = browserPrefKey;
@@ -686,6 +730,46 @@
     var v = loadBrowserPref(root, "view");
     return VIEWS.indexOf(v) >= 0 ? v : root.getAttribute("data-default-view");
   }
+
+  // List batching (Part 3). A page renders the first batch of its list in
+  // the list's own order (data-sort-key, data-sort-desc) and with no filter
+  // but the Files tab's "My files"; its feed (data-list-url) answers the
+  // later batches and every other query. A list without a feed (the upload
+  // page: only this visit's uploads) sorts and searches itself.
+  var SORT_KEYS = ["name", "uploaded", "taken", "size", "expires", "downloads"];
+  // A header's first click: newest, biggest and most first; names and
+  // shooting order from the start
+  var DESC_FIRST = { uploaded: true, size: true, expires: true, downloads: true };
+  function defaultOrder(root) {
+    var key = root.getAttribute("data-sort-key");
+    if (SORT_KEYS.indexOf(key) >= 0) return { sort: key, desc: root.getAttribute("data-sort-desc") === "true" };
+    var taken = root.getAttribute("data-sort") === "taken-asc";
+    return { sort: taken ? "taken" : "uploaded", desc: !taken };
+  }
+  // The remembered List sort ("name:asc"), where this list has that column
+  function rememberedOrder(root) {
+    var m = /^([a-z]+):(asc|desc)$/.exec(loadBrowserPref(root, "sort") || "");
+    if (!m || SORT_KEYS.indexOf(m[1]) < 0 || !root.querySelector('th[data-fgs-sortkey="' + m[1] + '"]')) return null;
+    return { sort: m[1], desc: m[2] === "desc" };
+  }
+  // The query a list starts with: its defaults, then the remembered scope,
+  // "Hide what I've downloaded" and sort. The person and the search are
+  // never remembered.
+  function initialQuery(root) {
+    var order = rememberedOrder(root) || defaultOrder(root);
+    var q = { scope: "", person: "", hide: false, q: "", sort: order.sort, desc: order.desc };
+    if (root.querySelector("button[data-scope]")) q.scope = loadBrowserPref(root, "scope") === "all" ? "all" : "mine";
+    if (root.querySelector("[data-fgs-hide-downloaded]")) q.hide = loadBrowserPref(root, "hideDownloaded") === "true";
+    return q;
+  }
+  // The server rendered another first batch than the remembered query asks
+  // for: the list reloads it before showing anything
+  function needsReload(root) {
+    if (!root.getAttribute("data-list-url")) return false;
+    var q = initialQuery(root), d = defaultOrder(root);
+    return q.scope === "all" || q.hide || q.sort !== d.sort || q.desc !== d.desc;
+  }
+
   // The button of this value is the active one in its group of buttons
   function markActive(root, attr, value) {
     root.querySelectorAll("button[" + attr + "]").forEach(function (b) {
@@ -697,9 +781,16 @@
   }
   // Called by the inline script directly after each list root, before the
   // first paint: the remembered view, its button, and Board's columns, so
-  // a List or Board page never flashes Grid. initFileBrowser confirms it.
+  // a List or Board page never flashes Grid; and where a remembered filter
+  // or sort needs another first batch, the views stay invisible until it is
+  // in (fgs-reloading), so the wrong batch never flashes either.
+  // initFileBrowser confirms it.
   FGS.presetView = function (root) {
     if (!root) return;
+    if (needsReload(root)) {
+      var views = root.querySelector(".fgs-views");
+      if (views) views.classList.add("fgs-reloading");
+    }
     var v = initialView(root);
     if (VIEWS.indexOf(v) < 0) return;
     root.setAttribute("data-current-view", v);
@@ -720,6 +811,8 @@
     var listWrap = root.querySelector("[data-fgs-list]");
     var table = listWrap.querySelector("table");
     var tbody = table.tBodies[0];
+    var views = root.querySelector(".fgs-views");
+    var emptyNote = root.querySelector(".fgs-empty");
     var bar = root.querySelector("[data-fgs-selectbar]");
     var selCount = bar.querySelector(".fgs-selcount");
     var status = bar.querySelector(".fgs-selstatus");
@@ -727,6 +820,8 @@
     var selectToggle = root.querySelector("[data-fgs-select-toggle]");
     var countEl = root.querySelector(".fgs-count");
     var size = root.querySelector(".fgs-size");
+    var searchBox = root.querySelector("[data-fgs-search]");
+    var sentinels = Array.prototype.slice.call(root.querySelectorAll("[data-fgs-more]"));
     var tplTile = root.querySelector("template[data-fgs-tpl=tile]");
     var tplRow = root.querySelector("template[data-fgs-tpl=row]");
     var infoUrl = root.getAttribute("data-info-url") || "";
@@ -746,12 +841,25 @@
     var selectNewButton = bar.querySelector("[data-fgs-select-new]");
     var personSelect = root.querySelector("[data-fgs-person]");
     var hideDownloaded = root.querySelector("[data-fgs-hide-downloaded]");
-    // Active filters: key -> predicate on a tile; a tile any of them rejects is hidden
-    var filters = {};
+    var scopeSwitch = !!root.querySelector("button[data-scope]");
     // The upload page's element ids, only where the page holds one browser
     var legacyIds = root.getAttribute("data-legacy-ids") === "true";
-    var selecting = false, view = null, scope = "all", dataTable = null, api = null;
+    var selecting = false, view = null, api = null;
     var tilesById = {}, rowsById = {};
+
+    // The feed and its state: the query, the cursor after the last rendered
+    // item ("" once everything is in), and the counts of the last answer
+    var listUrl = root.getAttribute("data-list-url") || "";
+    var reloadFirst = needsReload(root);
+    var query = initialQuery(root);
+    var next = root.getAttribute("data-next") || "";
+    function attrNumber(name) { return parseInt(root.getAttribute(name), 10) || 0; }
+    var counts = { total: attrNumber("data-total"), all: attrNumber("data-all"), fresh: attrNumber("data-new") };
+    // The one request in flight ({promise, abort}); a reload makes every
+    // older answer stale (generation)
+    var pending = null, generation = 0;
+    // The sentinels' state: "", "loading" or "error"
+    var moreState = "";
 
     // Remembered choices (browserPrefKey)
     function load(k) { return loadBrowserPref(root, k); }
@@ -763,7 +871,7 @@
     function idOf(el) { return el.getAttribute("data-id"); }
     function menuOf(tile) { return tile.querySelector("[data-fgs-file-menu]"); }
 
-    // id -> tile and list row, collected before DataTables can detach a row
+    // id -> tile and list row
     function index(tile, row) {
       tilesById[idOf(tile)] = tile;
       if (row) rowsById[row.getAttribute("data-row-id")] = row;
@@ -774,34 +882,36 @@
     });
 
     // The files the user sees, in the order they see them: Grid and Board in
-    // page order, List in the table's current sort and filter. Hidden by the
-    // scope switch or deleted since: left out.
+    // page order, List in the table's (the same, the server's order). Hidden
+    // by a search of a list without a feed, or deleted since: left out.
     function visibleTiles() {
-      if (view === "list") {
-        var rows = dataTable ? dataTable.rows({ order: "applied", search: "applied" }).nodes().toArray()
-          : Array.prototype.slice.call(tbody.rows);
-        return rows.filter(function (tr) { return !tr.classList.contains("d-none"); })
-          .map(function (tr) { return tilesById[tr.getAttribute("data-row-id")]; })
-          .filter(function (t) { return t && t.isConnected; });
-      }
-      return Array.prototype.filter.call(grid.children, function (t) {
-        return t.classList.contains("fgs-tile") && !t.classList.contains("d-none");
-      });
+      var tiles = view === "list"
+        ? Array.prototype.map.call(tbody.rows, function (tr) {
+          return tr.classList.contains("d-none") ? null : tilesById[tr.getAttribute("data-row-id")];
+        })
+        : Array.prototype.filter.call(grid.children, function (t) {
+          return t.classList.contains("fgs-tile") && !t.classList.contains("d-none");
+        });
+      return tiles.filter(function (t) { return t && t.isConnected; });
     }
     function selected() { return visibleTiles().filter(function (t) { return tileCheck(t).checked; }); }
 
+    // "Files: N" and "Select all (N)": N is every file matching the query,
+    // loaded or not. A list without a feed counts what it shows.
     function refreshCount() {
-      var all = Object.keys(tilesById).length;
-      var shown = Array.prototype.filter.call(grid.children, function (t) {
-        return t.classList.contains("fgs-tile") && !t.classList.contains("d-none");
-      }).length;
-      if (countEl) countEl.textContent = (root.getAttribute("data-count-label") || "Files: ") + shown;
-      root.classList.toggle("fgs-is-empty", all === 0);
+      var shown = visibleTiles().length;
+      if (!listUrl) {
+        counts.total = shown;
+        counts.all = Object.keys(tilesById).length;
+      }
+      if (countEl) countEl.textContent = (root.getAttribute("data-count-label") || "Files: ") + counts.total;
+      // Empty, unless a batch is on its way or failed (the sentinel says so)
+      root.classList.toggle("fgs-is-empty", shown === 0 && moreState === "");
+      if (emptyNote) emptyNote.textContent = counts.all > 0 ? "No matching files" : "No files yet";
       refreshSelectAll();
     }
-    // "Select all (N)": N is what is visible now
     function refreshSelectAll() {
-      if (selectAllButton) selectAllButton.textContent = "Select all (" + visibleTiles().length + ")";
+      if (selectAllButton) selectAllButton.textContent = "Select all (" + counts.total + ")";
     }
 
     function updateSelection() {
@@ -840,8 +950,6 @@
       if (!selecting) Object.keys(tilesById).forEach(function (id) { setChecked(id, false); });
       status.textContent = "";
       updateSelection();
-      // The checkbox column appeared or went away
-      if (dataTable && view === "list") dataTable.columns.adjust();
     }
 
     // The selection becomes exactly the visible files fn(tile) accepts,
@@ -862,12 +970,26 @@
     function isNewToMe(tile) {
       return tile.getAttribute("data-downloaded") !== "true" && tile.getAttribute("data-mine") !== "true";
     }
+    // The query's filters on one file, as the server applies them: for live
+    // adds, files just downloaded under "Hide what I've downloaded", and the
+    // search of a list without a feed
+    function matchesQuery(tile) {
+      if (query.scope === "mine" && tile.getAttribute("data-mine") !== "true") return false;
+      if (query.person && tile.getAttribute("data-uploader-id") !== query.person) return false;
+      if (query.hide && !isNewToMe(tile)) return false;
+      var q = query.q.trim().toLowerCase();
+      return !q || (tile.getAttribute("data-name") || "").toLowerCase().indexOf(q) >= 0;
+    }
 
-    // The viewer, over everything visible, starting at this file
+    // The viewer, over everything visible, starting at this file. Reaching
+    // the last one asks for the next batch.
     function openAt(tile) {
       if (!tile) return;
       var tiles = visibleTiles();
-      FGS.openViewer(tiles.map(FGS.itemFromEl), Math.max(0, tiles.indexOf(tile)));
+      FGS.openViewer(tiles.map(FGS.itemFromEl), Math.max(0, tiles.indexOf(tile)), listUrl ? moreForViewer : null);
+    }
+    function moreForViewer() {
+      return loadMore().then(function (added) { return added.map(FGS.itemFromEl); });
     }
 
     // Board: the grid's own tiles in masonry, true proportions, no captions
@@ -897,47 +1019,45 @@
       if (was === "board" && v !== "board") clearBoard();
       setActive("data-layout", v);
       store("view", v);
-      if (dataTable) {
-        // The tiles ignore the table's search box, so a search must not keep
-        // rows (and the ids the upload page's helpers look up) out of the DOM
-        // while the tiles are showing
-        if (v !== "list" && dataTable.search() !== "") dataTable.search("").draw();
-        // The table was laid out while hidden, so its column widths are wrong
-        if (v === "list") dataTable.columns.adjust();
+      // The search box is List's: leaving List clears a search, so Grid and
+      // Board never show a list filtered by something they do not show
+      if (v !== "list" && query.q) {
+        if (searchBox) searchBox.value = "";
+        query.q = "";
+        reload();
       }
       layoutBoard();
       updateSelection();
+      // The other view's sentinel may be the one in reach now
+      observeMore();
     }
 
-    // A tile or list row is hidden when the scope switch says so, or any
-    // active filter rejects its tile; a row follows its tile. Users with
-    // PERM_LIST get the switch, and users whose groups hold other people's
-    // files (those are data-foreign). Without the switch everything shown is
-    // their own. Returns
-    // whether the element was shown or hidden by this.
-    function applyVisibility(el) {
-      if (!el) return false;
-      var tile = el.hasAttribute("data-row-id") ? tilesById[el.getAttribute("data-row-id")] || el : el;
-      var hide = scope === "mine" && tile.getAttribute("data-mine") !== "true";
-      if (!hide) hide = Object.keys(filters).some(function (k) { return !filters[k](tile); });
-      var was = el.classList.contains("d-none");
-      el.classList.toggle("d-none", hide);
-      // A hidden file leaves the selection, rather than coming back selected
-      if (hide && el.classList.contains("fgs-tile") && tileCheck(el).checked) setChecked(idOf(el), false);
-      return was !== hide;
-    }
-    function applyAllVisibility() {
-      var changed = false;
-      Object.keys(tilesById).forEach(function (id) { if (applyVisibility(tilesById[id])) changed = true; });
-      Object.keys(rowsById).forEach(function (id) { if (applyVisibility(rowsById[id])) changed = true; });
-      return changed;
-    }
+    // My files / Everything: the server's filter, remembered
     function applyScope(s) {
-      if (!root.querySelector("button[data-scope]")) { scope = "all"; return; }
-      scope = s === "all" ? "all" : "mine";
-      applyAllVisibility();
-      setActive("data-scope", scope);
-      store("scope", scope);
+      if (!scopeSwitch) return;
+      s = s === "all" ? "all" : "mine";
+      setActive("data-scope", s);
+      store("scope", s);
+      if (s === query.scope) return;
+      query.scope = s;
+      reload();
+    }
+
+    // The viewer now has these files (group pages: the tick, and "Hide what
+    // I've downloaded"). keepVisible leaves them shown for now, so a
+    // selection being worked on (Save to Photos' prepared set) survives.
+    // Under "Hide what I've downloaded" they leave the list; the cursor is a
+    // position in the order, so the next batch skips nothing.
+    function markDownloaded(ids, keepVisible) {
+      (ids || []).forEach(function (id) {
+        setData(tilesById[id], "downloaded", "true");
+        setData(rowsById[id], "downloaded", "true");
+      });
+      if (keepVisible || !query.hide) return;
+      var gone = 0;
+      (ids || []).forEach(function (id) { if (dropItem(id)) gone++; });
+      if (!gone) return;
+      counts.total = Math.max(0, counts.total - gone);
       refreshCount();
       layoutBoard();
       updateSelection();
@@ -945,30 +1065,6 @@
 
     // Square crops every thumbnail to fill its tile; True shape shows the
     // whole picture, letterboxed. Grid only: Board always keeps proportions.
-    // Sets (fn) or clears (null) the filter under key, then shows what passes
-    function setFilter(key, fn) {
-      if (typeof fn === "function") filters[key] = fn;
-      else delete filters[key];
-      applyAllVisibility();
-      refreshCount();
-      layoutBoard();
-      updateSelection();
-    }
-
-    // The viewer now has these files (group pages: the tick, and "Hide what
-    // I've downloaded"). keepVisible leaves them shown for now, so a
-    // selection being worked on (Save to Photos' prepared set) survives.
-    function markDownloaded(ids, keepVisible) {
-      (ids || []).forEach(function (id) {
-        setData(tilesById[id], "downloaded", "true");
-        setData(rowsById[id], "downloaded", "true");
-      });
-      if (keepVisible || !applyAllVisibility()) return;
-      refreshCount();
-      layoutBoard();
-      updateSelection();
-    }
-
     function applyShape(shape) {
       if (shape !== "true") shape = "square";
       grid.classList.toggle("fgs-shape-true", shape === "true");
@@ -1008,7 +1104,7 @@
     }
     // Everything is selected and nothing is filtered out: the whole list
     function selectedIsEverything(tiles) {
-      return scope === "all" && !Object.keys(filters).length && tiles.length === Object.keys(tilesById).length;
+      return query.scope !== "mine" && !query.person && !query.hide && !query.q && tiles.length === counts.all;
     }
     // Cloudflare refuses URLs from about 16 KB; stay well below that
     var ZIP_URL_MAX = 8000;
@@ -1176,6 +1272,11 @@
       polls[id] = Date.now(); // first seen pending
       if (!pollTimer) pollTimer = window.setInterval(pollTick, POLL_EVERY_MS);
     }
+    function stopPolling() {
+      polls = {};
+      if (pollTimer) window.clearInterval(pollTimer);
+      pollTimer = null;
+    }
     function pollTick() {
       var now = Date.now();
       Object.keys(polls).forEach(function (id) {
@@ -1206,9 +1307,12 @@
       });
     }
 
-    function thumbImg(className, info) {
+    // lazy: a thumbnail below the first screen (every tile the browser
+    // builds), as the template renders it
+    function thumbImg(className, info, lazy) {
       var img = document.createElement("img");
       if (className) img.className = className;
+      if (lazy) img.setAttribute("loading", "lazy");
       img.decoding = "async";
       img.alt = "";
       img.src = info.Thumb;
@@ -1216,28 +1320,21 @@
       return img;
     }
 
-    // A preview (the /files/previewinfo or /p/info answer) onto the tile and
-    // its list row. The download URL is the page's own and is left alone.
-    function applyPreview(id, info) {
-      var tile = tilesById[id];
-      if (!tile || !info) return;
-      var row = rowsById[id];
+    // A preview (a previewInfo: the /files/previewinfo or /p/info answer, or
+    // a feed item's Preview) onto a tile and its list row. The download URL
+    // is the page's own and is left alone.
+    function paintPreview(tile, row, info, lazy) {
       setData(tile, "preview-status", info.Status);
       setData(tile, "view", info.View);
       setData(tile, "video", info.Video);
       setData(tile, "kind", info.Kind);
       setData(tile, "w", info.Width || 0);
       setData(tile, "h", info.Height || 0);
-      var oldKey = shootingKey(tile);
       if (info.TakenAt) setData(tile, "taken", info.TakenAt);
-      // Shooting order (D13): a date taken that arrives with the preview
-      // moves the file to its place
-      var moved = sortTakenAsc && shootingKey(tile) !== oldKey;
-      if (moved) placeInShootingOrder(tile, row);
       var open = tile.querySelector(".fgs-tile-open");
       if (info.Thumb) {
         open.textContent = "";
-        open.appendChild(thumbImg("", info));
+        open.appendChild(thumbImg("", info, lazy));
         if (info.Video) {
           var play = document.createElement("span");
           play.className = "fgs-play";
@@ -1247,7 +1344,7 @@
           open.appendChild(play);
         }
         var old = row && row.querySelector(".fgs-list-thumb");
-        if (old) old.parentNode.replaceChild(thumbImg("fgs-list-thumb", info), old);
+        if (old) old.parentNode.replaceChild(thumbImg("fgs-list-thumb", info, true), old);
       } else {
         // No thumbnail (unsupported, failed, or the new one not made yet):
         // back to the type icon, e.g. an image replaced by a PDF
@@ -1279,12 +1376,20 @@
       var taken = row && row.querySelector("td[data-col=taken]");
       if (taken && info.TakenAt) {
         taken.setAttribute("data-order", String(info.TakenAt));
-        taken.textContent = fmt(info.TakenAt);
-        if (dataTable) {
-          dataTable.row(row).invalidate("dom");
-          if (moved) dataTable.draw(false); // re-sorts by the new date taken
-        }
+        setTimeCell(taken, info.TakenAt);
       }
+    }
+
+    // A preview that arrived later onto a listed file
+    function applyPreview(id, info) {
+      var tile = tilesById[id];
+      if (!tile || !info) return;
+      var row = rowsById[id];
+      var oldKey = shootingKey(tile);
+      paintPreview(tile, row, info, false);
+      // Shooting order (D13): a date taken that arrives with the preview
+      // moves the file to its place
+      if (query.sort === "taken" && shootingKey(tile) !== oldKey) placeSorted(tile, row);
       // A replaced file's new preview is still being made (or its row does
       // not exist yet): ask for it
       if (!info.Status || info.Status === "pending") startPolling(id);
@@ -1295,16 +1400,13 @@
       if (tilesById[id].getAttribute("data-preview-status") === "pending") startPolling(id);
     });
 
-    // Live adds (the upload page): a tile and a row from the <template>s,
-    // filled in with textContent and setters only. file is a FileApiOutput
-    // (or anything with its field names), preview a previewInfo or nothing.
-    function fillMenu(menu, file, perms) {
+    // A file's menu, filled in with setters only. A file reached only
+    // through a group (foreign) carries no management data (I2).
+    function fillMenu(menu, file, perms, foreign) {
       setData(menu, "id", file.Id);
       var trigger = menu.querySelector(".fgs-menu-btn");
       if (trigger) trigger.setAttribute("aria-label", "Actions for " + (file.Name || ""));
-      // A group page carries the management data only for the files the
-      // viewer may edit, as the template renders it (I2)
-      if (manages && (context !== "group" || perms.edit)) {
+      if (manages && !foreign) {
         setData(menu, "url", file.UrlDownload);
         setData(menu, "downloads", file.DownloadsRemaining);
         setData(menu, "unlimited-downloads", !!file.UnlimitedDownloads);
@@ -1314,6 +1416,10 @@
         setData(menu, "e2e", !!file.IsEndToEndEncrypted);
         setData(menu, "can-edit", perms.edit);
         setData(menu, "can-replace", perms.replace);
+      } else if (foreign) {
+        // The blank template carries them: a foreign file's menu must not
+        ["url", "downloads", "unlimited-downloads", "expire", "unlimited-time", "password", "e2e", "can-edit", "can-replace"]
+          .forEach(function (k) { menu.removeAttribute("data-" + k); });
       }
       if (manages || itemPerms) {
         setData(menu, "can-delete", perms.del);
@@ -1332,9 +1438,21 @@
         if (k === "hotlink") {
           // Only files that have a hotlink offer it
           b.setAttribute("data-clipboard-text", file.UrlHotlink || "");
-          if (b.parentNode) b.parentNode.classList.toggle("d-none", !file.UrlHotlink);
+          if (b.parentNode) {
+            b.parentNode.classList.toggle("d-none", !file.UrlHotlink);
+            if (!b.parentNode.className) b.parentNode.removeAttribute("class");
+          }
         }
-        if (k === "download" || k === "add-to-collection" || k === "add-to-group") b.disabled = e2e;
+        if (k === "download") b.disabled = e2e;
+        if (k === "add-to-collection" || k === "add-to-group") b.disabled = e2e || !!foreign;
+        if (k === "copy" || k === "share" || k === "qr") b.disabled = !!foreign;
+        if (k === "email") {
+          // admin_ui_filebrowser.js makes the link from data-url when clicked
+          b.setAttribute("href", "mailto:?body=" + encodeURIComponent(file.UrlDownload || ""));
+          b.classList.toggle("disabled", !!foreign);
+          if (foreign) b.setAttribute("aria-disabled", "true");
+          else b.removeAttribute("aria-disabled");
+        }
         if (k === "remove-from-group") b.disabled = !perms.remove;
         if (k === "edit") b.disabled = !perms.edit;
         if (k === "replace") b.disabled = !perms.replace;
@@ -1347,53 +1465,109 @@
     function shootingKey(tile) {
       return parseInt(tile.getAttribute("data-taken"), 10) || parseInt(tile.getAttribute("data-uploaded"), 10) || 0;
     }
-    // Puts a tile (and, without DataTables, its row) before the first other
-    // file taken later: shooting order, the upload date standing in (D13)
-    function placeInShootingOrder(tile, row) {
-      var key = shootingKey(tile);
+    // A file's key under the current sort, as the server's listSortKey
+    function sortKeyOf(tile, row) {
+      var number = function (v) { return parseInt(v, 10) || 0; };
+      switch (query.sort) {
+        case "name": return (tile.getAttribute("data-name") || "").toLowerCase();
+        case "uploaded": return number(tile.getAttribute("data-uploaded"));
+        case "taken": return shootingKey(tile);
+        case "size": return number(tile.getAttribute("data-bytes"));
+        case "expires": {
+          var menu = menuOf(tile);
+          if (tile.getAttribute("data-foreign") === "true" || !menu) return 0;
+          return menu.getAttribute("data-unlimited-time") === "true" ? Infinity : number(menu.getAttribute("data-expire"));
+        }
+        case "downloads": {
+          var cell = row && row.querySelector("td[data-col=downloads]");
+          return cell ? number(cell.textContent) : 0;
+        }
+      }
+      return 0;
+    }
+    // The order of two files under the current sort; the id breaks ties in
+    // the same direction (compareListKeys)
+    function compareFiles(a, b) {
+      var ka = sortKeyOf(a.tile, a.row), kb = sortKeyOf(b.tile, b.row);
+      var r = ka < kb ? -1 : ka > kb ? 1 : 0;
+      if (!r) {
+        var ia = idOf(a.tile), ib = idOf(b.tile);
+        r = ia < ib ? -1 : ia > ib ? 1 : 0;
+      }
+      return query.desc ? -r : r;
+    }
+    // Puts a file (and its row) before the first rendered file that sorts
+    // after it. Past the last one while later batches follow, it is one of
+    // theirs: then nothing is placed, and false says so.
+    function placeSorted(tile, row) {
+      var file = { tile: tile, row: row };
       var before = Array.prototype.find.call(grid.children, function (t) {
-        return t !== tile && t.classList.contains("fgs-tile") && shootingKey(t) > key;
+        return t !== tile && t.classList.contains("fgs-tile") &&
+          compareFiles(file, { tile: t, row: rowsById[idOf(t)] }) < 0;
       }) || null;
+      if (!before && next) return false;
       grid.insertBefore(tile, before);
-      if (dataTable || !row) return;
-      var beforeRow = before && rowsById[idOf(before)];
-      tbody.insertBefore(row, beforeRow && beforeRow.parentNode === tbody ? beforeRow : null);
+      if (row) {
+        var beforeRow = before && rowsById[idOf(before)];
+        tbody.insertBefore(row, beforeRow && beforeRow.parentNode === tbody ? beforeRow : null);
+      }
+      return true;
     }
 
-    function addItem(file, preview) {
+    // A file's tile and list row from the <template>s, filled in with
+    // textContent and setters only, not inserted. file is a feed item
+    // (listItemJson: the server says what the viewer may do) or a
+    // FileApiOutput of a live add, with its previewInfo or nothing (the
+    // permissions then follow the page's own, as the server would decide).
+    function buildItem(file, preview) {
       if (!file || !file.Id || !tplTile || !tplRow) return null;
-      preview = preview || {};
-      if (tilesById[file.Id]) removeItem(file.Id);
+      var feed = typeof file.Mine === "boolean" && file.Preview !== undefined;
+      preview = (feed ? file.Preview : preview) || {};
       var id = String(file.Id);
       var userId = parseInt(root.getAttribute("data-user-id"), 10) || 0;
-      var mine = file.UploaderId === undefined || file.UploaderId === null || file.UploaderId === userId;
-      var flag = function (k) { return root.getAttribute("data-perm-" + k) === "true"; };
-      var perms = { edit: mine || flag("edit-others"), del: mine || flag("delete-others") };
-      perms.replace = perms.edit && !file.IsEndToEndEncrypted && ((mine && flag("replace")) || flag("replace-others"));
-      perms.remove = !!file.CanRemove;
-      var download = preview.Download || (downloadBase ? downloadBase + encodeURIComponent(id)
-        : (manages && !file.IsEndToEndEncrypted ? "./files/download?id=" + encodeURIComponent(id) : ""));
-      var ownName = root.getAttribute("data-user-name") || "";
-      // Members see the part before "@" of the Google email (displayName, D5)
-      if (groupTools && ownName.indexOf("@") > 0) ownName = ownName.slice(0, ownName.indexOf("@"));
-      var uploader = file.UploaderName !== undefined && file.UploaderName !== null ? String(file.UploaderName)
-        : (mine ? ownName : "");
-      // As rendered: only group pages carry the uploader's id
-      var uploaderId = !groupTools ? 0 : file.UploaderId !== undefined && file.UploaderId !== null ? file.UploaderId : (mine ? userId : 0);
-      // Shooting order: without a date taken, the upload date stands in (D13)
-      var takenOrder = preview.TakenAt || (sortTakenAsc ? file.UploadDate || 0 : 0);
+      var mine, perms, foreign, download, uploader, uploaderId, bytes;
+      if (feed) {
+        mine = file.Mine;
+        foreign = !!file.Foreign;
+        perms = { edit: !!file.CanEdit, del: !!file.CanDelete, replace: !!file.CanReplace, remove: !!file.CanRemove };
+        download = file.Download || "";
+        uploader = file.UploaderName || "";
+        // As rendered: the uploader's id on group pages and on files reached
+        // through a group
+        uploaderId = groupTools || foreign ? file.UploaderId || 0 : 0;
+        bytes = file.Bytes;
+      } else {
+        mine = file.UploaderId === undefined || file.UploaderId === null || file.UploaderId === userId;
+        var flag = function (k) { return root.getAttribute("data-perm-" + k) === "true"; };
+        perms = { edit: mine || flag("edit-others"), del: mine || flag("delete-others") };
+        perms.replace = perms.edit && !file.IsEndToEndEncrypted && ((mine && flag("replace")) || flag("replace-others"));
+        perms.remove = !!file.CanRemove;
+        // A group page shows someone else's file it may not edit as theirs
+        foreign = context === "group" && !perms.edit;
+        download = preview.Download || (downloadBase ? downloadBase + encodeURIComponent(id)
+          : (manages && !file.IsEndToEndEncrypted ? "./files/download?id=" + encodeURIComponent(id) : ""));
+        var ownName = root.getAttribute("data-user-name") || "";
+        // Members see the part before "@" of the Google email (displayName, D5)
+        if (groupTools && ownName.indexOf("@") > 0) ownName = ownName.slice(0, ownName.indexOf("@"));
+        uploader = file.UploaderName !== undefined && file.UploaderName !== null ? String(file.UploaderName)
+          : (mine ? ownName : "");
+        // As rendered: only group pages carry the uploader's id
+        uploaderId = !groupTools ? 0 : file.UploaderId !== undefined && file.UploaderId !== null ? file.UploaderId : (mine ? userId : 0);
+        bytes = file.SizeBytes;
+      }
       var name = file.Name || "";
 
       var tile = tplTile.content.firstElementChild.cloneNode(true);
       setData(tile, "mine", mine);
       setData(tile, "id", id);
       setData(tile, "name", name);
+      if (foreign) setData(tile, "foreign", "true");
       setData(tile, "download", download);
       setData(tile, "uploader", uploader);
       setData(tile, "uploaded", file.UploadDate || 0);
       setData(tile, "size", file.Size);
-      setData(tile, "bytes", file.SizeBytes);
-      setData(tile, "taken", preview.TakenAt || 0);
+      setData(tile, "bytes", bytes || 0);
+      setData(tile, "taken", (feed ? file.TakenAt : preview.TakenAt) || 0);
       setData(tile, "uploader-id", uploaderId);
       setData(tile, "downloaded", !!file.Downloaded);
       var initials = tile.querySelector(".fgs-initials");
@@ -1407,63 +1581,108 @@
       tile.querySelector(".fgs-name").textContent = name;
       tile.querySelector(".fgs-meta-uploader").textContent = uploader ? uploader + " · " : "";
       setData(tile.querySelector("figcaption [data-ts]"), "ts", file.UploadDate || 0);
-      fillMenu(menuOf(tile), file, perms);
+      fillMenu(menuOf(tile), file, perms, foreign);
 
       var row = tplRow.content.firstElementChild.cloneNode(true);
+      var ids = legacyIds && !foreign;
       setData(row, "mine", mine);
       setData(row, "row-id", id);
       setData(row, "downloaded", !!file.Downloaded);
-      if (legacyIds) row.id = "row-" + id;
+      if (ids) row.id = "row-" + id;
       rowCheck(row).setAttribute("aria-label", "Select " + name);
-      var nameCell = row.querySelector("td[data-col=name]");
-      nameCell.setAttribute("data-order", name);
+      row.querySelector("td[data-col=name]").setAttribute("data-order", name);
       var nameSpan = row.querySelector(".fgs-row-name");
       nameSpan.textContent = name;
-      if (legacyIds) nameSpan.id = "cell-name-" + id;
+      if (ids) nameSpan.id = "cell-name-" + id;
       var cell = function (k) { return row.querySelector("td[data-col=" + k + "]"); };
       if (cell("uploader")) cell("uploader").textContent = uploader;
       cell("uploaded").setAttribute("data-order", String(file.UploadDate || 0));
       setData(cell("uploaded").querySelector("[data-ts]"), "ts", file.UploadDate || 0);
-      cell("taken").setAttribute("data-order", String(takenOrder));
-      cell("taken").textContent = preview.TakenAt ? fmt(preview.TakenAt) : "—";
-      cell("size").setAttribute("data-order", String(file.SizeBytes || 0));
+      // Shooting order: without a date taken, the upload date stands in (D13)
+      cell("taken").setAttribute("data-order", String(preview.TakenAt || (sortTakenAsc ? file.UploadDate || 0 : 0)));
+      cell("taken").textContent = "—";
+      cell("size").setAttribute("data-order", String(bytes || 0));
       cell("size").textContent = file.Size || "";
       if (cell("expires")) {
-        if (file.UnlimitedTime) {
+        if (foreign) {
+          cell("expires").setAttribute("data-order", "0");
+          cell("expires").textContent = "—";
+        } else if (file.UnlimitedTime) {
           cell("expires").setAttribute("data-order", "9223372036854775807");
           cell("expires").textContent = "Never";
         } else {
           cell("expires").setAttribute("data-order", String(file.ExpireAt || 0));
-          cell("expires").textContent = fmt(file.ExpireAt);
+          setTimeCell(cell("expires"), file.ExpireAt);
         }
       }
       if (cell("downloads")) {
-        if (legacyIds) cell("downloads").id = "cell-downloads-" + id;
-        cell("downloads").textContent = String(file.DownloadCount || 0);
+        if (ids) cell("downloads").id = "cell-downloads-" + id;
+        cell("downloads").textContent = foreign ? "—" : String(file.DownloadCount || 0);
       }
-      var copy = row.querySelector(".copyurl");
-      if (copy) {
-        if (legacyIds) copy.id = "url-button-" + id;
+      var copy = row.querySelector(".fgs-list-actions > .copyurl");
+      if (copy && foreign) {
+        // Someone else's file has no share link: the quick button downloads
+        var quick = document.createElement("button");
+        quick.type = "button";
+        quick.className = "btn btn-outline-light btn-sm";
+        quick.setAttribute("data-menu", "download");
+        quick.title = "Download";
+        quick.setAttribute("aria-label", "Download");
+        var glyph = document.createElement("i");
+        glyph.className = "bi bi-download";
+        quick.appendChild(glyph);
+        copy.parentNode.replaceChild(quick, copy);
+      } else if (copy) {
+        if (ids) copy.id = "url-button-" + id;
         copy.setAttribute("data-clipboard-text", file.UrlDownload || "");
       }
       Array.prototype.forEach.call(row.querySelectorAll(".fgs-list-icon i"), function (i) { i.className = "bi " + icon; });
-      fillMenu(row.querySelector("[data-fgs-file-menu]"), file, perms);
+      fillMenu(row.querySelector("[data-fgs-file-menu]"), file, perms, foreign);
+      paintPreview(tile, row, preview, true);
       formatTimes(tile);
       formatTimes(row);
+      return { tile: tile, row: row };
+    }
 
-      // Newest first, or in shooting order (DataTables sorts the row itself)
-      index(tile, row);
-      if (dataTable) dataTable.row.add(row);
-      if (sortTakenAsc) placeInShootingOrder(tile, row);
-      else {
-        grid.insertBefore(tile, grid.firstChild);
-        if (!dataTable) tbody.insertBefore(row, tbody.firstChild);
+    // A file the page did not render (no feed lists it): its uploader joins
+    // the person filter (Part 2 follow-up)
+    function addPerson(tile) {
+      var who = tile.getAttribute("data-uploader-id");
+      if (!personSelect || !who || who === "0") return;
+      if (Array.prototype.some.call(personSelect.options, function (o) { return o.value === who; })) return;
+      var option = document.createElement("option");
+      option.value = who;
+      option.textContent = tile.getAttribute("data-uploader") || "";
+      personSelect.appendChild(option);
+    }
+
+    // Live adds (an upload on this page, a restored file): in its place in
+    // the current order. One that sorts after the last rendered file while
+    // later batches follow is left to them, and one the filters reject is
+    // only counted. Returns the tile, or null when none was inserted.
+    function addItem(file, preview) {
+      var built = buildItem(file, preview);
+      if (!built) return null;
+      var tile = built.tile, row = built.row, id = idOf(tile);
+      if (tilesById[id]) removeItem(id);
+      addPerson(tile);
+      var matches = matchesQuery(tile);
+      if (listUrl) {
+        counts.all++;
+        if (matches) counts.total++;
+        if (!matches || !placeSorted(tile, row)) {
+          refreshCount();
+          return null;
+        }
+      } else {
+        // A list without a feed holds everything; its search hides
+        placeSorted(tile, row);
+        tile.classList.toggle("d-none", !matches);
+        row.classList.toggle("d-none", !matches);
       }
-      if (dataTable) dataTable.draw(false);
-      applyVisibility(tile);
-      applyVisibility(row);
-      if (preview.Status === "ready") applyPreview(id, preview);
-      else if (!file.IsEndToEndEncrypted && (!preview.Status || preview.Status === "pending")) startPolling(id);
+      index(tile, row);
+      var state = tile.getAttribute("data-preview-status");
+      if (state !== "ready" && !file.IsEndToEndEncrypted && (!state || state === "pending")) startPolling(id);
       refreshCount();
       layoutBoard();
       updateSelection();
@@ -1485,6 +1704,7 @@
         return !!b && !b.disabled;
       };
       var perms = { edit: was("edit"), del: was("delete"), replace: was("replace"), remove: was("remove") };
+      var foreign = tile.getAttribute("data-foreign") === "true";
       var name = file.Name || tile.getAttribute("data-name") || "";
       setData(tile, "name", name);
       if (file.Size !== undefined) setData(tile, "size", file.Size);
@@ -1497,7 +1717,7 @@
       // A new extension is a new type icon (on tiles and rows without a thumbnail)
       var icon = fileTypeIcon(name);
       Array.prototype.forEach.call(tile.querySelectorAll(".fgs-typeicon i"), function (i) { i.className = "bi " + icon; });
-      fillMenu(menu, file, perms);
+      fillMenu(menu, file, perms, foreign);
       if (row) {
         Array.prototype.forEach.call(row.querySelectorAll(".fgs-list-icon i"), function (i) { i.className = "bi " + icon; });
         rowCheck(row).setAttribute("aria-label", "Select " + name);
@@ -1508,33 +1728,219 @@
           cell("size").setAttribute("data-order", String(file.SizeBytes || 0));
           cell("size").textContent = file.Size;
         }
-        if (cell("expires")) {
+        if (cell("expires") && !foreign) {
           cell("expires").setAttribute("data-order", file.UnlimitedTime ? "9223372036854775807" : String(file.ExpireAt || 0));
-          cell("expires").textContent = file.UnlimitedTime ? "Never" : fmt(file.ExpireAt);
+          if (file.UnlimitedTime) cell("expires").textContent = "Never";
+          else setTimeCell(cell("expires"), file.ExpireAt);
         }
-        if (cell("downloads") && file.DownloadCount !== undefined) cell("downloads").textContent = String(file.DownloadCount);
+        if (cell("downloads") && !foreign && file.DownloadCount !== undefined) cell("downloads").textContent = String(file.DownloadCount);
         var copy = row.querySelector(".copyurl");
         if (copy) copy.setAttribute("data-clipboard-text", file.UrlDownload || "");
-        fillMenu(row.querySelector("[data-fgs-file-menu]"), file, perms);
-        if (dataTable) dataTable.row(row).invalidate("dom");
+        fillMenu(row.querySelector("[data-fgs-file-menu]"), file, perms, foreign);
       }
       return tile;
     }
 
-    function removeItem(id) {
+    // Takes a file's tile and row out; false when it was not listed
+    function dropItem(id) {
       var tile = tilesById[id], row = rowsById[id];
+      if (!tile && !row) return false;
       delete tilesById[id];
       delete rowsById[id];
       delete polls[id];
       if (tile && tile.parentNode) tile.parentNode.removeChild(tile);
-      if (row) {
-        if (dataTable) dataTable.row(row).remove().draw(false);
-        if (row.parentNode) row.parentNode.removeChild(row);
+      if (row && row.parentNode) row.parentNode.removeChild(row);
+      return true;
+    }
+    function removeItem(id) {
+      if (dropItem(id) && listUrl) {
+        counts.total = Math.max(0, counts.total - 1);
+        counts.all = Math.max(0, counts.all - 1);
       }
       refreshCount();
       layoutBoard();
       updateSelection();
     }
+
+    // ---- Batches ------------------------------------------------------
+    // The feed URL of the current query, after a cursor or from the start
+    function feedUrl(after) {
+      var params = [];
+      if (query.scope) params.push("scope=" + query.scope);
+      if (query.person) params.push("person=" + encodeURIComponent(query.person));
+      if (query.hide) params.push("hide=1");
+      if (query.q.trim()) params.push("q=" + encodeURIComponent(query.q.trim()));
+      params.push("sort=" + query.sort, "dir=" + (query.desc ? "desc" : "asc"));
+      if (after) params.push("after=" + encodeURIComponent(after));
+      return listUrl + params.join("&");
+    }
+
+    // The sentinels after the grid and the table: "Loading…", or the
+    // failure and a Retry that runs retry
+    function setMore(state, retry) {
+      moreState = state;
+      sentinels.forEach(function (s) {
+        s.textContent = "";
+        if (state === "loading") s.textContent = "Loading…";
+        if (state !== "error") return;
+        s.appendChild(document.createTextNode("Couldn't load more files. "));
+        var again = document.createElement("button");
+        again.type = "button";
+        again.className = "btn btn-sm btn-outline-light";
+        again.textContent = "Retry";
+        again.addEventListener("click", function () { retry(); });
+        s.appendChild(again);
+      });
+      refreshCount();
+    }
+
+    // One batch onto the end of the list, in the server's order; files
+    // already listed (a live add) are skipped. Returns the new tiles.
+    function appendBatch(answer) {
+      var added = [];
+      answer.Items.forEach(function (json) {
+        if (!json || tilesById[String(json.Id)]) return;
+        var built = buildItem(json);
+        if (!built) return;
+        grid.appendChild(built.tile);
+        tbody.appendChild(built.row);
+        index(built.tile, built.row);
+        if (built.tile.getAttribute("data-preview-status") === "pending") startPolling(String(json.Id));
+        added.push(built.tile);
+      });
+      next = answer.Next || "";
+      counts.total = answer.Total || 0;
+      counts.all = answer.All || 0;
+      counts.fresh = answer.New || 0;
+      // Once per batch, and the selection (with what was prepared or
+      // linked from it) stays as it is
+      refreshCount();
+      layoutBoard();
+      return added;
+    }
+
+    // Fetches one batch of the current query: the first (a reload) or the
+    // one after the cursor. Resolves to the tiles it added, [] when it
+    // failed or was overtaken by a reload; never rejects.
+    function fetchBatch(after) {
+      var gen = generation, first = !after;
+      var abort = typeof AbortController === "function" ? new AbortController() : null;
+      var request = { abort: function () { if (abort) abort.abort(); } };
+      setMore("loading");
+      request.promise = fetch(feedUrl(after), { credentials: "same-origin", cache: "no-store", signal: abort ? abort.signal : undefined })
+        .then(function (r) {
+          if (!r.ok) throw new Error("The server answered " + r.status);
+          return r.json();
+        })
+        .then(function (answer) {
+          if (gen !== generation) return [];
+          if (!answer || !Array.isArray(answer.Items)) throw new Error("Unexpected answer");
+          pending = null;
+          if (first) views.classList.remove("fgs-reloading");
+          setMore("");
+          var added = appendBatch(answer);
+          observeMore();
+          return added;
+        })
+        .catch(function () {
+          if (gen !== generation) return [];
+          pending = null;
+          // Never left invisible: the failure shows, with its Retry
+          if (first) views.classList.remove("fgs-reloading");
+          setMore("error", first ? reload : loadMore);
+          return [];
+        });
+      pending = request;
+      return request.promise;
+    }
+
+    // The next batch, if there is one; at most one request at a time
+    function loadMore() {
+      if (pending) return pending.promise;
+      if (!listUrl || !next) return Promise.resolve([]);
+      return fetchBatch(next);
+    }
+
+    // The list again from its first batch, under the current query: any
+    // older request is dropped, and so are the files, their selection and
+    // their polling. A list without a feed sorts and searches itself.
+    function reload() {
+      if (!listUrl) {
+        reorderLocally();
+        return Promise.resolve([]);
+      }
+      if (pending) pending.abort();
+      pending = null;
+      generation++;
+      stopPolling();
+      tilesById = {};
+      rowsById = {};
+      grid.textContent = "";
+      tbody.textContent = "";
+      grid.style.height = "";
+      next = "";
+      status.textContent = "";
+      updateSelection();
+      return fetchBatch("");
+    }
+    function reorderLocally() {
+      var files = Object.keys(tilesById).map(function (id) { return { tile: tilesById[id], row: rowsById[id] }; });
+      files.sort(compareFiles);
+      files.forEach(function (f) {
+        grid.appendChild(f.tile);
+        if (f.row) tbody.appendChild(f.row);
+        var hide = !matchesQuery(f.tile);
+        f.tile.classList.toggle("d-none", hide);
+        if (f.row) f.row.classList.toggle("d-none", hide);
+        // A hidden file leaves the selection, rather than coming back selected
+        if (hide) setChecked(idOf(f.tile), false);
+      });
+      refreshCount();
+      layoutBoard();
+      updateSelection();
+    }
+
+    // The next batch is fetched while the sentinel is about two screens
+    // away; observing again after each batch asks again if it still is
+    var moreObserver = null;
+    function observeMore() {
+      if (!listUrl || !("IntersectionObserver" in window)) return;
+      if (!moreObserver) {
+        moreObserver = new IntersectionObserver(function (entries) {
+          var near = entries.some(function (e) { return e.isIntersecting; });
+          if (near && next && !pending && moreState !== "error") loadMore();
+        }, { rootMargin: "0px 0px 200% 0px" });
+      }
+      sentinels.forEach(function (s) {
+        moreObserver.unobserve(s);
+        moreObserver.observe(s);
+      });
+    }
+
+    // List: a header sorts by its column (the second click on the active
+    // one turns it round), remembered like the view
+    function showSort() {
+      Array.prototype.forEach.call(table.tHead.querySelectorAll("th[data-fgs-sortkey]"), function (th) {
+        var on = th.getAttribute("data-fgs-sortkey") === query.sort;
+        if (on) th.setAttribute("aria-sort", query.desc ? "descending" : "ascending");
+        else th.removeAttribute("aria-sort");
+        var arrow = th.querySelector(".fgs-sort-arrow");
+        if (arrow) arrow.textContent = on ? (query.desc ? "↓" : "↑") : "";
+      });
+    }
+    table.tHead.addEventListener("click", function (e) {
+      var button = e.target.closest("th[data-fgs-sortkey] button");
+      if (!button) return;
+      var key = button.closest("th").getAttribute("data-fgs-sortkey");
+      if (key === query.sort) query.desc = !query.desc;
+      else {
+        query.sort = key;
+        query.desc = !!DESC_FIRST[key];
+      }
+      store("sort", query.sort + ":" + (query.desc ? "desc" : "asc"));
+      showSort();
+      reload();
+    });
 
     api = {
       root: root,
@@ -1551,9 +1957,22 @@
       setSelecting: setSelecting,
       view: function () { return view; },
       relayout: layoutBoard,
-      setFilter: setFilter,
       markDownloaded: markDownloaded,
-      selectWhere: selectWhere
+      selectWhere: selectWhere,
+      // List batching (Part 3)
+      loadMore: loadMore,
+      reload: reload,
+      // {tile, row} of a feed item, not inserted
+      buildItem: function (json, preview) {
+        var built = buildItem(json, preview);
+        return built ? { tile: built.tile, row: built.row } : null;
+      },
+      // The current query ({scope, person, hide, q, sort, desc}), the counts
+      // of the last answer ({total, all, new}) and the cursor ("" = all in)
+      query: function () { return Object.assign({}, query); },
+      counts: function () { return { total: counts.total, all: counts.all, "new": counts.fresh }; },
+      next: function () { return next; },
+      feedUrl: feedUrl
     };
     root.fgsBrowser = api;
 
@@ -1574,49 +1993,48 @@
       applySize();
     }
     applyShape(load("shape") || "square");
-    formatTimes(root.querySelector(".fgs-views"));
-
-    if (window.jQuery && jQuery.fn && jQuery.fn.DataTable) {
-      var heads = Array.prototype.slice.call(table.tHead.rows[0].cells);
-      var sortAt = heads.findIndex(function (th) { return th.hasAttribute("data-fgs-sort"); });
-      var noSort = [];
-      heads.forEach(function (th, i) { if (th.hasAttribute("data-fgs-nosort")) noSort.push(i); });
-      // No paging: the scope switch hides rows in the DOM, and the edit
-      // dialog's "Replace content" list reads every row's name from it
-      dataTable = jQuery(table).DataTable({
-        "order": sortAt >= 0 ? [[sortAt, heads[sortAt].getAttribute("data-fgs-sort-dir") || "desc"]] : [],
-        "columnDefs": [{ "targets": noSort, "orderable": false, "searchable": false }],
-        "paging": false,
-        "info": false,
-        // Laid out while the tiles may be showing: measured widths would be wrong
-        "autoWidth": false,
-        "language": { "emptyTable": "No files yet", "zeroRecords": "No matching files" }
-      });
-      // A search changes which selected files are visible
-      dataTable.on("draw", updateSelection);
-    }
+    formatTimes(views);
     applyView(initialView(root));
-    applyScope(load("scope") || "mine");
+    if (scopeSwitch) setActive("data-scope", query.scope);
     // Group pages: whose files (never remembered: each group has its own
     // people), and "Hide what I've downloaded" (remembered)
     if (personSelect) {
       personSelect.value = ""; // a browser may restore the last choice
       personSelect.addEventListener("change", function () {
-        var who = personSelect.value;
-        setFilter("person", who ? function (t) { return t.getAttribute("data-uploader-id") === who; } : null);
+        query.person = personSelect.value;
+        reload();
       });
     }
     if (hideDownloaded) {
-      var applyHideDownloaded = function () {
-        // Your own uploads count as already had (D12)
-        setFilter("downloaded", hideDownloaded.checked ? isNewToMe : null);
-      };
-      hideDownloaded.checked = load("hideDownloaded") === "true";
+      hideDownloaded.checked = query.hide;
       hideDownloaded.addEventListener("change", function () {
         store("hideDownloaded", hideDownloaded.checked ? "true" : "false");
-        applyHideDownloaded();
+        // Your own uploads count as already had (D12)
+        query.hide = hideDownloaded.checked;
+        reload();
       });
-      if (hideDownloaded.checked) applyHideDownloaded();
+    }
+    if (searchBox) {
+      searchBox.value = ""; // never remembered, nor restored by the browser
+      var searchTimer = null;
+      searchBox.addEventListener("input", function () {
+        window.clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(function () {
+          var q = searchBox.value.trim();
+          if (q === query.q) return;
+          query.q = q;
+          reload();
+        }, 300);
+      });
+    }
+    showSort();
+    if (!listUrl) reorderLocally();
+    else if (reloadFirst) {
+      views.classList.add("fgs-reloading");
+      reload();
+    } else {
+      views.classList.remove("fgs-reloading");
+      observeMore();
     }
     refreshCount();
     return api;

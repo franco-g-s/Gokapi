@@ -19,7 +19,9 @@
      data-perm-replace="{{ .Perm "replace" }}" data-perm-replace-others="{{ .Perm "replace-others" }}"
      data-group-id="{{ .GroupId }}" data-download-base="{{ .DownloadBase }}"
      data-sort="{{ if .SortTakenAsc }}taken-asc{{ else }}uploaded-desc{{ end }}"
-     data-group-tools="{{ .GroupTools }}" data-upload-sink="{{ .UploadSink }}">
+     data-group-tools="{{ .GroupTools }}" data-upload-sink="{{ .UploadSink }}"
+     data-list-url="{{ .ListUrl }}" data-total="{{ .Total }}" data-all="{{ .All }}" data-new="{{ .New }}"
+     data-next="{{ .Next }}" data-sort-key="{{ .Sort }}" data-sort-desc="{{ .Desc }}">
   <div class="fgs-toolbar d-flex flex-wrap gap-2 align-items-center mb-3">
     <span class="fgs-count text-muted small me-auto" aria-live="polite"></span>
     {{ if .GroupTools }}
@@ -46,13 +48,14 @@
       <button type="button" class="btn btn-sm btn-light" data-shape="square">Square</button>
       <button type="button" class="btn btn-sm btn-outline-light" data-shape="true">True shape</button>
     </div>
+    <input type="search" class="form-control form-control-sm fgs-list-only" data-fgs-search placeholder="Search names" aria-label="Search names">
     <input type="range" min="96" max="320" value="160" id="{{ .Id }}-size" aria-label="Icon size" class="fgs-grid-only fgs-size form-range" style="width:8rem">
     <button type="button" class="btn btn-sm btn-outline-light" data-fgs-select-toggle aria-pressed="false">Select</button>
   </div>
 
   <div class="fgs-selectbar d-none" data-fgs-selectbar>
     <span class="fgs-selcount"></span>
-    <button type="button" class="btn btn-sm btn-outline-light" data-fgs-select-all>Select all ({{ len .Items }})</button>
+    <button type="button" class="btn btn-sm btn-outline-light" data-fgs-select-all>Select all ({{ .Total }})</button>
     {{ if .GroupTools }}<button type="button" class="btn btn-sm btn-outline-light" data-fgs-select-new>Select everything new to me</button>{{ end }}
     {{ range .Bulk }}{{ template "file_browser_bulk_button" ($.BulkButton .) }}{{ end }}
     <button type="button" class="btn btn-sm btn-link text-muted d-none" data-fgs-help aria-label="How to save to Photos"><i class="bi bi-question-circle"></i></button>
@@ -64,29 +67,30 @@
     <div class="fgs-grid" data-fgs-grid>
       {{ range $i, $item := .Items }}{{ template "file_browser_tile" ($.TileAt $i $item) }}{{ end }}
     </div>
+    <div class="fgs-more" data-fgs-more aria-live="polite"></div>
     <div class="table-responsive" data-fgs-list>
       <table class="table table-dark align-middle fgs-table" id="{{ .Id }}-table">
         <thead><tr>
-          <th class="fgs-col-check" data-fgs-nosort></th>
-          <th>Name</th>
+          <th class="fgs-col-check"></th>
+          <th data-fgs-sortkey="name"{{ if eq .Sort "name" }} aria-sort="{{ if .Desc }}descending{{ else }}ascending{{ end }}"{{ end }}><button type="button" class="fgs-sort">Name<span class="fgs-sort-arrow" aria-hidden="true">{{ if eq .Sort "name" }}{{ if .Desc }}↓{{ else }}↑{{ end }}{{ end }}</span></button></th>
           {{ if .ShowUploader }}<th>Uploaded by</th>{{ end }}
-          {{ if .SortTakenAsc }}<th>Uploaded</th>
-          <th data-fgs-sort data-fgs-sort-dir="asc">Taken</th>{{ else }}<th data-fgs-sort>Uploaded</th>
-          <th>Taken</th>{{ end }}
-          <th>Size</th>
-          {{ if .ManagesColumns }}<th>Expires</th><th>Downloads</th>{{ end }}
-          <th class="text-end" data-fgs-nosort>Actions</th>
+          <th data-fgs-sortkey="uploaded"{{ if eq .Sort "uploaded" }} aria-sort="{{ if .Desc }}descending{{ else }}ascending{{ end }}"{{ end }}><button type="button" class="fgs-sort">Uploaded<span class="fgs-sort-arrow" aria-hidden="true">{{ if eq .Sort "uploaded" }}{{ if .Desc }}↓{{ else }}↑{{ end }}{{ end }}</span></button></th>
+          <th data-fgs-sortkey="taken"{{ if eq .Sort "taken" }} aria-sort="{{ if .Desc }}descending{{ else }}ascending{{ end }}"{{ end }}><button type="button" class="fgs-sort">Taken<span class="fgs-sort-arrow" aria-hidden="true">{{ if eq .Sort "taken" }}{{ if .Desc }}↓{{ else }}↑{{ end }}{{ end }}</span></button></th>
+          <th data-fgs-sortkey="size"{{ if eq .Sort "size" }} aria-sort="{{ if .Desc }}descending{{ else }}ascending{{ end }}"{{ end }}><button type="button" class="fgs-sort">Size<span class="fgs-sort-arrow" aria-hidden="true">{{ if eq .Sort "size" }}{{ if .Desc }}↓{{ else }}↑{{ end }}{{ end }}</span></button></th>
+          {{ if .ManagesColumns }}<th data-fgs-sortkey="expires"{{ if eq .Sort "expires" }} aria-sort="{{ if .Desc }}descending{{ else }}ascending{{ end }}"{{ end }}><button type="button" class="fgs-sort">Expires<span class="fgs-sort-arrow" aria-hidden="true">{{ if eq .Sort "expires" }}{{ if .Desc }}↓{{ else }}↑{{ end }}{{ end }}</span></button></th><th data-fgs-sortkey="downloads"{{ if eq .Sort "downloads" }} aria-sort="{{ if .Desc }}descending{{ else }}ascending{{ end }}"{{ end }}><button type="button" class="fgs-sort">Downloads<span class="fgs-sort-arrow" aria-hidden="true">{{ if eq .Sort "downloads" }}{{ if .Desc }}↓{{ else }}↑{{ end }}{{ end }}</span></button></th>{{ end }}
+          <th class="text-end">Actions</th>
         </tr></thead>
         <tbody>
         {{ range $i, $item := .Items }}{{ template "file_browser_row" ($.TileAt $i $item) }}{{ end }}
         </tbody>
       </table>
+      <div class="fgs-more" data-fgs-more aria-live="polite"></div>
     </div>
   </div>
   <p class="fgs-empty text-muted">No files yet</p>
 
-  {{/* Live adds (FGS.initFileBrowser → addItem) clone these. Outside the
-       table, so DataTables never sees them. */}}
+  {{/* Live adds and later batches (FGS.initFileBrowser → buildItem) clone
+       these. Outside the table, so they are never one of its rows. */}}
   <template data-fgs-tpl="tile">{{ template "file_browser_tile" ($.TileAt -1 $.Blank) }}</template>
   <template data-fgs-tpl="row">{{ template "file_browser_row" ($.TileAt -1 $.Blank) }}</template>
 </div>

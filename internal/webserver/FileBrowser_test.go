@@ -464,12 +464,12 @@ func TestGroupBrowserMarkup(t *testing.T) {
 		`<option value="7">&lt;me&gt;</option>`, `<option value="">Everyone</option>`,
 		`class="fgs-initials" aria-hidden="true">A</span>`, `class="fgs-tick"`,
 		`data-menu="edit"`, `data-menu="replace"`, `data-menu="remove-from-group"`, `data-act="remove-from-group"`,
-		`data-fgs-sort data-fgs-sort-dir="asc">Taken`} {
+		`<th data-fgs-sortkey="taken"><button type="button" class="fgs-sort">Taken`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("group browser lacks %s", want)
 		}
 	}
-	for _, unwanted := range []string{`data-menu="copy"`, `data-menu="share"`, `data-menu="add-to-group"`, `data-fgs-sort>Uploaded`} {
+	for _, unwanted := range []string{`data-menu="copy"`, `data-menu="share"`, `data-menu="add-to-group"`, `data-fgs-sortkey="expires"`} {
 		if strings.Contains(html, unwanted) {
 			t.Errorf("group browser has %s", unwanted)
 		}
@@ -478,7 +478,8 @@ func TestGroupBrowserMarkup(t *testing.T) {
 	files := newFileBrowser("f-mark", ctxFiles, []browserItem{browserItemFromFile(r, f, user, ctxFiles, "", nil)}, user)
 	html = renderBrowser(t, files)
 	for _, want := range []string{`data-fgs-select-all`, `data-menu="add-to-group"`, `data-act="add-to-group"`,
-		`data-sort="uploaded-desc"`, `data-group-tools="false"`, `data-fgs-sort>Uploaded`} {
+		`data-sort="uploaded-desc"`, `data-group-tools="false"`, `<th data-fgs-sortkey="uploaded"><button type="button" class="fgs-sort">Uploaded`,
+		`data-fgs-sortkey="expires"`, `data-fgs-sortkey="downloads"`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("files browser lacks %s", want)
 		}
@@ -486,6 +487,57 @@ func TestGroupBrowserMarkup(t *testing.T) {
 	for _, unwanted := range []string{`data-fgs-select-new`, `data-fgs-person`, `data-fgs-hide-downloaded`, `fgs-initials`, `data-menu="remove-from-group"`} {
 		if strings.Contains(html, unwanted) {
 			t.Errorf("files browser has %s", unwanted)
+		}
+	}
+}
+
+// Part 3, T2a: the list's batching state on the root, "Select all" over the
+// whole list, a sentinel after the grid and after the table, sortable List
+// headers (an arrow on the default column) and the List-only search box
+func TestTemplateListAttributes(t *testing.T) {
+	f := accessFile("listattrs00000001", func(f *models.File) { f.SHA1 = "listattrssha"; f.Name = "attrs.jpg" })
+	user := models.User{Id: 7}
+	r := sessionRequest("validsession")
+	b := newFileBrowser("g-list", ctxGroup, []browserItem{browserItemFromFile(r, f, user, ctxGroup, "G1", nil)}, user)
+	b.WithGroup(models.Group{Id: "G1"}, nil)
+	b.ListUrl, b.Total, b.All, b.New, b.Next, b.Sort, b.Desc = "./gl?id=G1&", 230, 250, 12, "CURSOR1", "taken", false
+	html := renderBrowser(t, b)
+	for _, want := range []string{
+		`data-list-url="./gl?id=G1&amp;"`, `data-total="230"`, `data-all="250"`, `data-new="12"`,
+		`data-next="CURSOR1"`, `data-sort-key="taken"`, `data-sort-desc="false"`,
+		`data-fgs-select-all>Select all (230)</button>`,
+		`<input type="search" class="form-control form-control-sm fgs-list-only" data-fgs-search placeholder="Search names" aria-label="Search names">`,
+		`<th data-fgs-sortkey="name"><button type="button" class="fgs-sort">Name`,
+		`<th data-fgs-sortkey="uploaded"><button type="button" class="fgs-sort">Uploaded`,
+		`<th data-fgs-sortkey="taken" aria-sort="ascending"><button type="button" class="fgs-sort">Taken<span class="fgs-sort-arrow" aria-hidden="true">↑</span>`,
+		`<th data-fgs-sortkey="size"><button type="button" class="fgs-sort">Size`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("list lacks %s", want)
+		}
+	}
+	sentinel := `<div class="fgs-more" data-fgs-more aria-live="polite"></div>`
+	test.IsEqualInt(t, strings.Count(html, sentinel), 2)
+	// one directly after the grid, one directly after the table
+	test.IsEqualBool(t, regexp.MustCompile(`</div>\s*`+regexp.QuoteMeta(sentinel)+`\s*<div class="table-responsive" data-fgs-list>`).MatchString(html), true)
+	test.IsEqualBool(t, regexp.MustCompile(`</table>\s*`+regexp.QuoteMeta(sentinel)).MatchString(html), true)
+	// Group pages have no Expires and Downloads columns; "Uploaded by" is not sortable
+	test.IsEqualBool(t, strings.Contains(html, `data-fgs-sortkey="expires"`), false)
+	test.IsEqualBool(t, strings.Contains(html, `<th>Uploaded by</th>`), true)
+	// No DataTables hooks are left
+	test.IsEqualBool(t, strings.Contains(html, "data-fgs-sort "), false)
+	test.IsEqualBool(t, strings.Contains(html, "data-fgs-nosort"), false)
+
+	// The Files tab: newest first, its management columns sortable
+	files := newFileBrowser("f-list", ctxFiles, nil, user)
+	files.ListUrl, files.Total, files.All, files.Sort, files.Desc = "./files/list?src=files&", 3, 9, "uploaded", true
+	html = renderBrowser(t, files)
+	for _, want := range []string{`data-sort-key="uploaded"`, `data-sort-desc="true"`, `Select all (3)`,
+		`<th data-fgs-sortkey="uploaded" aria-sort="descending"><button type="button" class="fgs-sort">Uploaded<span class="fgs-sort-arrow" aria-hidden="true">↓</span>`,
+		`<th data-fgs-sortkey="expires"><button type="button" class="fgs-sort">Expires`,
+		`<th data-fgs-sortkey="downloads"><button type="button" class="fgs-sort">Downloads`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("files list lacks %s", want)
 		}
 	}
 }

@@ -276,7 +276,7 @@
     holder.setAttribute("role", "status");
     holder.setAttribute("aria-live", "polite");
     var st = holder.style;
-    st.position = "fixed"; st.left = "0.75rem"; st.right = "0.75rem"; st.bottom = "0.75rem"; st.zIndex = "2000";
+    st.position = "fixed"; st.left = "0.75rem"; st.right = "0.75rem"; st.bottom = "0.75rem"; st.zIndex = "10055";  // above the viewer (10050), below the help sheet (10060)
     st.padding = "0.6rem 2.2rem 0.6rem 0.8rem"; st.borderRadius = "10px"; st.fontSize = "0.875rem";
     st.background = "#212529"; st.color = "#fff"; st.boxShadow = "0 4px 16px rgba(0,0,0,.35)";
     var close = document.createElement("button");

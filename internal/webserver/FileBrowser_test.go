@@ -552,7 +552,11 @@ func TestSaveToPhotosScript(t *testing.T) {
 	for _, want := range []string{
 		"navigator.userActivation", ".isActive",
 		"opts.lastModified = date", "s * 1000", `getAttribute("data-taken")`, `getAttribute("data-uploaded")`,
-		`"Ready — tap to save"`, `" photos"`, "fgs-photos-ready",
+		`"Ready — tap to save"`, `" (batch "`, `"Next batch — tap to prepare ("`, "fgs-photos-ready",
+		"var PHOTO_BATCH_FILES = 20;", "var PHOTO_BATCH_BYTES = 1.5e9;", "var VIDEO_MAX_BYTES  = 500e6;",
+		"FGS.planPhotos = function (items, limits)", "FGS.photosPending",
+		` video(s) are too big to save to Photos from Safari. Download them as a .zip, then save them from the Files app.`,
+		`"Download those as .zip"`,
 		`"NotAllowedError"`, `"AbortError"`,
 		"hide.bs.dropdown", "show.bs.dropdown", "clickEvent",
 		".fgs-v-photos", `what === "photos"`,

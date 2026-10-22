@@ -88,12 +88,13 @@
         photos.addEventListener("click", function () {
           // A prepared set shares on this tap: nothing may come between the
           // tap and the share sheet
-          if (photos._fgs && (photos._fgs.files || photos._fgs.busy)) { FGS.saveToPhotos([], photos); return; }
+          if (FGS.photosPending(photos)) { FGS.saveToPhotos([], photos); return; }
           if (photos._fgsLoading) return;
           photos._fgsLoading = true;
           everything().then(function (items) {
             photos._fgsLoading = false;
-            FGS.saveToPhotos(items, photos);
+            var browser = FGS.initFileBrowser(listRoot);
+            FGS.saveToPhotos(items, photos, { status: status, zipIds: browser && browser.zipIds });
           }, function () { photos._fgsLoading = false; failed(); });
         });
       }
@@ -132,19 +133,25 @@
     })();
   };
 
-  // Save to Photos, in one tap where it can be. The tap fetches the originals;
-  // if its user activation is still alive once they have arrived
+  // Save to Photos, in measured batches. The first tap plans the whole set
+  // from the stored sizes (FGS.planPhotos) and fetches the first batch only;
+  // each later batch is fetched by its own tap, once the previous share sheet
+  // has closed, so never more than one batch is held in memory. If the tap's
+  // user activation is still alive once a batch has arrived
   // (navigator.userActivation.isActive), the share sheet opens at once, where
   // "Save N Images" puts them straight into Photos. Safari only opens the
-  // sheet with that activation, and it lapses during a slow fetch: then, and
-  // where the browser cannot say, the button turns into a highlighted
-  // "Ready — tap to save" and the next tap shares. Each File carries the date
-  // taken as its lastModified, the upload date standing in. Always pass the
-  // original-file download URLs (/cd on a board, counted; /files/download on
-  // the Files tab, uncounted), never view or video URLs. Batching and the video limit
-  // are refined on-device in Part 3.
-  var PHOTO_BATCH = 20;
-  var VIDEO_MAX_BYTES = 500e6; // larger videos go to the zip instead
+  // sheet with that activation, and it lapses during a slow fetch (or the
+  // feed fetch that resolves a "Select all"): then, and where the browser
+  // cannot say, the button turns into a highlighted "Ready — tap to save"
+  // and the next tap shares. Each File carries the date taken as its
+  // lastModified, the upload date standing in. Always pass the original-file
+  // download URLs (/cd or /gd, counted; /files/download on the Files tab,
+  // uncounted), never view or video URLs. Videos over VIDEO_MAX_BYTES are
+  // left out before any request and handed to the zip (opts.zipIds).
+  // Measured on Franco's iPhone (model, iOS version, date) — the controller fills these in
+  var PHOTO_BATCH_FILES = 20;      // files per share sheet
+  var PHOTO_BATCH_BYTES = 1.5e9;   // bytes per share sheet
+  var VIDEO_MAX_BYTES  = 500e6;    // larger videos go to the zip
   var MIME_BY_EXT = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif",
     webp: "image/webp", heic: "image/heic", heif: "image/heif", mov: "video/quicktime",
     mp4: "video/mp4", m4v: "video/x-m4v" };
@@ -178,9 +185,46 @@
     return s > 0 ? s * 1000 : undefined;
   }
 
-  var PREPARE_MAX_BYTES = 1.5e9;  // per prepare tap; the rest goes in another batch or the zip
   var VIDEO_RE = /\.(mov|mp4|m4v)$/i;
   var READY_LABEL = "Ready — tap to save";
+
+  // The stored size, or null where it is not known (NaN from a missing data-bytes)
+  function knownBytes(it) {
+    return typeof it.bytes === "number" && it.bytes >= 0 ? it.bytes : null;
+  }
+  function isVideo(it) { return it.kind === "video" || VIDEO_RE.test(it.name || ""); }
+
+  // Pure: no fetch, no DOM. Returns
+  // {batches: [[item]], bigVideos: [item], noUrl: [item], notMedia: [item]}
+  // in input order; a batch closes when adding the next item would pass
+  // PHOTO_BATCH_FILES or PHOTO_BATCH_BYTES (a single item over the byte limit
+  // that is not a video gets a batch of its own). limits: {files, bytes,
+  // videoMax}, each defaulting to the constants above. An unknown size counts
+  // as 0 here; the fetch checks a video's Content-Length instead.
+  FGS.planPhotos = function (items, limits) {
+    limits = limits || {};
+    var maxFiles = limits.files || PHOTO_BATCH_FILES;
+    var maxBytes = limits.bytes || PHOTO_BATCH_BYTES;
+    var videoMax = limits.videoMax || VIDEO_MAX_BYTES;
+    var plan = { batches: [], bigVideos: [], noUrl: [], notMedia: [] };
+    var batch = null, sum = 0;
+    (items || []).forEach(function (it) {
+      if (!it) return;
+      // Password or client-side encrypted files: nothing to fetch
+      if (!it.url) { plan.noUrl.push(it); return; }
+      if (!FGS.isPhotoOrVideo(it.kind, it.name)) { plan.notMedia.push(it); return; }
+      var b = knownBytes(it);
+      if (b !== null && isVideo(it) && b > videoMax) { plan.bigVideos.push(it); return; }
+      b = b || 0;
+      if (!batch || batch.length >= maxFiles || sum + b > maxBytes) {
+        batch = []; sum = 0;
+        plan.batches.push(batch);
+      }
+      batch.push(it);
+      sum += b;
+    });
+    return plan;
+  };
 
   // The tap that started the downloads still counts as a user gesture.
   // Without the API there is no telling, so the explicit second tap it is.
@@ -200,10 +244,61 @@
     }
     button.classList.toggle("fgs-photos-ready", !!ready);
   }
-  // Prepared and waiting for its tap: "Ready — tap to save" (" N photos" for several)
+  function batchOf(state) {
+    var b = state.plan.batches.length;
+    return b > 1 ? " (batch " + (state.k + 1) + " of " + b + ")" : "";
+  }
+  // Prepared and waiting for its tap
   function showReady(button, state) {
-    var n = Math.min(PHOTO_BATCH, state.files.length - state.next);
-    setPhotosLabel(button, READY_LABEL + (n > 1 ? " " + n + " photos" : ""), true);
+    setPhotosLabel(button, READY_LABEL + batchOf(state), true);
+  }
+  // A batch is saved and another is to come: its tap fetches it
+  function showNext(button, state) {
+    setPhotosLabel(button, "Next batch — tap to prepare (" + (state.k + 1) + " of " + state.plan.batches.length + ")", true);
+  }
+  // Back to the first-tap label
+  function restoreLabel(button) {
+    button.classList.remove("fgs-photos-ready");
+    if (button._fgsLabel !== undefined) button.innerHTML = button._fgsLabel;
+  }
+
+  // What was left out, in the status (aria-live) where the caller gave one:
+  // big videos with their zip button, then the rest. Without a status (the
+  // viewer) an alert, which is only ever shown while no share sheet waits on
+  // the tap's activation.
+  function showLeftOut(button, state) {
+    var big = state.plan.bigVideos.concat(state.lateVideos);
+    var notes = [];
+    if (state.plan.notMedia.length) notes.push(state.plan.notMedia.length + " file(s) aren't photos or videos and were left out.");
+    if (state.plan.noUrl.length) notes.push(state.plan.noUrl.length + " file(s) can't be fetched here. Use Download as .zip for those.");
+    if (state.failed) notes.push(state.failed + " file(s) could not be fetched. Try again, or use Download as .zip.");
+    var bigText = big.length ? big.length + " video(s) are too big to save to Photos from Safari. Download them as a .zip, then save them from the Files app." : "";
+    var status = state.opts.status;
+    if (button._fgsNote && button._fgsNote.parentNode) button._fgsNote.parentNode.removeChild(button._fgsNote);
+    button._fgsNote = null;
+    if (!bigText && !notes.length) return;
+    if (!status) {
+      alert((bigText ? [bigText] : []).concat(notes).join(" "));
+      return;
+    }
+    var note = document.createElement("span");
+    note.className = "fgs-photos-note";
+    if (bigText) {
+      note.appendChild(document.createTextNode(bigText + " "));
+      var ids = big.map(function (it) { return it.id; }).filter(Boolean);
+      if (state.opts.zipIds && ids.length === big.length) {
+        var zip = document.createElement("button");
+        zip.type = "button";
+        zip.className = "btn btn-link btn-sm p-0 align-baseline";
+        zip.textContent = "Download those as .zip";
+        zip.addEventListener("click", function () { state.opts.zipIds(ids); });
+        note.appendChild(zip);
+      }
+    }
+    if (notes.length) note.appendChild(document.createTextNode((bigText ? " " : "") + notes.join(" ")));
+    status.textContent = "";
+    status.appendChild(note);
+    button._fgsNote = note;
   }
 
   // Forget any prepared set and put the button back to its first-tap label.
@@ -213,151 +308,149 @@
     if (button._fgs) button._fgs.cancelled = true;
     button._fgs = null;
     if (button._fgsTimer) { window.clearTimeout(button._fgsTimer); button._fgsTimer = null; }
+    if (button._fgsNote && button._fgsNote.parentNode) button._fgsNote.parentNode.removeChild(button._fgsNote);
+    button._fgsNote = null;
     button.disabled = false;
-    button.classList.remove("fgs-photos-ready");
-    if (button._fgsLabel !== undefined) button.innerHTML = button._fgsLabel;
+    restoreLabel(button);
   };
 
-  // Opens the share sheet for the next batch of a prepared set. after() runs
-  // once the sheet has closed (the report of what was left out).
-  function sharePrepared(button, state, after) {
-    var batch = state.files.slice(state.next, state.next + PHOTO_BATCH);
-    var done = function () { if (after) after(); };
-    if (!navigator.canShare({ files: batch })) { done(); FGS.openHelpSheet(); return; }
+  // A set under way (being fetched, prepared, or between batches): the next
+  // tap continues it, and the caller must not resolve its list again first,
+  // which would cost the tap its activation
+  FGS.photosPending = function (button) {
+    var s = button && button._fgs;
+    return !!(s && (s.busy || s.files || s.plan));
+  };
+
+  // Opens the share sheet for the prepared batch. Its Files are dropped once
+  // the sheet has closed on a save.
+  function sharePrepared(button, state) {
+    var files = state.files;
+    if (!navigator.canShare({ files: files })) { FGS.openHelpSheet(); return; }
     state.busy = true;
-    navigator.share({ files: batch }).then(function () {
+    navigator.share({ files: files }).then(function () {
       state.busy = false;
       if (state.cancelled) return;  // selection changed while the sheet was open
-      state.next += PHOTO_BATCH;
-      if (state.next >= state.files.length) {
-        setPhotosLabel(button, "Saved ✓", false); button._fgs = null;
-        // Back to the first-tap label, so a later tap reads as a new action
-        button._fgsTimer = window.setTimeout(function () {
-          button._fgsTimer = null;
-          if (!button._fgs) button.innerHTML = button._fgsLabel;
-        }, 2000);
-      } else {
-        showReady(button, state);
-      }
-      done();
+      state.files = null;
+      state.k++;
+      if (state.k < state.plan.batches.length) { showNext(button, state); return; }
+      setPhotosLabel(button, "Saved ✓", false); button._fgs = null;
+      // Back to the first-tap label, so a later tap reads as a new action
+      button._fgsTimer = window.setTimeout(function () {
+        button._fgsTimer = null;
+        if (!button._fgs) restoreLabel(button);
+      }, 2000);
     }, function (err) {
       state.busy = false;
       if (state.cancelled) return;
       // "NotAllowedError": the tap's activation had lapsed after all;
-      // "AbortError": the sheet was closed. Either way the files stay
-      // prepared, and the next tap shares them.
+      // "AbortError": the sheet was closed. Either way the batch stays
+      // prepared, and the next tap shares it.
       showReady(button, state);
-      done();
       if (!err || (err.name !== "AbortError" && err.name !== "NotAllowedError")) FGS.openHelpSheet();
     });
   }
 
-  // items: [{url, name, bytes, taken, uploaded}]. bytes is the stored size and
-  // is what decides what is fetched: /cd counts a download before it sends a
-  // body, so a file that can't be shared must be ruled out BEFORE the request,
-  // never after. taken / uploaded (seconds) become the File's date.
-  FGS.saveToPhotos = function (list, button) {
-    if (!navigator.canShare) { FGS.openHelpSheet(); return; }
-    if (button._fgsLabel === undefined) {
-      button._fgsLabel = button.innerHTML;
-      button._fgsIcon = button.querySelector("i");
-    }
-    var state = button._fgs || (button._fgs = { files: null, next: 0 });
-    if (state.busy) return;
-    if (button._fgsTimer) { window.clearTimeout(button._fgsTimer); button._fgsTimer = null; }
-
-    // Prepared: this tap shares
-    if (state.files) { sharePrepared(button, state); return; }
-
-    // Spend no download on files this browser can't share anyway
-    var probeOk = false;
-    try { probeOk = navigator.canShare({ files: [new File([""], "probe.jpg", { type: "image/jpeg" })] }); } catch (e) { /* unsupported */ }
-    if (!probeOk) { button._fgs = null; FGS.openHelpSheet(); return; }
-
-    // Items without a url (password or client-side encrypted files) cannot be fetched
-    var all = list || [];
-    var noUrl = 0, bigVideos = 0, overCap = 0, failed = 0, total = 0;
-    var items = [];
-    all.forEach(function (it) {
-      if (!it || !it.url) { noUrl++; return; }
-      var known = typeof it.bytes === "number" && it.bytes >= 0;
-      if (known && VIDEO_RE.test(it.name) && it.bytes > VIDEO_MAX_BYTES) { bigVideos++; return; }
-      if (known) {
-        if (total + it.bytes > PREPARE_MAX_BYTES && items.length) { overCap++; return; }
-        total += it.bytes;
-      }
-      items.push(it);
-    });
-    function report() {
-      var notes = [];
-      if (bigVideos) notes.push(bigVideos + " large video(s) were left out");
-      if (overCap) notes.push(overCap + " file(s) didn't fit in one go");
-      if (failed) notes.push(failed + " file(s) could not be fetched");
-      if (noUrl) notes.push(noUrl + " file(s) can't be fetched here");
-      if (notes.length) alert(notes.join("; ") + ". Use Download as .zip for those" + (failed ? ", or try again." : "."));
-    }
-    if (!items.length) { button._fgs = null; report(); return; }
-
+  // Fetches batch state.k, one file after another, then shares it on this
+  // tap if its activation is still alive, else waits for the next tap
+  function prepareBatch(button, state) {
+    var batch = state.plan.batches[state.k];
+    var files = [], fetched = [], done = 0, failedBefore = state.failed, lateBefore = state.lateVideos.length;
     state.busy = true;
     button.disabled = true;
-    button.classList.remove("fgs-photos-ready");
-    var done = 0, files = [], fetched = 0;
-    setPhotosLabel(button, "Preparing 0/" + items.length + "…", false);
-    var tick = function () { if (state.cancelled) return; done++; setPhotosLabel(button, "Preparing " + done + "/" + items.length + "…", false); };
-    items.reduce(function (p, it) {
+    setPhotosLabel(button, "Preparing 0/" + batch.length + "…", false);
+    var tick = function () {
+      if (state.cancelled) return;
+      done++;
+      setPhotosLabel(button, "Preparing " + done + "/" + batch.length + "…", false);
+    };
+    batch.reduce(function (p, it) {
       return p.then(function () {
         if (state.cancelled) return null;
-        var known = typeof it.bytes === "number" && it.bytes >= 0;
-        // Size unknown: stop before a fetch that would pass the cap, so the
-        // rest is left for another batch
-        if (!known && fetched >= PREPARE_MAX_BYTES) { overCap++; return null; }
         // it.url may be a function returning a promise of the url, for links
         // that are only valid for a moment (the File requests page)
         return Promise.resolve(typeof it.url === "function" ? it.url() : it.url).then(function (url) {
           return fetch(url, { credentials: "same-origin" });
         }).then(function (r) {
           // An error page must never be wrapped up as a photo
-          if (!r.ok) { failed++; return null; }
+          if (!r.ok) { state.failed++; return null; }
+          if (it.id) fetched.push(it.id);
           // Fallback only (size unknown): by now the request has been counted
           var len = parseInt(r.headers.get("Content-Length") || "0", 10);
-          if (!known && VIDEO_RE.test(it.name) && len > VIDEO_MAX_BYTES) {
-            bigVideos++;
+          if (knownBytes(it) === null && isVideo(it) && len > VIDEO_MAX_BYTES) {
+            state.lateVideos.push(it);
             if (r.body && r.body.cancel) r.body.cancel();
             return null;
           }
           return r.blob();
         }).then(function (b) {
           if (!b) return;
-          fetched += b.size;
           var opts = { type: photoMime(it.name, b.type) };
           var date = photoDate(it);
           if (date) opts.lastModified = date;
           files.push(new File([b], it.name, opts));
-        }).catch(function () { failed++; }).then(tick);
+        }).catch(function () { state.failed++; }).then(tick);
       });
-    }, Promise.resolve()).catch(function () {
-      failed++;
-    }).then(function () {
+    }, Promise.resolve()).then(function () {
       if (state.cancelled) return;  // selection changed meanwhile: drop it all
       state.busy = false;
       button.disabled = false;
+      // Group pages: these are downloaded now (kept visible)
+      if (fetched.length && state.opts.fetched) state.opts.fetched(fetched);
+      var changed = state.failed !== failedBefore || state.lateVideos.length !== lateBefore;
       if (!files.length) {
-        // Nothing usable: back to the first tap so they can retry
-        button._fgs = null;
-        button.innerHTML = button._fgsLabel;
-        report();
+        // Nothing usable in this batch: on to the next, or back to the first tap
+        state.k++;
+        if (state.k < state.plan.batches.length) showNext(button, state);
+        else { button._fgs = null; restoreLabel(button); }
+        showLeftOut(button, state);
         return;
       }
-      state.files = files; state.next = 0;
+      state.files = files;
       showReady(button, state);
-      // One tap: the sheet now, while the tap still counts. The report
-      // (an alert, which would use up the activation) waits for the sheet.
-      if (activationAlive()) sharePrepared(button, state, report);
-      else report();
+      // One tap: the sheet now, while the tap still counts. A note in the
+      // status costs no activation; an alert (no status) waits for the next tap.
+      if (activationAlive()) sharePrepared(button, state);
+      if (changed && (state.opts.status || !state.busy)) showLeftOut(button, state);
     }).catch(function () {
       // Anything unexpected: leave the button usable rather than stuck
       if (!state.cancelled) FGS.resetSaveToPhotos(button);
     });
+  }
+
+  // items: [{id, url, name, kind, bytes, taken, uploaded}] (FGS.itemData).
+  // bytes is the stored size and is what decides what is fetched: /cd and
+  // /gd count a download before they send a body, so a file that can't be
+  // shared must be ruled out BEFORE the request, never after. taken /
+  // uploaded (seconds) become the File's date. opts (first tap; kept for the
+  // set's later taps): zipIds(ids) zips the big videos, status is the
+  // aria-live element for what was left out, fetched(ids) is told each
+  // batch's files once they have been requested.
+  FGS.saveToPhotos = function (list, button, opts) {
+    if (!navigator.canShare) { FGS.openHelpSheet(); return; }
+    if (button._fgsLabel === undefined) {
+      button._fgsLabel = button.innerHTML;
+      button._fgsIcon = button.querySelector("i");
+    }
+    var state = button._fgs;
+    if (state && state.busy) return;
+    if (button._fgsTimer) { window.clearTimeout(button._fgsTimer); button._fgsTimer = null; }
+
+    // A set under way: this tap shares the prepared batch, or fetches the
+    // next one. The list is the same selection (a change resets the set).
+    if (state && state.files) { sharePrepared(button, state); return; }
+    if (state && state.plan) { prepareBatch(button, state); return; }
+
+    // Spend no download on files this browser can't share anyway
+    var probeOk = false;
+    try { probeOk = navigator.canShare({ files: [new File([""], "probe.jpg", { type: "image/jpeg" })] }); } catch (e) { /* unsupported */ }
+    if (!probeOk) { button._fgs = null; FGS.openHelpSheet(); return; }
+
+    state = { plan: FGS.planPhotos(list), k: 0, files: null, busy: false, failed: 0, lateVideos: [], opts: opts || {} };
+    showLeftOut(button, state);
+    if (!state.plan.batches.length) { button._fgs = null; restoreLabel(button); return; }
+    button._fgs = state;
+    prepareBatch(button, state);
   };
 
   FGS.openHelpSheet = function () {
@@ -606,7 +699,7 @@
   function savePhotoInViewer(button) {
     var it = items[at];
     if (!it || !it.download) return;
-    FGS.saveToPhotos([{ url: it.download, name: it.name, bytes: it.bytes, taken: it.taken, uploaded: it.uploaded }], button);
+    FGS.saveToPhotos([{ id: it.id, url: it.download, name: it.name, kind: it.kind, bytes: it.bytes, taken: it.taken, uploaded: it.uploaded }], button);
   }
   // Empty space: the backdrop, the bare stage, or any other wrapper that is not
   // the picture, a control, a link, the caption bar or a note.
@@ -1384,11 +1477,18 @@
       if (handler) { handler(actionArg(tiles, act, true, null, null, data)); return; }
       if (what === "download") bulkDownload(data, act);
       else if (what === "zip") bulkZip(data);
-      else if (what === "photos") {
-        FGS.saveToPhotos(data, act);
-        // Fetched now; hidden only later, or the prepared set would be dropped
-        if (groupTools) markDownloaded(data.filter(function (d) { return d.url; }).map(function (d) { return d.id; }), true);
-      }
+      else if (what === "photos") FGS.saveToPhotos(data, act, photosOpts());
+    }
+
+    // Save to Photos' options: what was left out goes to the status, big
+    // videos to the zip, and on group pages each batch is ticked downloaded
+    // once fetched, kept shown (hidden only later, or the set would be dropped)
+    function photosOpts() {
+      return {
+        status: status,
+        zipIds: function (ids) { if (zipIds(ids) && groupTools) markDownloaded(ids, true); },
+        fetched: groupTools ? function (ids) { markDownloaded(ids, true); } : null
+      };
     }
 
     // One resolution at a time; the button tapped says "Loading…" meanwhile
@@ -1400,7 +1500,7 @@
       var what = act.getAttribute("data-act");
       // A prepared Save to Photos shares on this tap: nothing may come
       // between the tap and the share sheet
-      if (what === "photos" && act._fgs && (act._fgs.files || act._fgs.busy)) { runBulk(what, act, []); return; }
+      if (what === "photos" && FGS.photosPending(act)) { runBulk(what, act, []); return; }
       var label = null;
       if (sel.mode === "query") {
         resolving = true;
@@ -1495,9 +1595,7 @@
         FGS.downloadSequentially(asItems([tile]));
         if (groupTools && tile.getAttribute("data-download")) markDownloaded([idOf(tile)]);
       } else if (what === "photos") {
-        FGS.saveToPhotos(asItems([tile]), item);
-        // Fetched now; hidden only later, as from the selection bar
-        if (groupTools && tile.getAttribute("data-download")) markDownloaded([idOf(tile)], true);
+        FGS.saveToPhotos([FGS.itemData(tile)], item, photosOpts());
       }
     });
 

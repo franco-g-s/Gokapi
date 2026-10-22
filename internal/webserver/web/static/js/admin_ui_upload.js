@@ -607,16 +607,22 @@ function showEditModal(filename, id, downloads, expiry, password, unlimitedown, 
     if (canReplace) {
         document.getElementById("replaceGroup").style.display = 'flex';
         if (!isE2e) {
-            let files = getAllAvailableFiles();
-            for (let i = 0; i < files[0].length; i++) {
-                if (files[0][i] == id)
-                    continue;
-                // Name as text, never as markup; the id tells equal names apart
-                let option = document.createElement("option");
-                option.value = files[0][i];
-                option.text = files[1][i] + " (" + files[0][i] + ")";
-                selectReplace.add(option);
-            }
+            // Filled once the server has answered; a dialog closed or opened
+            // for another file meanwhile is left alone
+            let fill = ++replaceFillToken;
+            getAllAvailableFiles().then(files => {
+                if (fill !== replaceFillToken || !selectReplace.isConnected) return;
+                selectReplace.textContent = "";
+                for (let i = 0; i < files[0].length; i++) {
+                    if (files[0][i] == id)
+                        continue;
+                    // Name as text, never as markup; the id tells equal names apart
+                    let option = document.createElement("option");
+                    option.value = files[0][i];
+                    option.text = files[1][i] + " (" + files[0][i] + ")";
+                    selectReplace.add(option);
+                }
+            }).catch(error => console.error("Could not load the files to replace with:", error));
         } else {
             document.getElementById("mc_replace").disabled = true;
             document.getElementById("mc_replace").title = "Replacing content is not available for end-to-end encrypted files";
@@ -662,32 +668,24 @@ function add14DaysIfBeforeCurrentTime(unixTimestamp) {
     }
 }
 
-// The files "Replace content" can take its content from: every file in the
-// page's file lists, once. The server accepts a file that is the user's own
-// or that they may list, and a list shows only those; end-to-end encrypted
-// files cannot be replaced with. Returns [ids, names].
+// The files "Replace content" can take its content from, from the server
+// (Part 3: a list shows only its first batch): the user's own, or anyone's
+// they may list, never end-to-end encrypted ones. Resolves to [ids, names].
+let replaceFillToken = 0;
 function getAllAvailableFiles() {
-    let ids = [];
-    let filenames = [];
-
-    for (let tile of document.querySelectorAll('[data-fgs-browser] .fgs-tile[data-id]')) {
-        let id = tile.getAttribute("data-id");
-        if (ids.includes(id)) {
-            continue;
-        }
-        // Someone else's file reached through a group (a group page, the
-        // Files tab's Everything): the server refuses it (M10)
-        if (tile.getAttribute("data-foreign") === "true") {
-            continue;
-        }
-        let menu = tile.querySelector("[data-fgs-file-menu]");
-        if (menu !== null && menu.getAttribute("data-e2e") === "true") {
-            continue;
-        }
-        ids.push(id);
-        filenames.push(tile.getAttribute("data-name") || "");
-    }
-    return [ids, filenames];
+    return fetch("./files/replacecandidates", { credentials: "same-origin", cache: "no-store" })
+        .then(response => {
+            if (!response.ok) throw new Error("The server answered " + response.status);
+            return response.json();
+        })
+        .then(list => {
+            let ids = [], filenames = [];
+            (Array.isArray(list) ? list : []).forEach(c => {
+                ids.push(String(c.Id));
+                filenames.push(c.Name || "");
+            });
+            return [ids, filenames];
+        });
 }
 
 

@@ -74,19 +74,15 @@
     }
 
     // --- Remove from group (board menu and selection bar) -----------------
-    // Only tiles whose menu says data-can-remove="true" are sent (D4); the
-    // server skips anything else as well.
-    function canRemove(tile) {
-        var menu = tile.querySelector("[data-fgs-file-menu]");
-        return menu !== null && menu.getAttribute("data-can-remove") === "true";
-    }
-
+    // Only files the viewer may remove (canRemove, D4) are sent; the server
+    // skips anything else as well. a.data covers the files of a "Select
+    // all" that are not rendered yet.
     function removeFromGroup(a) {
         var root = a.root, groupId = root.getAttribute("data-group-id");
         if (!groupId || root.getAttribute("data-fgs-removing") === "true") return;
         var ids = [], skipped = 0;
-        a.tiles.forEach(function (tile) {
-            if (canRemove(tile)) ids.push(tile.getAttribute("data-id"));
+        a.data.forEach(function (d) {
+            if (d.canRemove) ids.push(d.id);
             else skipped++;
         });
         var skippedText = skipped ? skipped + " skipped: not yours." : "";

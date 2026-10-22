@@ -9,17 +9,6 @@
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   };
 
-  // Every file on a collection page, in list order, as the counted /cd
-  // download URLs: saving to Photos is a download.
-  function collectionDownloads() {
-    return Array.prototype.map.call(document.querySelectorAll("[data-fgs-browser] .fgs-tile"), function (t) {
-      var it = FGS.fileItemFromEl(t);
-      it.url = it.url ? new URL(it.url, window.location.href).href : "";
-      it.name = it.name || "";
-      return it;
-    }).filter(function (it) { return it.url; });
-  }
-
   // The collection page's "Back" button. Shown only when the visitor came from
   // another page of this site: a link opened from a chat has no same-origin
   // referrer, and the password form posting back to /c has this very page as
@@ -54,16 +43,38 @@
   // Desktop: "Download all" fires each file in turn (unchanged behaviour).
   // iOS: Safari allows one download per tap, so Save to Photos is primary and
   // the zip is the fallback (the zip alone where navigator.canShare is missing).
+  // Every file of the page's list, loaded or not (resolveAll, Part 3).
   FGS.initDownloadButtons = function (root) {
     if (!root) return;
     var all = root.querySelector("[data-fgs-download-all]");
     var zip = root.querySelector("[data-fgs-download-zip]");
     var help = root.querySelector("[data-fgs-help]");
     var status = root.querySelector("#downloadAllStatus");
+    var listRoot = document.querySelector("[data-fgs-browser]");
+    // Every file on the collection page, in list order, as the counted /cd
+    // download URLs: saving to Photos is a download
+    function everything() {
+      var browser = listRoot && FGS.initFileBrowser(listRoot);
+      if (!browser) return Promise.resolve([]);
+      return browser.resolveAll().then(function (list) {
+        return list.map(function (it) {
+          it.url = it.url ? new URL(it.url, window.location.href).href : "";
+          return it;
+        }).filter(function (it) { return it.url; });
+      });
+    }
+    function failed() { if (status) status.textContent = "Couldn't load the list of files. Try again."; }
     if (all) {
-      if (!collectionDownloads().length) all.style.display = "none";
+      if (!listRoot || !(parseInt(listRoot.getAttribute("data-all"), 10) > 0)) all.style.display = "none";
       all.addEventListener("click", function () {
-        FGS.downloadSequentially(collectionDownloads(), { button: all, status: status });
+        if (all.disabled) return;
+        all.disabled = true;
+        if (status) status.textContent = "Loading…";
+        everything().then(function (items) {
+          all.disabled = false;
+          if (status) status.textContent = "";
+          FGS.downloadSequentially(items, { button: all, status: status });
+        }, function () { all.disabled = false; failed(); });
       });
     }
     if (FGS.isIOS()) {
@@ -75,7 +86,15 @@
         photos.classList.remove("d-none");
         if (zip) zip.classList.replace("btn-light", "btn-outline-light");
         photos.addEventListener("click", function () {
-          FGS.saveToPhotos(collectionDownloads(), photos);
+          // A prepared set shares on this tap: nothing may come between the
+          // tap and the share sheet
+          if (photos._fgs && (photos._fgs.files || photos._fgs.busy)) { FGS.saveToPhotos([], photos); return; }
+          if (photos._fgsLoading) return;
+          photos._fgsLoading = true;
+          everything().then(function (items) {
+            photos._fgsLoading = false;
+            FGS.saveToPhotos(items, photos);
+          }, function () { photos._fgsLoading = false; failed(); });
         });
       }
     }
@@ -357,6 +376,43 @@
     return { id: d("id"), name: d("name"), view: d("view"), video: d("video"), kind: d("kind"), download: d("download"),
       uploader: d("uploader"), taken: parseInt(d("taken"), 10) || 0, uploaded: parseInt(d("uploaded"), 10) || 0,
       size: d("size"), bytes: parseInt(d("bytes"), 10), w: parseInt(d("w"), 10) || 0, h: parseInt(d("h"), 10) || 0 };
+  };
+
+  // One file's data for the actions (Part 3), from its tile (whose "⋯" menu
+  // carries the management data) or from a feed item (listItemJson), so an
+  // action works the same on files that are not rendered. url is the
+  // original's download (Download, Save to Photos), fileUrl the share link.
+  FGS.itemData = function (x) {
+    if (!x) return null;
+    if (x.nodeType === 1) {
+      var t = function (k) { return x.getAttribute("data-" + k) || ""; };
+      var menu = x.querySelector("[data-fgs-file-menu]");
+      var m = function (k) { return menu ? menu.getAttribute("data-" + k) : null; };
+      var flag = function (k) { return m(k) === "true"; };
+      // Rendered without data-can-*: the menu's own entry says
+      var can = function (k, entry) {
+        var v = m("can-" + k);
+        if (v !== null) return v === "true";
+        var b = menu && menu.querySelector("[data-menu=" + entry + "]");
+        return !!b && !b.disabled;
+      };
+      return { id: t("id"), name: t("name"), url: t("download"), bytes: parseInt(t("bytes"), 10),
+        taken: parseInt(t("taken"), 10) || 0, uploaded: parseInt(t("uploaded"), 10) || 0, kind: t("kind"),
+        mine: t("mine") === "true", foreign: t("foreign") === "true", downloaded: t("downloaded") === "true",
+        canEdit: can("edit", "edit"), canDelete: can("delete", "delete"), canReplace: can("replace", "replace"),
+        canRemove: can("remove", "remove-from-group"), e2e: flag("e2e"), groupLock: m("group-lock") || "",
+        downloads: parseInt(m("downloads"), 10) || 0, unlimitedDownloads: flag("unlimited-downloads"),
+        expire: parseInt(m("expire"), 10) || 0, unlimitedTime: flag("unlimited-time"), password: flag("password"),
+        fileUrl: m("url") || "" };
+    }
+    return { id: String(x.Id || ""), name: x.Name || "", url: x.Download || "",
+      bytes: typeof x.Bytes === "number" ? x.Bytes : parseInt(x.SizeBytes, 10),
+      taken: x.TakenAt || 0, uploaded: x.UploadDate || 0, kind: (x.Preview && x.Preview.Kind) || "",
+      mine: !!x.Mine, foreign: !!x.Foreign, downloaded: !!x.Downloaded,
+      canEdit: !!x.CanEdit, canDelete: !!x.CanDelete, canReplace: !!x.CanReplace, canRemove: !!x.CanRemove,
+      e2e: !!x.IsEndToEndEncrypted, groupLock: x.GroupLock || "", downloads: x.DownloadsRemaining || 0,
+      unlimitedDownloads: !!x.UnlimitedDownloads, expire: x.ExpireAt || 0, unlimitedTime: !!x.UnlimitedTime,
+      password: !!x.IsPasswordProtected, fileUrl: x.UrlDownload || "" };
   };
 
   var v = null, items = [], at = 0, touchX = null, returnFocus = null;
@@ -894,7 +950,50 @@
         });
       return tiles.filter(function (t) { return t && t.isConnected; });
     }
-    function selected() { return visibleTiles().filter(function (t) { return tileCheck(t).checked; }); }
+    // The selection (Part 3). "ids": files ticked one by one, all of them
+    // rendered. "query": "Select all" or "Select everything new to me" over
+    // the whole list, loaded or not: the query as it was then (fresh: only
+    // what is new to me), less the files unticked since (except), plus files
+    // outside it ticked since (plus: the new-to-me capture's had files).
+    // Any reload, and leaving select mode, clears it.
+    var sel = null;
+    function clearSelection() { sel = { mode: "ids", ids: new Set() }; }
+    clearSelection();
+    // A rendered file is in the captured query: every rendered file matches
+    // the query, which is the captured one until a reload clears it
+    function inCapture(tile) { return sel.mode === "query" && (!sel.fresh || isNewToMe(tile)); }
+    function isSelected(tile) {
+      var id = idOf(tile);
+      if (sel.mode === "ids") return sel.ids.has(id);
+      return (inCapture(tile) && !sel.except.has(id)) || sel.plus.has(id);
+    }
+    // A file no longer listed leaves the selection
+    function forget(id) {
+      if (sel.mode === "ids") sel.ids.delete(id);
+      else { sel.except.delete(id); sel.plus.delete(id); }
+    }
+    // The ticks of these rendered files (all of them by default) as the
+    // selection says
+    function syncTicks(tiles) {
+      (tiles || Object.keys(tilesById).map(function (id) { return tilesById[id]; })).forEach(function (t) {
+        var on = isSelected(t);
+        tileCheck(t).checked = on;
+        var check = rowCheck(rowsById[idOf(t)]);
+        if (check) check.checked = on;
+      });
+    }
+    // "N selected": a query selection counts the files matching it, loaded or not
+    function selectedCount() {
+      if (sel.mode === "ids") return sel.ids.size;
+      return Math.max(0, (sel.fresh ? counts.fresh : counts.total) - sel.except.size) + sel.plus.size;
+    }
+    function selected() { return visibleTiles().filter(isSelected); }
+    function selectionInfo() {
+      if (sel.mode === "ids") return { mode: "ids", ids: selected().map(idOf) };
+      var q = Object.assign({}, sel.query);
+      if (sel.fresh) q["new"] = true;
+      return { mode: "query", query: q, except: Array.from(sel.except), plus: Array.from(sel.plus) };
+    }
 
     // "Files: N" and "Select all (N)": N is every file matching the query,
     // loaded or not. A list without a feed counts what it shows.
@@ -908,24 +1007,29 @@
       // Empty, unless a batch is on its way or failed (the sentinel says so)
       root.classList.toggle("fgs-is-empty", shown === 0 && moreState === "");
       if (emptyNote) emptyNote.textContent = counts.all > 0 ? "No matching files" : "No files yet";
-      refreshSelectAll();
+      refreshSelectionCount();
     }
     function refreshSelectAll() {
       if (selectAllButton) selectAllButton.textContent = "Select all (" + counts.total + ")";
     }
-
-    function updateSelection() {
-      var n = selected().length;
-      bar.classList.toggle("d-none", !selecting);
+    // "N selected" and "Select all (N)" after the counts changed, the
+    // selection itself unchanged (a batch arrived, a file left)
+    function refreshSelectionCount() {
+      var n = selectedCount();
       selCount.textContent = n + " selected";
       // Greyed out rather than disabled: some actions disable their own
       // button while they run, and a selection change must not undo that
       bar.classList.toggle("fgs-none-selected", n === 0);
+      refreshSelectAll();
+    }
+
+    function updateSelection() {
+      bar.classList.toggle("d-none", !selecting);
       // A prepared set, or a link made from it, belongs to its selection
       var photos = bar.querySelector("[data-act=photos]");
       if (photos) FGS.resetSaveToPhotos(photos);
       if (linkResult) { linkResult.textContent = ""; linkResult.className = "fgs-linkresult"; }
-      refreshSelectAll();
+      refreshSelectionCount();
     }
 
     function setChecked(id, on) {
@@ -933,6 +1037,14 @@
       if (tile) tileCheck(tile).checked = on;
       var check = rowCheck(rowsById[id]);
       if (check) check.checked = on;
+      if (sel.mode === "ids") {
+        if (on) sel.ids.add(id);
+        else sel.ids.delete(id);
+      } else if (tile && inCapture(tile)) {
+        if (on) sel.except.delete(id);
+        else sel.except.add(id);
+      } else if (on) sel.plus.add(id);
+      else sel.plus.delete(id);
     }
     function toggleSelected(tile) {
       setChecked(idOf(tile), !tileCheck(tile).checked);
@@ -947,7 +1059,10 @@
       selectToggle.classList.toggle("btn-light", selecting);
       selectToggle.classList.toggle("btn-outline-light", !selecting);
       // Leaving select mode drops the selection
-      if (!selecting) Object.keys(tilesById).forEach(function (id) { setChecked(id, false); });
+      if (!selecting) {
+        clearSelection();
+        syncTicks();
+      }
       status.textContent = "";
       updateSelection();
     }
@@ -956,15 +1071,24 @@
     // entering select mode if it is off. Returns how many that is.
     function selectWhere(fn) {
       if (!selecting) setSelecting(true);
-      var n = 0;
-      visibleTiles().forEach(function (t) {
-        var on = !!fn(t);
-        setChecked(idOf(t), on);
-        if (on) n++;
-      });
+      clearSelection();
+      visibleTiles().forEach(function (t) { if (fn(t)) sel.ids.add(idOf(t)); });
+      syncTicks();
       status.textContent = "";
       updateSelection();
-      return n;
+      return sel.ids.size;
+    }
+    // "Select all (N)" and "Select everything new to me": the whole list
+    // under the current query, loaded or not. A list without a feed holds
+    // everything, so it ticks what it shows.
+    function selectQuery(fresh) {
+      if (!listUrl) return selectWhere(fresh ? isNewToMe : function () { return true; });
+      if (!selecting) setSelecting(true);
+      sel = { mode: "query", query: Object.assign({}, query), fresh: !!fresh, except: new Set(), plus: new Set() };
+      syncTicks();
+      status.textContent = "";
+      updateSelection();
+      return selectedCount();
     }
     // New to me: neither downloaded nor my own upload (D12)
     function isNewToMe(tile) {
@@ -1067,10 +1191,20 @@
         setData(rowsById[id], "downloaded", "true");
       });
       if (keepVisible || !query.hide) return;
+      // Files of the selection not rendered yet leave the list too: they
+      // matched it, and now no longer do
       var gone = 0;
-      (ids || []).forEach(function (id) { if (dropItem(id)) gone++; });
+      (ids || []).forEach(function (id) {
+        var listed = !!tilesById[id];
+        if (dropItem(id) || (!listed && listUrl)) {
+          gone++;
+          forget(id);
+        }
+      });
       if (!gone) return;
       counts.total = Math.max(0, counts.total - gone);
+      // Under the filter every listed file was new to me
+      counts.fresh = Math.max(0, counts.fresh - gone);
       refreshCount();
       layoutBoard();
       updateSelection();
@@ -1092,21 +1226,104 @@
     // Download and Save to Photos items, with the dates the File gets
     function asItems(tiles) { return tiles.map(FGS.fileItemFromEl); }
 
-    function actionArg(tiles, button, bulk, menu, trigger) {
-      return { browser: api, root: root, context: context, tiles: tiles, ids: tiles.map(idOf),
-        items: tiles.map(FGS.itemFromEl), bulk: bulk, button: button, trigger: trigger || button,
-        menu: menu || (tiles.length === 1 ? menuOf(tiles[0]) : null), status: status, linkResult: linkResult };
+    // data: FGS.itemData of every file acted on, rendered or not (Part 3);
+    // ids are theirs, tiles only the rendered ones
+    function actionArg(tiles, button, bulk, menu, trigger, data) {
+      data = data || tiles.map(FGS.itemData);
+      return { browser: api, root: root, context: context, tiles: tiles, ids: data.map(function (d) { return d.id; }),
+        data: data, items: tiles.map(FGS.itemFromEl), bulk: bulk, button: button, trigger: trigger || button,
+        menu: menu || (tiles.length === 1 && data.length === 1 ? menuOf(tiles[0]) : null), status: status, linkResult: linkResult };
     }
 
-    // Built-in selection-bar actions: the ones visitors have too
-    function bulkDownload(tiles, button) {
+    // The selection as FGS.itemData, in list order: the ticked files, or a
+    // query selection's whole matching list from the feed (limit=all) less
+    // what was unticked. Resolves to null when a reload dropped the
+    // selection meanwhile.
+    function resolveSelected() {
+      if (sel.mode === "ids") return Promise.resolve(selected().map(FGS.itemData));
+      var s = sel, gen = generation;
+      var url = feedUrlFor(s.query, "") + (s.fresh ? "&new=1" : "") + "&limit=all";
+      return fetch(url, { credentials: "same-origin", cache: "no-store" })
+        .then(function (r) {
+          if (!r.ok) throw new Error("The server answered " + r.status);
+          return r.json();
+        })
+        .then(function (answer) {
+          if (gen !== generation || sel !== s) return null;
+          if (!answer || !Array.isArray(answer.Items)) throw new Error("Unexpected answer");
+          var seen = {};
+          var data = answer.Items.map(FGS.itemData).filter(function (d) {
+            seen[d.id] = true;
+            return !s.except.has(d.id);
+          });
+          s.plus.forEach(function (id) {
+            if (!seen[id] && tilesById[id]) data.push(FGS.itemData(tilesById[id]));
+          });
+          return data;
+        });
+    }
+    // Every file of the list, loaded or not, in list order, as FGS.itemData
+    // (the collection page's own buttons). Fetched only while some are not
+    // rendered, or a filter hides some.
+    function resolveAll() {
+      var rendered = function () {
+        return Array.prototype.filter.call(grid.children, function (t) { return t.classList.contains("fgs-tile"); }).map(FGS.itemData);
+      };
+      if (!listUrl || (!next && !filtered(query))) return Promise.resolve(rendered());
+      var everything = { scope: query.scope ? "all" : "", person: "", hide: false, q: "", sort: query.sort, desc: query.desc };
+      return fetch(feedUrlFor(everything, "") + "&limit=all", { credentials: "same-origin", cache: "no-store" })
+        .then(function (r) {
+          if (!r.ok) throw new Error("The server answered " + r.status);
+          return r.json();
+        })
+        .then(function (answer) {
+          if (!answer || !Array.isArray(answer.Items)) throw new Error("Unexpected answer");
+          return answer.Items.map(FGS.itemData);
+        });
+    }
+    function filtered(q) { return q.scope === "mine" || !!q.person || !!q.hide || !!q.q.trim(); }
+
+    // A zip of these files: a POSTed form (no URL length limit), answered
+    // with an attachment, so the page stays. ZipUrl ends in the parameter
+    // that takes the ids ("./files/zip?ids=", "./cz?id=C&files="); that
+    // parameter becomes the form field. A context with its own zip (request
+    // pages: presigned) is handed the ids instead.
+    function zipIds(ids) {
+      var handler = fileAction(context, "zip");
+      if (handler) {
+        handler({ browser: api, root: root, context: context, tiles: [], ids: ids.slice(),
+          data: ids.map(function (id) { return tilesById[id] ? FGS.itemData(tilesById[id]) : { id: id }; }),
+          items: [], bulk: true, button: null, trigger: null, menu: null, status: status, linkResult: linkResult });
+        return true;
+      }
+      var m = /^(.*?)[?&]([^=&?]+)=$/.exec(zipUrl);
+      if (!m) return false;
+      var form = document.createElement("form");
+      form.method = "post";
+      form.action = m[1];
+      form.target = "_self";
+      form.hidden = true;
+      var field = document.createElement("input");
+      field.type = "hidden";
+      field.name = m[2];
+      field.value = ids.join(",");
+      form.appendChild(field);
+      document.body.appendChild(form);
+      form.submit();
+      window.setTimeout(function () { if (form.parentNode) form.parentNode.removeChild(form); }, 1000);
+      return true;
+    }
+
+    // Built-in selection-bar actions: the ones visitors have too. data is
+    // FGS.itemData of every selected file.
+    function bulkDownload(data, button) {
       // Files without a link (end-to-end encrypted on the Files tab) can only
       // be decrypted on their own download page; the zip skips them too, so
       // fetch the rest and say what was left out
-      var usable = tiles.filter(function (t) { return t.getAttribute("data-download"); });
-      var skipped = tiles.length - usable.length;
-      if (usable.length) FGS.downloadSequentially(asItems(usable), { button: button, status: status });
-      if (usable.length && groupTools) markDownloaded(usable.map(idOf));
+      var usable = data.filter(function (d) { return d.url; });
+      var skipped = data.length - usable.length;
+      if (usable.length) FGS.downloadSequentially(usable, { button: button, status: status });
+      if (usable.length && groupTools) markDownloaded(usable.map(function (d) { return d.id; }));
       if (skipped) {
         window.setTimeout(function () {
           status.textContent = manages
@@ -1115,57 +1332,82 @@
         }, usable.length * 600 + 100); // after downloadSequentially's own last message
       }
     }
-    // Everything is selected and nothing is filtered out: the whole list
-    function selectedIsEverything(tiles) {
-      return query.scope !== "mine" && !query.person && !query.hide && !query.q && tiles.length === counts.all;
+    // The whole list, unfiltered and nothing unticked: the zip without
+    // files= (every live member), where the page has one
+    function selectionIsEverything() {
+      return sel.mode === "query" && !sel.fresh && !sel.except.size && !sel.plus.size && !filtered(sel.query);
     }
-    // Cloudflare refuses URLs from about 16 KB; stay well below that
-    var ZIP_URL_MAX = 8000;
-    function bulkZip(tiles) {
+    function bulkZip(data) {
       if (!zipUrl) return;
-      var url = zipAllUrl && selectedIsEverything(tiles) ? zipAllUrl
-        : zipUrl + tiles.map(function (t) { return encodeURIComponent(idOf(t)); }).join(",");
-      if (url.length > ZIP_URL_MAX) {
-        status.textContent = "Too many files for one .zip: select fewer" + (zipAllUrl ? ", or select all." : ".");
-        return;
-      }
-      window.location = url;
+      var ids = data.map(function (d) { return d.id; });
+      if (zipAllUrl && selectionIsEverything()) window.location = zipAllUrl;
+      else if (!zipIds(ids)) return;
       // Ticked only once the request has gone out
-      if (groupTools) markDownloaded(tiles.map(idOf));
+      if (groupTools) markDownloaded(ids);
     }
 
-    bar.addEventListener("click", function (e) {
-      var act = e.target.closest("[data-act]");
-      if (!act || !bar.contains(act)) return;
-      var tiles = selected();
-      if (!tiles.length) return;
-      var what = act.getAttribute("data-act");
+    // A bar action on the resolved selection
+    function runBulk(what, act, data) {
       // On the Files tab, other people's files from the viewer's groups
-      // (data-foreign) can be downloaded and saved, but nothing else: those
+      // (foreign) can be downloaded and saved, but nothing else: those
       // actions, the uncounted owner zip included, are their uploader's or
       // the group's. (Group pages mark them too, and act on them there.)
       if (context === "files" && what !== "download" && what !== "photos") {
-        var own = tiles.filter(function (t) { return t.getAttribute("data-foreign") !== "true"; });
-        if (own.length < tiles.length) {
-          var left = tiles.length - own.length;
+        var own = data.filter(function (d) { return !d.foreign; });
+        if (own.length < data.length) {
+          var left = data.length - own.length;
           status.textContent = left + " file(s) from your groups left out: " +
             (what === "zip" ? "zip them on their group's page." : "they are someone else's.");
           if (!own.length) return;
-          tiles = own;
+          data = own;
         }
       }
+      var tiles = data.map(function (d) { return tilesById[d.id]; }).filter(Boolean);
       var handler = fileAction(context, what);
-      if (handler) { handler(actionArg(tiles, act, true, null)); return; }
-      if (what === "download") bulkDownload(tiles, act);
-      else if (what === "zip") bulkZip(tiles);
+      if (handler) { handler(actionArg(tiles, act, true, null, null, data)); return; }
+      if (what === "download") bulkDownload(data, act);
+      else if (what === "zip") bulkZip(data);
       else if (what === "photos") {
-        FGS.saveToPhotos(asItems(tiles), act);
+        FGS.saveToPhotos(data, act);
         // Fetched now; hidden only later, or the prepared set would be dropped
-        if (groupTools) markDownloaded(tiles.filter(function (t) { return t.getAttribute("data-download"); }).map(idOf), true);
+        if (groupTools) markDownloaded(data.filter(function (d) { return d.url; }).map(function (d) { return d.id; }), true);
       }
+    }
+
+    // One resolution at a time; the button tapped says "Loading…" meanwhile
+    var resolving = false;
+    bar.addEventListener("click", function (e) {
+      var act = e.target.closest("[data-act]");
+      if (!act || !bar.contains(act) || resolving || act.disabled) return;
+      if (!selectedCount()) return;
+      var what = act.getAttribute("data-act");
+      // A prepared Save to Photos shares on this tap: nothing may come
+      // between the tap and the share sheet
+      if (what === "photos" && act._fgs && (act._fgs.files || act._fgs.busy)) { runBulk(what, act, []); return; }
+      var label = null;
+      if (sel.mode === "query") {
+        resolving = true;
+        label = Array.prototype.map.call(act.childNodes, function (n) { return n.cloneNode(true); });
+        act.textContent = "Loading…";
+        act.disabled = true;
+      }
+      var restore = function () {
+        if (!label) return;
+        resolving = false;
+        act.textContent = "";
+        label.forEach(function (n) { act.appendChild(n); });
+        act.disabled = false;
+      };
+      resolveSelected().then(function (data) {
+        restore();
+        if (data && data.length) runBulk(what, act, data);
+      }, function () {
+        restore();
+        status.textContent = "Couldn't load the selection. Try again.";
+      });
     });
-    if (selectAllButton) selectAllButton.addEventListener("click", function () { selectWhere(function () { return true; }); });
-    if (selectNewButton) selectNewButton.addEventListener("click", function () { selectWhere(isNewToMe); });
+    if (selectAllButton) selectAllButton.addEventListener("click", function () { selectQuery(false); });
+    if (selectNewButton) selectNewButton.addEventListener("click", function () { selectQuery(true); });
 
     var help = bar.querySelector("[data-fgs-help]");
     if (FGS.isIOS()) {
@@ -1683,6 +1925,7 @@
       if (listUrl) {
         counts.all++;
         if (matches) counts.total++;
+        if (matches && groupTools && isNewToMe(tile)) counts.fresh++;
         if (!matches || !placeSorted(tile, row)) {
           refreshCount();
           return null;
@@ -1694,6 +1937,8 @@
         row.classList.toggle("d-none", !matches);
       }
       index(tile, row);
+      // Ticked on arrival where a "Select all" covers it
+      syncTicks([tile]);
       var state = tile.getAttribute("data-preview-status");
       if (state !== "ready" && !file.IsEndToEndEncrypted && (!state || state === "pending")) startPolling(id);
       refreshCount();
@@ -1765,11 +2010,17 @@
       if (row && row.parentNode) row.parentNode.removeChild(row);
       return true;
     }
+    // A file that left the list. One not rendered (an action on a "Select
+    // all") only leaves the counts.
     function removeItem(id) {
-      if (dropItem(id) && listUrl) {
+      var tile = tilesById[id];
+      var fresh = tile ? groupTools && isNewToMe(tile) : false;
+      if ((dropItem(id) || !tile) && listUrl) {
         counts.total = Math.max(0, counts.total - 1);
         counts.all = Math.max(0, counts.all - 1);
+        if (fresh) counts.fresh = Math.max(0, counts.fresh - 1);
       }
+      forget(id);
       refreshCount();
       layoutBoard();
       updateSelection();
@@ -1777,13 +2028,15 @@
 
     // ---- Batches ------------------------------------------------------
     // The feed URL of the current query, after a cursor or from the start
-    function feedUrl(after) {
+    function feedUrl(after) { return feedUrlFor(query, after); }
+    // The same for another query (a captured selection's)
+    function feedUrlFor(q, after) {
       var params = [];
-      if (query.scope) params.push("scope=" + query.scope);
-      if (query.person) params.push("person=" + encodeURIComponent(query.person));
-      if (query.hide) params.push("hide=1");
-      if (query.q.trim()) params.push("q=" + encodeURIComponent(query.q.trim()));
-      params.push("sort=" + query.sort, "dir=" + (query.desc ? "desc" : "asc"));
+      if (q.scope) params.push("scope=" + q.scope);
+      if (q.person) params.push("person=" + encodeURIComponent(q.person));
+      if (q.hide) params.push("hide=1");
+      if (q.q.trim()) params.push("q=" + encodeURIComponent(q.q.trim()));
+      params.push("sort=" + q.sort, "dir=" + (q.desc ? "desc" : "asc"));
       if (after) params.push("after=" + encodeURIComponent(after));
       return listUrl + params.join("&");
     }
@@ -1825,6 +2078,8 @@
       counts.total = answer.Total || 0;
       counts.all = answer.All || 0;
       counts.fresh = answer.New || 0;
+      // A "Select all" covers what arrives
+      syncTicks(added);
       // Once per batch, and the selection (with what was prepared or
       // linked from it) stays as it is
       refreshCount();
@@ -1893,6 +2148,7 @@
       grid.style.height = "";
       next = "";
       status.textContent = "";
+      clearSelection();
       updateSelection();
       return fetchBatch("");
     }
@@ -1966,6 +2222,13 @@
       tile: function (id) { return tilesById[id] || null; },
       row: function (id) { return rowsById[id] || null; },
       selected: selected,
+      // The selection (Part 3): {mode: "ids", ids} or {mode: "query", query,
+      // except, plus}; its count; and its files, resolved
+      selection: selectionInfo,
+      selectedCount: selectedCount,
+      resolveSelected: resolveSelected,
+      resolveAll: resolveAll,
+      zipIds: zipIds,
       visible: visibleTiles,
       setSelecting: setSelecting,
       view: function () { return view; },

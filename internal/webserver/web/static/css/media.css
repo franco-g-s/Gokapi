@@ -3,8 +3,9 @@
 .fgs-sheet-card{background:#1c1c1a;color:#f2f1ee;border:1px solid #2e2e2b;border-radius:14px 14px 0 0;max-width:32rem;width:100%;padding:1.5rem}
 .fgs-sheet-card ol{padding-left:1.2rem}
 .fgs-download-preview{display:block;margin:0 auto 1rem;max-width:100%;height:auto;max-height:60vh;border-radius:10px}
-/* A tile never gets wider than half the row, so a phone always shows at least two columns */
-.fgs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(var(--fgs-tile,160px),calc(50% - .4rem)),1fr));gap:.75rem}
+/* Before media.js: the old 160 px look, never under two columns. Then the slider's column count (R3, V9; FGS.tileColumns), 1 at its right end */
+.fgs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(160px,calc(50% - .4rem)),1fr));gap:.75rem}
+.fgs-grid.fgs-has-cols{grid-template-columns:repeat(var(--fgs-cols),minmax(0,1fr))}
 .fgs-tile{position:relative;margin:0}
 .fgs-tile-open{display:block;width:100%;aspect-ratio:1;padding:0;border:0;border-radius:10px;overflow:hidden;background:#232321}
 .fgs-tile-open img{width:100%;height:100%;object-fit:cover;display:block}
@@ -12,11 +13,36 @@
 /* Select mode: checkboxes only while selecting, in both views; the slider and shape toggle only in the grid */
 .fgs-browser:not(.fgs-selecting) .fgs-tile-check,.fgs-browser:not(.fgs-selecting) .fgs-col-check{display:none}
 .fgs-browser:not([data-current-view=grid]) .fgs-grid-only{display:none!important}
+.fgs-browser[data-current-view=list] .fgs-tiles-only{display:none!important}
+/* Select mode (R3, V8): an expand button opens the file without touching the selection; under the tile's "⋯" */
+.fgs-browser:not(.fgs-selecting) .fgs-tile-expand,.fgs-browser:not(.fgs-selecting) .fgs-row-expand{display:none}
+.fgs-tile-expand{position:absolute;top:2.8rem;right:.4rem;z-index:2;width:2rem;height:2rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#f2f1ee;line-height:1}
+.fgs-tile-expand:hover,.fgs-tile-expand:focus-visible{background:rgba(0,0,0,.8);color:#fff}
+.fgs-row-expand{color:#f2f1ee;border:1px solid #6c757d;line-height:1;flex:none}
 /* Only the current view, from the first paint: the inline script after each list root sets data-current-view (FGS.presetView) */
 .fgs-browser[data-current-view=list]>.fgs-views>[data-fgs-grid]{display:none!important}
 .fgs-browser:not([data-current-view=list])>.fgs-views>[data-fgs-list]{display:none!important}
 /* Empty: the message instead of the views */
 .fgs-browser .fgs-empty{display:none}.fgs-browser.fgs-is-empty .fgs-empty{display:block}.fgs-browser.fgs-is-empty .fgs-views{display:none}
+/* Batches (Part 3): hidden while a remembered filter or sort reloads the first batch, so the server's unfiltered one never flashes */
+.fgs-views.fgs-reloading{visibility:hidden}
+/* The sentinel after the grid and after the table: "Loading…", or the failure and Retry. The grid's is not List's. */
+.fgs-more{text-align:center;color:#9a9992;font-size:.85rem}.fgs-more:not(:empty){padding:.75rem 0}
+.fgs-browser[data-current-view=list]>.fgs-views>.fgs-more{display:none}
+/* Search: in the toolbar, in every view. Sortable headers: the title is the button, an arrow on the active one. */
+.fgs-toolbar [data-fgs-search]{width:12rem;max-width:100%}
+/* Sort & filter (R1): one dropdown with the sort, the direction and the filters; a badge counts the filters on */
+.fgs-sortfilter>.dropdown-menu.fgs-sortfilter-menu{min-width:16rem;max-width:calc(100vw - 1.5rem);padding:.5rem .85rem;max-height:calc(100vh - 5rem);max-height:calc(100dvh - 5rem);overflow-y:auto}
+.fgs-sf-group{margin:0 0 .4rem;padding:0;border:0;min-width:0}
+.fgs-sf-group .dropdown-header{padding:.35rem 0 .2rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:#9a9992}
+.fgs-sf-row{display:flex;flex-wrap:wrap;gap:.1rem 1rem}
+.fgs-sortfilter-menu .form-check-label{padding:.2rem 0;cursor:pointer}
+.fgs-sortfilter-menu .form-check-input{margin-right:.4rem}
+.fgs-sortfilter-menu [data-fgs-filter-reset]{margin-top:.15rem}
+.fgs-filter-badge{margin-left:.15rem;font-size:.7rem}
+.fgs-sort{padding:0;border:0;background:none;color:inherit;font:inherit;white-space:nowrap}
+.fgs-sort:hover,.fgs-sort:focus-visible{text-decoration:underline}
+.fgs-sort-arrow{margin-left:.25rem}.fgs-sort-arrow:empty{display:none}
 .fgs-selecting .fgs-tile:has(.fgs-tile-check:checked) .fgs-tile-open{outline:3px solid #f2f1ee;outline-offset:-3px}
 .fgs-table .fgs-col-check{width:2rem}
 .fgs-list-name{display:flex;align-items:center;gap:.6rem}
@@ -57,9 +83,17 @@
 .fgs-tile figcaption{font-size:.8rem;line-height:1.3;margin-top:.35rem}
 .fgs-name{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fgs-meta{color:#9a9992}
-/* Sticks below the fixed user badge (top .5rem, about 1.5rem tall) and wraps instead of running under it */
-.fgs-selectbar{position:sticky;top:2.5rem;z-index:5;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;padding:.5rem;background:#1c1c1a;border:1px solid #2e2e2b;border-radius:10px;margin-bottom:.75rem}
+/* Sticky (R3, V7): the toolbar at the top (below the View-as banner), the selection bar right under it.
+   media.js measures the toolbar into --fgs-toolbar-h and, while stuck, insets both by the branding's fixed buttons (--fgs-inset-l/-r). */
+.fgs-toolbar{position:sticky;top:var(--fgs-viewas-h,0px);z-index:6;padding:.5rem var(--fgs-inset-r,0px) .5rem var(--fgs-inset-l,0px);margin-bottom:.5rem;background:var(--fgs-card,#1c1c1a)}
+.fgs-toolbar.fgs-stuck{box-shadow:0 6px 12px -8px rgba(0,0,0,.6)}
+.fgs-selectbar{position:sticky;top:calc(var(--fgs-viewas-h,0px) + var(--fgs-toolbar-h,0px));z-index:5;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;padding:.5rem calc(.5rem + var(--fgs-inset-r,0px)) .5rem calc(.5rem + var(--fgs-inset-l,0px));background:#1c1c1a;border:1px solid #2e2e2b;border-radius:10px;margin-bottom:.75rem}
 .fgs-selcount{white-space:nowrap}
+/* Beats a stale viewas.js (pre-R3: html.fgs-viewas .fgs-selectbar{top:calc(2.5rem + …)}, 0,2,1) still in a browser's cache */
+.fgs-browser>.fgs-selectbar[data-fgs-selectbar]{top:calc(var(--fgs-viewas-h,0px) + var(--fgs-toolbar-h,0px))}
+/* The bulk buttons' row: laid out as part of the bar, except on phones (below) */
+.fgs-selactions{display:contents}
+.fgs-tools-toggle{display:none}
 .fgs-none-selected [data-act]{opacity:.5;pointer-events:none}
 .fgs-collect-list{max-height:40vh;overflow-y:auto}
 /* By id: showAutoLinkResult replaces the class */
@@ -82,6 +116,7 @@
 .collection-name-link:hover{text-decoration:underline}
 @media (min-width:992px){.file-card.fgs-collection-wide{max-width:min(1280px,100% - 2rem)}}
 .fgs-v-photos[hidden]{display:none}
+.fgs-v-select{display:inline-flex;align-items:center;gap:.4rem;margin:0;cursor:pointer}.fgs-v-select[hidden]{display:none}
 /* The "⋯" menu, in the site's look (branding custom.css: the card and dialog
    surface --fgs-card made translucent with the sidebar's frosted blur, the
    --fgs-line border, the --fgs-radius corners, and the sidebar links' type
@@ -98,3 +133,23 @@
 .btn.fgs-photos-ready,.btn.fgs-photos-ready:focus-visible,.fgs-menu .dropdown-item.fgs-photos-ready{background-color:#198754;border-color:#198754;color:#fff;animation:fgs-pulse 1.6s ease-out infinite}
 .btn.fgs-photos-ready:hover,.btn.fgs-photos-ready:active,.fgs-menu .dropdown-item.fgs-photos-ready:hover,.fgs-menu .dropdown-item.fgs-photos-ready:active{background-color:#157347;border-color:#146c43;color:#fff}
 @media (prefers-reduced-motion:reduce){.btn.fgs-photos-ready,.fgs-menu .dropdown-item.fgs-photos-ready{animation:none}}
+/* Phones (R3): last, so it wins over the rules above. The toolbar is one row (count, Sort & filter, layout, the
+   search-and-size toggle, Select; icons without their words, each button keeping its title); search, shape and
+   the slider open below it from the toggle. The selection bar is one row: the count, then the bulk buttons
+   scrolling sideways; its status and link result take a second row only when they have something to say. */
+@media (max-width:575.98px){
+.fgs-toolbar{gap:.3rem!important;padding-top:.35rem;padding-bottom:.35rem}
+.fgs-toolbar .fgs-label{display:none}
+.fgs-toolbar .btn{--bs-btn-padding-x:.4rem}
+.fgs-toolbar .fgs-count{white-space:nowrap}
+.fgs-toolbar .fgs-tools-toggle{display:inline-block}
+.fgs-toolbar [data-fgs-select-toggle]{order:1}
+.fgs-toolbar .fgs-tool2{order:2}
+.fgs-toolbar:not(.fgs-tools-open) .fgs-tool2{display:none!important}
+.fgs-toolbar [data-fgs-search]{flex:1 1 6rem;width:auto}
+.fgs-toolbar .fgs-size{flex:1 1 5rem;width:auto!important}
+.fgs-selectbar{gap:.35rem;padding-top:.3rem;padding-bottom:.3rem}
+.fgs-selectbar .btn{--bs-btn-padding-x:.45rem;--bs-btn-padding-y:.15rem;--bs-btn-font-size:.8rem;white-space:nowrap;flex:none}
+.fgs-selactions{display:flex;flex:1 1 0;min-width:0;flex-wrap:nowrap;overflow-x:auto;gap:.35rem;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+.fgs-selstatus:empty{display:none}
+}

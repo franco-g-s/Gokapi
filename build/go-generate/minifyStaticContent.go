@@ -84,6 +84,12 @@ func getPaths() []converter {
 		Name:       "SHA-1 JS",
 	})
 	result = append(result, converter{
+		InputPath:  pathPrefix + "js/viewas.js",
+		OutputPath: pathPrefix + "js/min/viewas.min.js",
+		Type:       "text/javascript",
+		Name:       "View as JS",
+	})
+	result = append(result, converter{
 		InputPath:  pathPrefix + "js/sha1-worker.js",
 		OutputPath: pathPrefix + "js/min/sha1-worker.min.js",
 		Type:       "text/javascript",
@@ -203,7 +209,7 @@ func fileExists(filename string) bool {
 // Auto-generated content below, do not modify
 // Version codes can be changed in updateVersionNumbers.go
 
-const jsAdminVersion = "2f6c33adce"
-const jsMediaVersion = "2f6c33adce"
-const jsE2EVersion = "2f6c33adce"
-const cssMainVersion = "2f6c33adce"
+const jsAdminVersion = "a47637a73a"
+const jsMediaVersion = "a47637a73a"
+const jsE2EVersion = "a47637a73a"
+const cssMainVersion = "a47637a73a"

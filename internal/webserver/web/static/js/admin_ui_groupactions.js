@@ -58,11 +58,6 @@
         return dialog;
     }
 
-    function isEncrypted(tile) {
-        var menu = tile.querySelector("[data-fgs-file-menu]");
-        return !!menu && menu.getAttribute("data-e2e") === "true";
-    }
-
     function showResult(kind, lines) {
         dialog.result.textContent = "";
         dialog.result.className = "alert alert-" + kind + " mt-3";
@@ -134,12 +129,13 @@
 
     function openAddToGroup(a) {
         if (!groupDialog()) return;
-        var tiles = a.tiles || [];
-        var usable = tiles.filter(function (t) { return !isEncrypted(t); });
-        dialog.ids = usable.map(function (t) { return t.getAttribute("data-id"); });
+        // Every selected file, rendered or not (FGS.itemData)
+        var files = a.data || [];
+        var usable = files.filter(function (d) { return !d.e2e; });
+        dialog.ids = usable.map(function (d) { return d.id; });
         var what = plural(usable.length, "file");
-        if (usable.length < tiles.length) {
-            what += " (" + plural(tiles.length - usable.length, "end-to-end encrypted file") +
+        if (usable.length < files.length) {
+            what += " (" + plural(files.length - usable.length, "end-to-end encrypted file") +
                 " left out: they cannot be in a group)";
         }
         dialog.what.textContent = what;

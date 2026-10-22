@@ -519,9 +519,9 @@ function createFileRequestRow(jsonResult, user) {
     async function downloadEach(a) {
         a.button.disabled = true;
         const failures = [];
-        for (let i = 0; i < a.tiles.length; i++) {
-            const name = a.tiles[i].getAttribute("data-name");
-            a.status.textContent = "Starting download " + (i + 1) + " of " + a.tiles.length + "...";
+        for (let i = 0; i < a.data.length; i++) {
+            const name = a.data[i].name;
+            a.status.textContent = "Starting download " + (i + 1) + " of " + a.data.length + "...";
             try {
                 const link = document.createElement("a");
                 link.href = await presignUrl(a.ids[i]);
@@ -538,7 +538,7 @@ function createFileRequestRow(jsonResult, user) {
         a.button.disabled = false;
         a.status.textContent = failures.length
             ? "Could not download " + failures.length + " file(s): " + failures.join("; ")
-            : "Started " + a.tiles.length + " download" + (a.tiles.length === 1 ? "" : "s") + ".";
+            : "Started " + a.data.length + " download" + (a.data.length === 1 ? "" : "s") + ".";
     }
 
     function download(a) {
@@ -558,11 +558,10 @@ function createFileRequestRow(jsonResult, user) {
     // fetched, and the dates the saved files get
     function photos(a) {
         const button = a.button;
-        const prepared = button._fgs && button._fgs.files;
-        const items = prepared ? [] : a.tiles.map(tile => Object.assign(FGS.fileItemFromEl(tile), {
-            url: () => presignUrl(tile.getAttribute("data-id"))
+        const items = FGS.photosPending(button) ? [] : a.data.map(d => Object.assign({}, d, {
+            url: () => presignUrl(d.id)
         }));
-        FGS.saveToPhotos(items, button);
+        FGS.saveToPhotos(items, button, { status: a.status, zipIds: ids => a.browser.zipIds(ids) });
     }
 
     // Takes a deleted file out of this request's list and keeps the row's
@@ -580,14 +579,14 @@ function createFileRequestRow(jsonResult, user) {
         showToastFileDeletionFr(id, name);
     }
 
-    function mayDelete(a, tile) {
-        return tile.getAttribute("data-mine") === "true" ||
+    function mayDelete(a, d) {
+        return d.mine ||
             a.root.getAttribute("data-perm-delete-others") === "true";
     }
 
     function deleteOne(a) {
         const id = a.ids[0];
-        const name = a.tiles[0].getAttribute("data-name");
+        const name = a.data[0].name;
         a.button.disabled = true;
         apiFilesDelete(id, UNDO_DELAY_S)
             .then(() => removeFile(a, id, name))
@@ -602,15 +601,15 @@ function createFileRequestRow(jsonResult, user) {
     // Several files: asked first, then deleted at once (no undo), each taken
     // out of the list as it goes. No reload: it would collapse the open row.
     async function deleteMany(a) {
-        if (!confirm("Delete " + a.tiles.length + " file(s)? This cannot be undone.")) return;
+        if (!confirm("Delete " + a.data.length + " file(s)? This cannot be undone.")) return;
         a.button.disabled = true;
         const failures = [];
         let deleted = 0;
         try {
-            for (let i = 0; i < a.tiles.length; i++) {
-                const name = a.tiles[i].getAttribute("data-name");
-                a.status.textContent = "Deleting " + (i + 1) + " of " + a.tiles.length + "...";
-                if (!mayDelete(a, a.tiles[i])) {
+            for (let i = 0; i < a.data.length; i++) {
+                const name = a.data[i].name;
+                a.status.textContent = "Deleting " + (i + 1) + " of " + a.data.length + "...";
+                if (!mayDelete(a, a.data[i])) {
                     failures.push(name + ": you may not delete this file");
                     continue;
                 }

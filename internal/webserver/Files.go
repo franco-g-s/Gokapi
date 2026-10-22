@@ -3,12 +3,9 @@ package webserver
 import (
 	"net/http"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/helper"
 	"github.com/forceu/gokapi/internal/models"
@@ -130,57 +127,23 @@ func showFiles(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "login")
 		return
 	}
-	config := configuration.Get()
 	view := FilesView{}
 	view.AdminView = *(&AdminView{}).convertGlobalConfig(ViewFiles, user)
-	seeEveryone := user.HasPermissionListOtherUploads()
-	person, onlyPerson := personFilter(r, user)
-	names := map[int]string{}
-	for _, u := range database.GetAllUsers() {
-		names[u.Id] = u.Name
-	}
-	now := time.Now().Unix()
-	items := make([]browserItem, 0)
-	for _, f := range database.GetAllMetadata() {
-		if f.UserId != user.Id && !seeEveryone {
-			continue
-		}
-		if onlyPerson && f.UserId != person.Id {
-			continue
-		}
-		out, err := f.ToFileApiOutput(config.ServerUrl, config.IncludeFilename)
-		helper.Check(err)
-		if !isListedFile(out, now) {
-			continue
-		}
-		items = append(items, browserItemFromFile(r, f, user, ctxFiles, "", names))
-	}
-	// Without PERM_LIST, Everything is their own files plus those in their
-	// groups (spec, "Files tab")
-	inGroups := false
-	if !seeEveryone && !onlyPerson && database.SupportsGroups() {
-		inGroups = len(storage.GroupsOfUser(user.Id)) > 0
-		items = append(items, filesTabGroupItems(r, user)...)
-	}
-	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].File.UploadDate != items[j].File.UploadDate {
-			return items[i].File.UploadDate > items[j].File.UploadDate
-		}
-		return items[i].File.Id > items[j].File.Id
-	})
-	view.Browser = newFileBrowser("fgs-files", ctxFiles, items, user)
-	if inGroups {
+	source, meta := filesTabSource(r, user)
+	view.Browser = newFileBrowser("fgs-files", ctxFiles, nil, user)
+	if meta.InGroups {
 		// In at least one live group: the switch, even while the groups
 		// hold only their own files
 		view.Browser.ShowScope = true
 		view.Browser.ShowUploader = true
 	}
-	if onlyPerson {
+	if meta.OnlyPerson {
 		// Everything on the page is one person's: the My files / Everything
 		// switch would have nothing to switch between
 		view.Browser.ShowScope = false
-		view.PersonName = displayName(person)
+		view.PersonName = displayName(meta.Person)
 	}
+	view.Browser.WithList(source, filesListUrl(meta))
 	err = templateFolder.ExecuteTemplate(w, "files", &view)
 	helper.CheckIgnoreTimeout(err)
 }

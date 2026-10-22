@@ -32,6 +32,7 @@ import (
 	"github.com/forceu/gokapi/internal/webserver"
 	"github.com/forceu/gokapi/internal/webserver/authentication"
 	"github.com/forceu/gokapi/internal/webserver/ssl"
+	"github.com/forceu/gokapi/internal/webserver/viewas"
 )
 
 // versionGokapi is the current version in readable form.
@@ -72,6 +73,9 @@ func main() {
 	logging.LogStartup()
 	showDeprecationWarnings()
 	serverstats.Init()
+	// Part 3, V1: a restart ends every "View as…"; idle ones end after an hour
+	viewas.SweepAtStartup()
+	viewas.StartTicker()
 	go webserver.Start()
 
 	c := make(chan os.Signal)

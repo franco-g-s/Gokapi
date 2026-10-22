@@ -271,6 +271,48 @@ function hasPermission(userPerm, permissionBit) {
 }
 
 
+// A dropdown cell control, as html_users.tmpl renders it (R2, V5)
+function userRowDropdown(label, ariaLabel, autoCloseOutside) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "dropdown d-inline-block";
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "btn btn-outline-light btn-sm";
+    toggle.setAttribute("data-bs-toggle", "dropdown");
+    toggle.setAttribute("data-bs-popper-config", '{"strategy":"fixed"}');
+    toggle.setAttribute("aria-expanded", "false");
+    if (autoCloseOutside) toggle.setAttribute("data-bs-auto-close", "outside");
+    if (ariaLabel) {
+        toggle.setAttribute("aria-label", ariaLabel);
+        toggle.title = ariaLabel;
+    } else {
+        toggle.classList.add("dropdown-toggle");
+    }
+    toggle.textContent = label;
+    const menu = document.createElement("ul");
+    menu.className = "dropdown-menu dropdown-menu-dark dropdown-menu-end";
+    wrapper.appendChild(toggle);
+    wrapper.appendChild(menu);
+    return { wrapper: wrapper, menu: menu };
+}
+
+// One menu entry: an icon and a label, both set without HTML
+function userRowMenuItem(menu, id, iconClass, label, onclick) {
+    const li = document.createElement("li");
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "dropdown-item";
+    if (id) item.id = id;
+    const icon = document.createElement("i");
+    icon.className = iconClass;
+    item.appendChild(icon);
+    item.appendChild(document.createTextNode(" " + label));
+    if (onclick) item.onclick = onclick;
+    li.appendChild(item);
+    menu.appendChild(li);
+    return { item: item, icon: icon };
+}
+
 function addRowUser(userid, name, permissions) {
 
     userid = sanitizeUserId(userid);
@@ -278,118 +320,80 @@ function addRowUser(userid, name, permissions) {
     let table = document.getElementById("usertable");
     let row = table.insertRow(1);
     row.id = "row-" + userid;
+    // Same cells as html_users.tmpl
     let cellName = row.insertCell(0);
-    let cellGroup = row.insertCell(1);
+    let cellType = row.insertCell(1);
     let cellLastOnline = row.insertCell(2);
     let cellUploads = row.insertCell(3);
     let cellSize = row.insertCell(4);
     let cellGroups = row.insertCell(5);
-    let cellPermissions = row.insertCell(6);
-    let cellActions = row.insertCell(7);
+    let cellActions = row.insertCell(6);
+    const cells = [cellName, cellType, cellLastOnline, cellUploads, cellSize, cellGroups, cellActions];
+    cells.forEach(cell => cell.classList.add("newUser"));
 
-    cellName.classList.add("newUser");
-    cellGroup.classList.add("newUser");
-    cellLastOnline.classList.add("newUser");
-    cellUploads.classList.add("newUser");
-    cellSize.classList.add("newUser");
-    cellGroups.classList.add("newUser");
-    cellPermissions.classList.add("newUser");
-    cellActions.classList.add("newUser");
-
-
-    cellName.innerText = name;
-    cellGroup.innerText = "User";
-    cellLastOnline.innerText = "Never";
-
-    // Same cells as html_users.tmpl: count and link, size, groups
+    cellName.className += " fgs-user-name";
+    cellName.textContent = name;
+    // A new user is never an admin, nor yourself
+    if (typeof canViewAs !== "undefined" && canViewAs) {
+        const viewAs = document.createElement("button");
+        viewAs.type = "button";
+        viewAs.className = "btn btn-outline-light btn-sm fgs-viewas-btn";
+        viewAs.setAttribute("data-fgs-viewas-user", userid);
+        viewAs.textContent = "View as…";
+        cellName.appendChild(document.createTextNode(" "));
+        cellName.appendChild(viewAs);
+    }
+    cellType.id = "userlevel_" + userid;
+    cellType.textContent = "User";
+    cellLastOnline.textContent = "Never";
     const fileCount = document.createElement("span");
     fileCount.className = "user-uploadcount";
-    fileCount.innerText = "0";
-    const filesLink = document.createElement("a");
-    filesLink.href = "./files?user=" + encodeURIComponent(userid);
-    filesLink.className = "link-light ms-1";
-    filesLink.innerText = "View files";
+    fileCount.textContent = "0";
     cellUploads.appendChild(fileCount);
-    cellUploads.appendChild(document.createTextNode(" "));
-    cellUploads.appendChild(filesLink);
-    cellSize.innerText = "0 B";
-    cellGroups.innerText = "—";
+    cellSize.textContent = "0 B";
+    cellGroups.textContent = "—";
+    cellActions.classList.add("text-nowrap");
 
-    // Create one button group
-    const btnGroup = document.createElement("div");
-    btnGroup.className = "btn-group";
-    btnGroup.setAttribute("role", "group");
-
-    // Password reset button (optional)
-    if (isInternalAuth) {
-        const btnResetPw = document.createElement("button");
-        btnResetPw.id = `pwchange-${userid}`;
-        btnResetPw.type = "button";
-        btnResetPw.className = "btn btn-outline-light btn-sm";
-        btnResetPw.title = "Reset Password";
-        btnResetPw.onclick = () => showResetPwModal(userid, name);
-        btnResetPw.innerHTML = `<i class="bi bi-key-fill"></i>`;
-        btnGroup.appendChild(btnResetPw);
-    }
-
-    // Promote button
-    const btnPromote = document.createElement("button");
-    btnPromote.id = `changeRank_${userid}`;
-    btnPromote.type = "button";
-    btnPromote.className = "btn btn-outline-light btn-sm";
-    btnPromote.title = "Promote User";
-    if (isAdmin) {
-        btnPromote.onclick = () => changeRank(userid, 'ADMIN', `changeRank_${userid}`);
-    } else {
-        btnPromote.disabled = true;
-    }
-    btnPromote.innerHTML = `<i class="bi bi-chevron-double-up"></i>`;
-    btnGroup.appendChild(btnPromote);
-
-    // Delete button
-    const btnDelete = document.createElement("button");
-    btnDelete.id = `delete-${userid}`;
-    btnDelete.type = "button";
-    btnDelete.className = "btn btn-outline-danger btn-sm";
-    btnDelete.title = "Delete";
-    btnDelete.onclick = () => showDeleteUserModal(userid, name);
-    btnDelete.innerHTML = `<i class="bi bi-trash3"></i>`;
-    btnGroup.appendChild(btnDelete);
-
-    // Insert button group into cellActions
-    cellActions.innerHTML = '';
-    cellActions.appendChild(btnGroup);
-
-    // Permissions
-     cellPermissions.innerHTML = PermissionDefinitions.map(perm => {
-        let granted = "perm-notgranted";
-        if (hasPermission(permissions, perm.bit)) {
-            granted = "perm-granted";
-        }
+    // Permissions: the same toggles and calls as the server-rendered rows
+    const perms = userRowDropdown("Permissions", null, true);
+    perms.wrapper.classList.add("prevent-select");
+    perms.menu.classList.add("fgs-perm-menu");
+    PermissionDefinitions.forEach(perm => {
         const id = perm.htmlId(userid);
-        let nochangeClass = "";
+        let classes = perm.icon + " " + (hasPermission(permissions, perm.bit) ? "perm-granted" : "perm-notgranted");
         if (!hasPermission(userPermissions, perm.bit)) {
-            nochangeClass = "perm-nochange";
+            classes += " perm-nochange";
         }
-        
-        
+        const entry = userRowMenuItem(perms.menu, null, classes, perm.title,
+            () => changeUserPermission(userid, perm.apiName, id));
+        entry.item.classList.add("fgs-perm-item");
+        entry.icon.id = id;
+    });
+    cellActions.appendChild(perms.wrapper);
+    cellActions.appendChild(document.createTextNode(" "));
 
-        return `
-        <i id="${id}"
-           class="${perm.icon} ${granted} ${nochangeClass}"
-           title="${perm.title}"
-           onclick='changeUserPermission(${userid}, "${perm.apiName}", "${id}")'>
-        </i>`;
-    }).join("");
+    // The "⋯" actions
+    const actions = userRowDropdown("⋯", "Actions", false);
+    actions.menu.classList.add("fgs-user-actions");
+    if (isInternalAuth) {
+        userRowMenuItem(actions.menu, `pwchange-${userid}`, "bi bi-key-fill", "Reset password",
+            () => showResetPwModal(userid, name));
+    }
+    const promote = userRowMenuItem(actions.menu, `changeRank_${userid}`, "bi bi-chevron-double-up",
+        "Change user type to Admin", () => changeRank(userid, 'ADMIN', `changeRank_${userid}`));
+    if (!isAdmin) {
+        promote.item.disabled = true;
+    }
+    const divider = document.createElement("li");
+    divider.innerHTML = '<hr class="dropdown-divider">';
+    actions.menu.appendChild(divider);
+    const del = userRowMenuItem(actions.menu, `delete-${userid}`, "bi bi-trash3", "Delete",
+        () => showDeleteUserModal(userid, name));
+    del.item.classList.add("text-danger");
+    cellActions.appendChild(actions.wrapper);
 
     setTimeout(() => {
-
-        cellName.classList.remove("newUser");
-        cellGroup.classList.remove("newUser");
-        cellLastOnline.classList.remove("newUser");
-        cellUploads.classList.remove("newUser");
-        cellPermissions.classList.remove("newUser");
-        cellActions.classList.remove("newUser");
+        cells.forEach(cell => cell.classList.remove("newUser"));
     }, 700);
 }
 
@@ -400,3 +404,32 @@ function sanitizeUserId(id) {
     }
     return numericId;
 }
+
+
+// Part 3, V1: "View as…", started from the Users tab (R2, V4)
+function viewAsStart(userId, button) {
+    if (button) button.disabled = true;
+    fetch("./viewas/start", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: userId })
+    }).then(function (response) {
+        return response.json().catch(function () { return {}; }).then(function (data) {
+            if (!response.ok || data.Result !== "OK") {
+                throw new Error(data.ErrorMessage || ("HTTP " + response.status));
+            }
+            location.href = "./files";
+        });
+    }).catch(function (error) {
+        if (button) button.disabled = false;
+        alert("Unable to view as this person: " + error.message);
+    });
+}
+
+document.addEventListener("click", function (e) {
+    var button = e.target.closest && e.target.closest("[data-fgs-viewas-user]");
+    if (!button) return;
+    e.preventDefault();
+    viewAsStart(parseInt(button.getAttribute("data-fgs-viewas-user"), 10), button);
+});

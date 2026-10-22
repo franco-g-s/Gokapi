@@ -134,7 +134,7 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 	// A signed-in visitor who is not the owner finds the collection under
 	// "Shared with me" from now on. Anonymous visits and the password form
 	// (which returned above) record nothing.
-	if visitor, signedIn := authentication.SessionIdentity(r); signedIn && visitor.Id != collection.UserId {
+	if visitor, signedIn := authentication.SessionIdentity(r); signedIn && visitor.Id != collection.UserId && !viewasActive(r) {
 		database.SaveCollectionSeen(models.CollectionSeen{
 			UserId: visitor.Id, CollectionId: collection.Id, FirstOpened: time.Now().Unix()})
 	}
@@ -166,30 +166,20 @@ func showCollection(w http.ResponseWriter, r *http.Request) {
 		// collection" and the file actions of the Files tab. The page loads
 		// the admin bundle and the dialogs it needs (html_collection.tmpl).
 		// Names are shown as display names ("anna"), like the byline above
-		users := database.GetAllUsers()
-		names := make(map[int]string, len(users))
-		for _, u := range users {
-			names[u.Id] = displayName(u)
-		}
-		items := make([]browserItem, 0, len(collection.Files))
-		for _, f := range collection.Files {
-			items = append(items, browserItemFromFile(r, f, manager, ctxCollectionAdmin, "", names))
-		}
 		shown := manager
 		shown.Name = displayName(manager) // the list renders the active user's name
-		view.Browser = newFileBrowser("fgs-collection", ctxCollectionAdmin, items, shown)
+		view.Browser = newFileBrowser("fgs-collection", ctxCollectionAdmin, nil, shown)
 		view.Browser.WithCollection(collection)
+		view.Browser.WithList(collectionAdminSource(r, manager, collection),
+			listUrl("./files/list?src=collection&id=", collection.Id))
 		view.ServerUrl = config.ServerUrl
 	} else {
 		// Visitors are not users: the zero User gives no uploader, ownership
 		// or permissions, and the context keeps every management action out
-		items := make([]browserItem, 0, len(collection.Files))
-		for _, f := range collection.Files {
-			items = append(items, browserItemFromFile(r, f, models.User{}, ctxCollectionPublic, collection.Id, nil))
-		}
-		view.Browser = newFileBrowser("fgs-collection", ctxCollectionPublic, items, models.User{})
+		view.Browser = newFileBrowser("fgs-collection", ctxCollectionPublic, nil, models.User{})
 		view.Browser.CollectionId = collection.Id
 		view.Browser.ZipUrl = "./cz?id=" + collection.Id + "&files="
+		view.Browser.WithList(collectionPublicSource(r, collection), listUrl("./cl?id=", collection.Id))
 	}
 	// Expiry is derived from the longest-lived member, not stored.
 	latest, never := collection.LatestExpiry()

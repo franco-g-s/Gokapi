@@ -27,17 +27,23 @@ func filesAdminSession() test.Cookie {
 
 func TestFilesPage(t *testing.T) {
 	accessFile("filesmine", nil)
-	// The admin (PERM_LIST) gets the My files / Everything switch and sees
-	// other users' files, including user 7's.
+	// The admin (PERM_LIST) gets the My files / Everything switch. The page
+	// renders My files, the switch's default (Part 3); Everything, with
+	// other users' files including user 7's, comes from the feed.
 	test.HttpPageResult(t, test.HttpTestConfig{
 		Url:     "http://localhost:53843/files",
 		IsHtml:  true,
 		Cookies: []test.Cookie{filesAdminSession()},
 		RequiredContent: []string{`id="fgs-files"`, `data-fgs-browser`, `data-context="files"`, "My files", "Everything", `data-default-view="grid"`,
 			`data-layout="grid"`, `data-layout="board"`, `data-layout="list"`,
-			`data-id="unlimitedDownload"`, `data-id="filesmine"`, `id="fgs-files-table"`, `href="./files"`, `id="fgs-files-selstatus"`, `id="fgs-viewer"`, `data-bytes="1"`, `data-kind="`, `data-act="link"`, `id="fgs-files-linkresult"`,
+			`data-id="unlimitedDownload"`, `id="fgs-files-table"`, `href="./files"`, `id="fgs-files-selstatus"`, `id="fgs-viewer"`, `data-kind="`, `data-act="link"`, `id="fgs-files-linkresult"`,
 			"<th>Uploaded by</th>"},
+		ExcludedContent: []string{`data-id="filesmine"`},
 	})
+	code, body := filesGet(t, filesAdminSession().Value, "/files/list?src=files&scope=all&limit=all")
+	test.IsEqualInt(t, code, http.StatusOK)
+	test.IsEqualBool(t, bytes.Contains(body, []byte(`"Id":"filesmine"`)), true)
+	test.IsEqualBool(t, bytes.Contains(body, []byte(`"Bytes":1,`)), true)
 	// A user without PERM_LIST gets neither the switch nor anyone else's files
 	test.HttpPageResult(t, test.HttpTestConfig{
 		Url:             "http://localhost:53843/files",
@@ -292,7 +298,7 @@ func TestFilesPageSelectMode(t *testing.T) {
 		IsHtml:  true,
 		Cookies: []test.Cookie{{Name: "session_token", Value: "validsession"}},
 		RequiredContent: []string{`data-fgs-select-toggle`, `>Select</button>`, `class="fgs-grid-only`,
-			`class="form-check-input fgs-row-check"`, `<th class="fgs-col-check" data-fgs-nosort>`,
+			`class="form-check-input fgs-row-check"`, `<th class="fgs-col-check">`,
 			// the name opens the viewer: a button styled as a link
 			`<button type="button" class="btn btn-link fgs-name-open"`, `<span class="fgs-row-name" id="cell-name-filesselect">select.jpg</span>`},
 	})

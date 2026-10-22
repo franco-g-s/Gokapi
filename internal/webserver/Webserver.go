@@ -49,6 +49,7 @@ import (
 	"github.com/forceu/gokapi/internal/webserver/ratelimiter"
 	"github.com/forceu/gokapi/internal/webserver/sse"
 	"github.com/forceu/gokapi/internal/webserver/ssl"
+	"github.com/forceu/gokapi/internal/webserver/viewas"
 )
 
 // TODO add 404 handler
@@ -144,6 +145,14 @@ func Start() {
 	mux.HandleFunc("/p/poster", servePreviewFile("poster"))
 	mux.HandleFunc("/p/video", streamVideo)
 	mux.HandleFunc("/p/info", publicPreviewInfo)
+	// Part 3, T1: list feeds
+	mux.HandleFunc("/files/list", requireLogin(fileListFeed, false, false))
+	mux.HandleFunc("/files/replacecandidates", requireLogin(replaceCandidates, false, false))
+	mux.HandleFunc("/gl", requireLogin(groupListFeed, false, false))
+	mux.HandleFunc("/cl", collectionListFeed)
+	// Part 3, V1: view as
+	mux.HandleFunc("/viewas/start", requireLogin(viewAsStart, false, false))
+	mux.HandleFunc("/viewas/end", requireLogin(viewAsEnd, false, false))
 	// Part 2, F2: the group creator's "Check for duplicates"
 	mux.HandleFunc("/groups/neardupes", requireLogin(nearCopyCheck, false, false))
 	// Part 2, R4: a collection turned into a group, its old link's modes and stopping it
@@ -192,7 +201,7 @@ func Start() {
 		Addr:         configuration.Get().Port,
 		ReadTimeout:  timeOutWebserverRead,
 		WriteTimeout: timeOutWebserverWrite,
-		Handler:      mux,
+		Handler:      viewas.Guard(mux),
 	}
 	infoMessage := "Webserver can be accessed at " + configuration.Get().ServerUrl + "admin\nPress CTRL+C to stop Gokapi"
 	if strings.Contains(configuration.Get().ServerUrl, "127.0.0.1") {
@@ -335,6 +344,11 @@ func serveE2EWasm(w http.ResponseWriter, r *http.Request) {
 
 // Handling of /logout
 func doLogout(w http.ResponseWriter, r *http.Request) {
+	// Part 3, V1: logging out ends "View as…" (the guard does too; this
+	// covers a request that never passed it)
+	if admin, _, active := viewas.Active(r); active {
+		viewas.End(admin.Id, "logout")
+	}
 	authentication.Logout(w, r)
 }
 
@@ -609,6 +623,9 @@ type LoginView struct {
 func showDownload(w http.ResponseWriter, r *http.Request) {
 	addNoCacheHeader(w)
 	keyId := queryUrl(w, r, "id", errorHandling.TypeFileNotFound)
+	if keyId == "" {
+		return // queryUrl has already redirected
+	}
 	file, ok := storage.GetFile(keyId)
 	if !ok || file.IsFileRequest() {
 		redirectOnIncorrectId(w, r, "error")
@@ -1043,6 +1060,9 @@ type userInfo struct {
 func showPublicUpload(w http.ResponseWriter, r *http.Request) {
 	addNoCacheHeader(w)
 	fileRequestId := queryUrl(w, r, "id", errorHandling.TypeInvalidFileRequest)
+	if fileRequestId == "" {
+		return // queryUrl has already redirected
+	}
 	request, ok := filerequest.Get(fileRequestId)
 	if !ok {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeInvalidFileRequest)
@@ -1057,6 +1077,9 @@ func showPublicUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apiKey := queryUrl(w, r, "key", errorHandling.TypeInvalidFileRequest)
+	if apiKey == "" {
+		return // queryUrl has already redirected
+	}
 	if subtle.ConstantTimeCompare([]byte(request.ApiKey), []byte(apiKey)) != 1 {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeInvalidFileRequest)
 		return
@@ -1112,6 +1135,9 @@ func downloadFileWithNameInUrl(w http.ResponseWriter, r *http.Request) {
 // Outputs the file to the user and reduces the download remaining count for the file
 func downloadFile(w http.ResponseWriter, r *http.Request) {
 	id := queryUrl(w, r, "id", errorHandling.TypeFileNotFound)
+	if id == "" {
+		return // queryUrl has already redirected
+	}
 	serveFile(id, true, w, r)
 }
 
@@ -1202,6 +1228,14 @@ func requireLogin(next http.HandlerFunc, isUiCall, isPwChangeView bool) http.Han
 					redirect(w, r, "changePassword")
 					return
 				}
+			}
+			// Part 3, V1: an admin in "View as…" is the target from here on,
+			// exactly when the guard decided so for this request. The
+			// password check above always runs against the real admin.
+			if target, ok := viewas.SwapFor(r, user); ok {
+				viewas.Touch(user.Id)
+				r = viewas.MarkSwapped(r, user)
+				user = target
 			}
 			r = authentication.SetUserInRequest(r, user)
 			next.ServeHTTP(w, r)

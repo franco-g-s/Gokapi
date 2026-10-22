@@ -81,8 +81,17 @@ func TestUsersPage(t *testing.T) {
 	page := getPage(t, "http://localhost:53843/users", filesAdminSession())
 	row := userRow(t, page, "31")
 	test.IsEqualBool(t, strings.Contains(row, `<span class="user-uploadcount">2</span>`), true)
-	test.IsEqualBool(t, strings.Contains(row, `href="./files?user=31"`), true)
-	test.IsEqualBool(t, strings.Contains(row, "View files"), true)
+	// R2 (V5): "View files" is gone; the permissions are in the row's dropdown,
+	// with the same toggles and calls
+	test.IsEqualBool(t, strings.Contains(row, `href="./files?user=31"`), false)
+	test.IsEqualBool(t, strings.Contains(row, "View files"), false)
+	test.IsEqualBool(t, strings.Contains(row, `data-bs-toggle="dropdown"`), true)
+	test.IsEqualBool(t, strings.Contains(row, ">Permissions</button>"), true)
+	test.IsEqualBool(t, strings.Contains(row, `id="perm_list_31"`), true)
+	test.IsEqualBool(t, strings.Contains(row, `changeUserPermission("31","PERM_LIST", "perm_list_31")`), true)
+	test.IsEqualBool(t, strings.Contains(row, `id="changeRank_31"`), true)
+	test.IsEqualBool(t, strings.Contains(row, `id="delete-31"`), true)
+	test.IsEqualBool(t, strings.Contains(row, `aria-label="Actions"`), true)
 	test.IsEqualBool(t, strings.Contains(row, "3.9 kB"), true)
 	test.IsEqualBool(t, strings.Contains(row, "Iceland trip"), true)
 	test.IsEqualBool(t, strings.Contains(row, "Hike"), true)
@@ -93,6 +102,12 @@ func TestUsersPage(t *testing.T) {
 	test.IsEqualBool(t, strings.Contains(row, "7 B"), true)
 	test.IsEqualBool(t, strings.Contains(row, "—"), true)
 	test.IsEqualBool(t, strings.Contains(row, "Iceland trip"), false)
+
+	// "User group" is now "User type"; the permissions have no column of their own
+	test.IsEqualBool(t, strings.Contains(page, `<th scope="col">User type</th>`), true)
+	test.IsEqualBool(t, strings.Contains(page, `<th scope="col">Group</th>`), false)
+	test.IsEqualBool(t, strings.Contains(page, "permLegendBtn"), false)
+	test.IsEqualBool(t, strings.Contains(page, "View files"), false)
 
 	// One count column: no separate Files column
 	test.IsEqualBool(t, strings.Contains(page, `<th scope="col">Files</th>`), false)

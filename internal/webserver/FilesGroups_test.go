@@ -60,29 +60,41 @@ func TestFilesTabEverythingFromGroups(t *testing.T) {
 	w := groupPageCall(showFiles, "GET", "/files", ben, "")
 	test.IsEqualInt(t, w.Code, http.StatusOK)
 	body := w.Body.String()
-	// The switch, and anna's file once, through a group's counted download
+	// The switch; the page renders My files, its default (Part 3)
 	test.IsEqualBool(t, strings.Contains(body, `data-scope="all"`), true)
 	test.IsEqualBool(t, strings.Contains(body, `data-scope="mine"`), true)
-	test.IsEqualInt(t, strings.Count(body, `<figure class="fgs-tile" data-mine="false" data-id="`+annas.Id+`"`), 1)
-	tile := tileOf(t, body, annas.Id)
-	test.IsEqualBool(t, strings.Contains(tile, `data-foreign="true"`), true)
-	test.IsEqualBool(t, strings.Contains(tile, `data-uploader="anna"`), true)
-	test.IsEqualBool(t, strings.Contains(tile, `data-download="./gd?id=`), true)
-	test.IsEqualBool(t, strings.Contains(tile, `&amp;file=`+annas.Id+`"`), true)
+	test.IsEqualBool(t, strings.Contains(body, annas.Id), false)
 	test.IsEqualBool(t, strings.Contains(body, "anna@example.com"), false)
-	// Not editable, and none of its management data
-	menu := menuOf(t, body, annas.Id)
-	for _, leak := range []string{"data-url", "data-downloads", "data-can-edit"} {
-		test.IsEqualBool(t, strings.Contains(menu, leak), false)
-	}
-	test.IsEqualBool(t, strings.Contains(menu, `data-can-delete="false"`), true)
-	test.IsEqualBool(t, strings.Contains(body, "/d?id="+annas.Id), false)
-	test.IsEqualBool(t, strings.Contains(body, `id="row-`+annas.Id+`"`), false)
-	// Files anna keeps to herself stay hers
-	test.IsEqualBool(t, strings.Contains(body, private.Id), false)
 	// ben's own file is listed as his, with its management data
 	test.IsEqualInt(t, strings.Count(body, `data-mine="true" data-id="`+bens.Id+`"`), 1)
 	test.IsEqualBool(t, strings.Contains(menuOf(t, body, bens.Id), `data-url="`), true)
+
+	// Everything (the feed): anna's file once, through a group's counted
+	// download, not editable and without its management data
+	everything := decodeList(t, groupPageCall(fileListFeed, "GET", "/files/list?src=files&scope=all", ben, ""))
+	raw := groupPageCall(fileListFeed, "GET", "/files/list?src=files&scope=all", ben, "").Body.String()
+	count := 0
+	for _, item := range everything.Items {
+		switch item.Id {
+		case annas.Id:
+			count++
+			test.IsEqualBool(t, item.Foreign, true)
+			test.IsEqualBool(t, item.Mine, false)
+			test.IsEqualString(t, item.UploaderName, "anna")
+			test.IsEqualBool(t, strings.HasPrefix(item.Download, "./gd?id="), true)
+			test.IsEqualBool(t, strings.HasSuffix(item.Download, "&file="+annas.Id), true)
+			test.IsEqualString(t, item.UrlDownload, "")
+			test.IsEqualBool(t, item.CanEdit || item.CanDelete || item.CanReplace, false)
+		case bens.Id:
+			test.IsEqualBool(t, item.Mine, true)
+			test.IsNotEmpty(t, item.UrlDownload)
+		}
+	}
+	test.IsEqualInt(t, count, 1)
+	test.IsEqualBool(t, strings.Contains(raw, "anna@example.com"), false)
+	test.IsEqualBool(t, strings.Contains(raw, "/d?id="+annas.Id), false)
+	// Files anna keeps to herself stay hers
+	test.IsEqualBool(t, strings.Contains(raw, private.Id), false)
 
 	// A pending preview of anna's file can be polled by ben, without a download
 	w = groupPageCall(filePreviewInfo, "GET", "/files/previewinfo?id="+annas.Id, ben, "")
@@ -121,5 +133,13 @@ func TestFilesTabEverythingFromGroups(t *testing.T) {
 	body = groupPageCall(showFiles, "GET", "/files", anna, "").Body.String()
 	test.IsEqualBool(t, strings.Contains(body, `data-scope="all"`), true)
 	test.IsEqualInt(t, strings.Count(body, `data-mine="true" data-id="`+annas.Id+`"`), 1)
-	test.IsEqualInt(t, strings.Count(body, `<figure class="fgs-tile" data-mine="false" data-id="`+bens.Id+`"`), 1)
+	everything = decodeList(t, groupPageCall(fileListFeed, "GET", "/files/list?src=files&scope=all", anna, ""))
+	count = 0
+	for _, item := range everything.Items {
+		if item.Id == bens.Id {
+			count++
+			test.IsEqualBool(t, item.Foreign, true)
+		}
+	}
+	test.IsEqualInt(t, count, 1)
 }

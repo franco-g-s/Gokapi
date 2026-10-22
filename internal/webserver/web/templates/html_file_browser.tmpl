@@ -19,43 +19,99 @@
      data-perm-replace="{{ .Perm "replace" }}" data-perm-replace-others="{{ .Perm "replace-others" }}"
      data-group-id="{{ .GroupId }}" data-download-base="{{ .DownloadBase }}"
      data-sort="{{ if .SortTakenAsc }}taken-asc{{ else }}uploaded-desc{{ end }}"
-     data-group-tools="{{ .GroupTools }}" data-upload-sink="{{ .UploadSink }}">
-  <div class="fgs-toolbar d-flex flex-wrap gap-2 align-items-center mb-3">
+     data-group-tools="{{ .GroupTools }}" data-upload-sink="{{ .UploadSink }}"
+     data-list-url="{{ .ListUrl }}" data-total="{{ .Total }}" data-all="{{ .All }}" data-new="{{ .New }}"
+     data-next="{{ .Next }}" data-sort-key="{{ .Sort }}" data-sort-desc="{{ .Desc }}">
+  {{/* The toolbar and the selection bar stick to the top while the list
+       scrolls (R3, V7); media.js measures the toolbar into --fgs-toolbar-h
+       and keeps both clear of the branding's fixed buttons. */}}
+  <div class="fgs-toolbar d-flex flex-wrap gap-2 align-items-center" data-fgs-toolbar>
     <span class="fgs-count text-muted small me-auto" aria-live="polite"></span>
-    {{ if .GroupTools }}
-    <select class="form-select form-select-sm w-auto" data-fgs-person aria-label="Whose files">
-      <option value="">Everyone</option>
-      {{- range .People }}
-      <option value="{{ .Id }}">{{ .Name }}</option>
-      {{- end }}
-    </select>
-    <label class="form-check-label small text-nowrap"><input type="checkbox" class="form-check-input" data-fgs-hide-downloaded> Hide what I&#39;ve downloaded</label>
-    {{ end }}
-    {{ if .ShowScope }}
-    <div class="btn-group" role="group" aria-label="Whose files">
-      <button type="button" class="btn btn-sm btn-light" data-scope="mine">My files</button>
-      <button type="button" class="btn btn-sm btn-outline-light" data-scope="all">Everything</button>
+    {{/* Sort & filter (R1): one dropdown with every list's sort and filters.
+         media.js keeps it, the List headers and the badge in step. */}}
+    <div class="dropdown fgs-menu fgs-sortfilter" data-fgs-sortfilter>
+      <button type="button" class="btn btn-sm btn-outline-light" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" title="Sort &amp; filter"><i class="bi bi-funnel"></i> <span class="fgs-label">Sort &amp; filter</span> <span class="badge rounded-pill text-bg-light fgs-filter-badge" data-fgs-filter-badge hidden></span></button>
+      <div class="dropdown-menu dropdown-menu-end fgs-sortfilter-menu">
+        <fieldset class="fgs-sf-group">
+          <legend class="dropdown-header">Sort by</legend>
+          {{ template "file_browser_sort_option" ($.SortOption "name" "Name") }}
+          {{ template "file_browser_sort_option" ($.SortOption "uploaded" "Uploaded") }}
+          {{ template "file_browser_sort_option" ($.SortOption "taken" "Taken") }}
+          {{ template "file_browser_sort_option" ($.SortOption "size" "Size") }}
+          {{- if .ManagesColumns }}
+          {{ template "file_browser_sort_option" ($.SortOption "expires" "Expires") }}
+          {{ template "file_browser_sort_option" ($.SortOption "downloads" "Downloads") }}
+          {{- end }}
+        </fieldset>
+        <fieldset class="fgs-sf-group fgs-sf-row">
+          <legend class="visually-hidden">Order</legend>
+          <label class="form-check-label"><input type="radio" class="form-check-input" name="{{ .Id }}-dir" value="asc" data-fgs-sort-dir{{ if not .Desc }} checked{{ end }}> Ascending</label>
+          <label class="form-check-label"><input type="radio" class="form-check-input" name="{{ .Id }}-dir" value="desc" data-fgs-sort-dir{{ if .Desc }} checked{{ end }}> Descending</label>
+        </fieldset>
+        <div class="dropdown-divider"></div>
+        <fieldset class="fgs-sf-group">
+          <legend class="dropdown-header">Type</legend>
+          <div class="fgs-sf-row">
+          <label class="form-check-label"><input type="radio" class="form-check-input" name="{{ .Id }}-kind" value="" data-fgs-kind checked> All</label>
+          <label class="form-check-label"><input type="radio" class="form-check-input" name="{{ .Id }}-kind" value="image" data-fgs-kind> Photos</label>
+          <label class="form-check-label"><input type="radio" class="form-check-input" name="{{ .Id }}-kind" value="video" data-fgs-kind> Videos</label>
+          <label class="form-check-label"><input type="radio" class="form-check-input" name="{{ .Id }}-kind" value="other" data-fgs-kind> Other</label>
+          </div>
+        </fieldset>
+        {{ if .ShowScope }}
+        <fieldset class="fgs-sf-group">
+          <legend class="dropdown-header">Show</legend>
+          <div class="btn-group" role="group" aria-label="Whose files">
+            <button type="button" class="btn btn-sm btn-light" data-scope="mine">My files</button>
+            <button type="button" class="btn btn-sm btn-outline-light" data-scope="all">Everything</button>
+          </div>
+        </fieldset>
+        {{ end }}
+        {{ if .GroupTools }}
+        <fieldset class="fgs-sf-group">
+          <legend class="dropdown-header">Uploaded by</legend>
+          <select class="form-select form-select-sm" data-fgs-person aria-label="Whose files">
+            <option value="">Everyone</option>
+            {{- range .People }}
+            <option value="{{ .Id }}">{{ .Name }}</option>
+            {{- end }}
+          </select>
+          <label class="form-check-label small mt-2 d-block"><input type="checkbox" class="form-check-input" data-fgs-hide-downloaded> Hide what I&#39;ve downloaded</label>
+        </fieldset>
+        {{ end }}
+        <div class="dropdown-divider"></div>
+        <button type="button" class="dropdown-item" data-fgs-filter-reset><i class="bi bi-arrow-counterclockwise"></i> Reset filters</button>
+      </div>
     </div>
-    {{ end }}
     <div class="btn-group" role="group" aria-label="Layout">
       <button type="button" class="btn btn-sm {{ if eq .DefaultView "grid" }}btn-light{{ else }}btn-outline-light{{ end }}" data-layout="grid" title="Grid"><i class="bi bi-grid-3x3-gap"></i> <span class="fgs-label">Grid</span></button>
       <button type="button" class="btn btn-sm {{ if eq .DefaultView "board" }}btn-light{{ else }}btn-outline-light{{ end }}" data-layout="board" title="Board"><i class="bi bi-columns-gap"></i> <span class="fgs-label">Board</span></button>
       <button type="button" class="btn btn-sm {{ if eq .DefaultView "list" }}btn-light{{ else }}btn-outline-light{{ end }}" data-layout="list" title="List"><i class="bi bi-list-ul"></i> <span class="fgs-label">List</span></button>
     </div>
-    <div class="fgs-grid-only btn-group fgs-shape-toggle" role="group" aria-label="Tile shape">
-      <button type="button" class="btn btn-sm btn-light" data-shape="square">Square</button>
-      <button type="button" class="btn btn-sm btn-outline-light" data-shape="true">True shape</button>
+    {{/* Phones (R3 fix): search, shape and the slider sit behind this
+         toggle, so the stuck toolbar is one row (media.css shows it only there) */}}
+    <button type="button" class="btn btn-sm btn-outline-light fgs-tools-toggle" data-fgs-tools-toggle aria-expanded="false" aria-label="Search and tile size" title="Search and tile size"><i class="bi bi-search"></i></button>
+    <div class="fgs-grid-only btn-group fgs-shape-toggle fgs-tool2" role="group" aria-label="Tile shape">
+      <button type="button" class="btn btn-sm btn-light" data-shape="square" title="Square"><i class="bi bi-square"></i> <span class="fgs-label">Square</span></button>
+      <button type="button" class="btn btn-sm btn-outline-light" data-shape="true" title="True shape"><i class="bi bi-aspect-ratio"></i> <span class="fgs-label">True shape</span></button>
     </div>
-    <input type="range" min="96" max="320" value="160" id="{{ .Id }}-size" aria-label="Icon size" class="fgs-grid-only fgs-size form-range" style="width:8rem">
+    <input type="search" class="form-control form-control-sm fgs-tool2" data-fgs-search placeholder="Search names" aria-label="Search names">
+    {{/* Columns (R3, V9): media.js sets max (the most that fit at 96 px)
+         and the default stop (the old 160 px look); the right end is 1 */}}
+    <input type="range" min="1" max="3" step="1" value="2" id="{{ .Id }}-size" list="{{ .Id }}-cols-stops" aria-label="Icon size" class="fgs-tiles-only fgs-size form-range fgs-tool2" style="width:8rem">
+    <datalist id="{{ .Id }}-cols-stops"><option value="2"></option></datalist>
     <button type="button" class="btn btn-sm btn-outline-light" data-fgs-select-toggle aria-pressed="false">Select</button>
   </div>
 
   <div class="fgs-selectbar d-none" data-fgs-selectbar>
     <span class="fgs-selcount"></span>
-    <button type="button" class="btn btn-sm btn-outline-light" data-fgs-select-all>Select all ({{ len .Items }})</button>
+    {{- /* One horizontally scrolling row on phones (R3 fix); laid out as before elsewhere */}}
+    <div class="fgs-selactions">
+    <button type="button" class="btn btn-sm btn-outline-light" data-fgs-select-all>Select all ({{ .Total }})</button>
     {{ if .GroupTools }}<button type="button" class="btn btn-sm btn-outline-light" data-fgs-select-new>Select everything new to me</button>{{ end }}
     {{ range .Bulk }}{{ template "file_browser_bulk_button" ($.BulkButton .) }}{{ end }}
     <button type="button" class="btn btn-sm btn-link text-muted d-none" data-fgs-help aria-label="How to save to Photos"><i class="bi bi-question-circle"></i></button>
+    </div>
     <span id="{{ .Id }}-selstatus" class="fgs-selstatus small text-muted" aria-live="polite"></span>
     <div id="{{ .Id }}-linkresult" class="fgs-linkresult" aria-live="polite"></div>
   </div>
@@ -64,29 +120,30 @@
     <div class="fgs-grid" data-fgs-grid>
       {{ range $i, $item := .Items }}{{ template "file_browser_tile" ($.TileAt $i $item) }}{{ end }}
     </div>
+    <div class="fgs-more" data-fgs-more aria-live="polite"></div>
     <div class="table-responsive" data-fgs-list>
       <table class="table table-dark align-middle fgs-table" id="{{ .Id }}-table">
         <thead><tr>
-          <th class="fgs-col-check" data-fgs-nosort></th>
-          <th>Name</th>
+          <th class="fgs-col-check"></th>
+          <th data-fgs-sortkey="name"{{ if eq .Sort "name" }} aria-sort="{{ if .Desc }}descending{{ else }}ascending{{ end }}"{{ end }}><button type="button" class="fgs-sort">Name<span class="fgs-sort-arrow" aria-hidden="true">{{ if eq .Sort "name" }}{{ if .Desc }}↓{{ else }}↑{{ end }}{{ end }}</span></button></th>
           {{ if .ShowUploader }}<th>Uploaded by</th>{{ end }}
-          {{ if .SortTakenAsc }}<th>Uploaded</th>
-          <th data-fgs-sort data-fgs-sort-dir="asc">Taken</th>{{ else }}<th data-fgs-sort>Uploaded</th>
-          <th>Taken</th>{{ end }}
-          <th>Size</th>
-          {{ if .ManagesColumns }}<th>Expires</th><th>Downloads</th>{{ end }}
-          <th class="text-end" data-fgs-nosort>Actions</th>
+          <th data-fgs-sortkey="uploaded"{{ if eq .Sort "uploaded" }} aria-sort="{{ if .Desc }}descending{{ else }}ascending{{ end }}"{{ end }}><button type="button" class="fgs-sort">Uploaded<span class="fgs-sort-arrow" aria-hidden="true">{{ if eq .Sort "uploaded" }}{{ if .Desc }}↓{{ else }}↑{{ end }}{{ end }}</span></button></th>
+          <th data-fgs-sortkey="taken"{{ if eq .Sort "taken" }} aria-sort="{{ if .Desc }}descending{{ else }}ascending{{ end }}"{{ end }}><button type="button" class="fgs-sort">Taken<span class="fgs-sort-arrow" aria-hidden="true">{{ if eq .Sort "taken" }}{{ if .Desc }}↓{{ else }}↑{{ end }}{{ end }}</span></button></th>
+          <th data-fgs-sortkey="size"{{ if eq .Sort "size" }} aria-sort="{{ if .Desc }}descending{{ else }}ascending{{ end }}"{{ end }}><button type="button" class="fgs-sort">Size<span class="fgs-sort-arrow" aria-hidden="true">{{ if eq .Sort "size" }}{{ if .Desc }}↓{{ else }}↑{{ end }}{{ end }}</span></button></th>
+          {{ if .ManagesColumns }}<th data-fgs-sortkey="expires"{{ if eq .Sort "expires" }} aria-sort="{{ if .Desc }}descending{{ else }}ascending{{ end }}"{{ end }}><button type="button" class="fgs-sort">Expires<span class="fgs-sort-arrow" aria-hidden="true">{{ if eq .Sort "expires" }}{{ if .Desc }}↓{{ else }}↑{{ end }}{{ end }}</span></button></th><th data-fgs-sortkey="downloads"{{ if eq .Sort "downloads" }} aria-sort="{{ if .Desc }}descending{{ else }}ascending{{ end }}"{{ end }}><button type="button" class="fgs-sort">Downloads<span class="fgs-sort-arrow" aria-hidden="true">{{ if eq .Sort "downloads" }}{{ if .Desc }}↓{{ else }}↑{{ end }}{{ end }}</span></button></th>{{ end }}
+          <th class="text-end">Actions</th>
         </tr></thead>
         <tbody>
         {{ range $i, $item := .Items }}{{ template "file_browser_row" ($.TileAt $i $item) }}{{ end }}
         </tbody>
       </table>
+      <div class="fgs-more" data-fgs-more aria-live="polite"></div>
     </div>
   </div>
   <p class="fgs-empty text-muted">No files yet</p>
 
-  {{/* Live adds (FGS.initFileBrowser → addItem) clone these. Outside the
-       table, so DataTables never sees them. */}}
+  {{/* Live adds and later batches (FGS.initFileBrowser → buildItem) clone
+       these. Outside the table, so they are never one of its rows. */}}
   <template data-fgs-tpl="tile">{{ template "file_browser_tile" ($.TileAt -1 $.Blank) }}</template>
   <template data-fgs-tpl="row">{{ template "file_browser_row" ($.TileAt -1 $.Blank) }}</template>
 </div>
@@ -94,6 +151,9 @@
        media.css shows only data-current-view's view). Never throws. */}}
 <script>try{window.FGS&&FGS.presetView&&FGS.presetView(document.getElementById({{ .Id }}))}catch(e){}</script>
 {{ end }}
+
+{{/* One sort key of the Sort & filter dropdown. Dot is a browserSortOption. */}}
+{{ define "file_browser_sort_option" }}<label class="form-check-label d-block"><input type="radio" class="form-check-input" name="{{ .B.Id }}-sort" value="{{ .Key }}" data-fgs-sort-option{{ if eq .Key .B.Sort }} checked{{ end }}> {{ .Label }}</label>{{ end }}
 
 {{/* One selection-bar button. Zip only where the page has a zip endpoint. */}}
 {{ define "file_browser_bulk_button" }}
@@ -132,6 +192,8 @@
   {{- if .B.GroupTools }}
   <span class="fgs-initials" aria-hidden="true">{{ $it.Initials }}</span>{{ end }}
   {{ template "file_browser_menu" . }}
+  {{- /* Select mode only (R3, V8): opens the viewer, the selection unchanged */}}
+  <button type="button" class="fgs-tile-expand" aria-label="Open {{ $f.Name }}" title="Open"><i class="bi bi-arrows-angle-expand"></i></button>
   <figcaption><span class="fgs-name">{{ $f.Name }}</span>
     <span class="fgs-meta"><span class="fgs-meta-uploader">{{ if $it.Uploader }}{{ $it.Uploader }} · {{ end }}</span><span data-ts="{{ $f.UploadDate }}"></span></span></figcaption>
 </figure>
@@ -147,6 +209,7 @@
   <td data-col="name" data-order="{{ $f.Name }}"><div class="fgs-list-name">
     {{- if $it.Preview.Thumb }}<img class="fgs-list-thumb" loading="lazy" decoding="async" src="{{ $it.Preview.Thumb }}" alt="" style="background:{{ $it.Preview.Color }}">{{ else }}<span class="fgs-list-thumb fgs-list-icon" aria-hidden="true"><i class="bi {{ or $it.Icon "bi-file-earmark" }}"></i></span>{{ end }}
     <button type="button" class="btn btn-link fgs-name-open" title="Open"><span class="fgs-row-name"{{ if $ids }} id="cell-name-{{ $f.Id }}"{{ end }}>{{ $f.Name }}</span></button>
+    <button type="button" class="btn btn-sm fgs-row-expand" aria-label="Open {{ $f.Name }}" title="Open"><i class="bi bi-arrows-angle-expand"></i></button>
     {{- if $b.GroupTools }}<span class="fgs-row-tick" aria-label="Downloaded" title="Downloaded"><i class="bi bi-check-circle-fill"></i></span>{{ end }}
   </div></td>
   {{ if $b.ShowUploader }}<td data-col="uploader">{{ $it.Uploader }}</td>{{ end }}

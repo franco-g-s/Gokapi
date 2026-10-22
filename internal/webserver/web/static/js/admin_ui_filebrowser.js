@@ -54,14 +54,8 @@
         }, 400);
     }
 
-    // Per-file data for the actions, from the file's "⋯" menu in the grid,
-    // which is always in the DOM
-    function fileData(tile) {
-        var menu = tile.querySelector("[data-fgs-file-menu]");
-        var d = function (k) { return menu.getAttribute("data-" + k); };
-        return { id: d("id"), name: tile.getAttribute("data-name"), url: d("url"), e2e: d("e2e") === "true",
-            canEdit: d("can-edit") === "true", canDelete: d("can-delete") === "true" };
-    }
+    // Every action reads its files from a.data (FGS.itemData), which covers
+    // the files of a "Select all" that are not rendered yet (Part 3)
 
     // ClipboardJS blurs whatever has focus once it has copied, so give it
     // back to the "⋯" afterwards
@@ -76,12 +70,9 @@
         }
     }
 
-    function editFromMenu(menu, tile, replace) {
-        var flag = function (k) { return menu.getAttribute("data-" + k) === "true"; };
-        showEditModal(tile.getAttribute("data-name"), menu.getAttribute("data-id"),
-            parseInt(menu.getAttribute("data-downloads"), 10), parseInt(menu.getAttribute("data-expire"), 10),
-            flag("password"), flag("unlimited-downloads"), flag("unlimited-time"), flag("e2e"), flag("can-replace"),
-            menu.getAttribute("data-group-lock") || "");
+    function editFromMenu(d, replace) {
+        showEditModal(d.name, d.id, d.downloads, d.expire, d.password, d.unlimitedDownloads, d.unlimitedTime,
+            d.e2e, d.canReplace, d.groupLock);
         if (!replace) return;
         // "Replace content" is the edit dialog's replace field, switched on
         var box = document.getElementById("mc_replace");
@@ -116,8 +107,8 @@
     // the tile, not from a table row.
     function deleteOne(a) {
         var id = a.ids[0];
-        var name = a.tiles[0].getAttribute("data-name") || "";
-        if (!fileData(a.tiles[0]).canDelete) {
+        var name = a.data[0].name || "";
+        if (!a.data[0].canDelete) {
             a.status.textContent = "You may not delete " + name + ".";
             return;
         }
@@ -126,7 +117,7 @@
         apiFilesDelete(id, UNDO_DELAY_S)
             .then(function () {
                 try { showDeletedToast(id, name); } catch (ignored) { /* page without the toast */ }
-                rememberDeleted(id, removeEverywhere(id));
+                rememberDeleted(id, removeEverywhere(id, a.browser));
                 if (typeof notifyWorker === "function") notifyWorker({ type: "fileDeleted", id: id });
             })
             .catch(function (error) {
@@ -139,11 +130,13 @@
 
     // Every list on the page that shows the file (a file can be in several
     // collections), so no list keeps a file that is gone or out of date.
-    // Returns the lists' roots: where an undo puts the file back.
-    function removeEverywhere(id) {
+    // Returns the lists' roots: where an undo puts the file back. origin is
+    // the list the action came from: it lists the file even when the file
+    // is not rendered there (a "Select all"), and then only its counts change.
+    function removeEverywhere(id, origin) {
         var from = [];
         FGS.eachFileBrowser(function (b) {
-            if (!b.tile(id)) return;
+            if (!b.tile(id) && b !== origin) return;
             from.push(b.root);
             b.removeItem(id);
             // A collection's row on the Collections page shows its figures
@@ -232,20 +225,20 @@
     // Files the user may not delete (someone else's, on a group page) are
     // skipped and counted, never sent.
     async function bulkDelete(a) {
-        var tiles = a.tiles.filter(function (t) { return fileData(t).canDelete; });
-        var skipped = a.tiles.length - tiles.length;
+        var files = a.data.filter(function (d) { return d.canDelete; });
+        var skipped = a.data.length - files.length;
         var skippedText = skipped ? " " + plural(skipped, "file") + " skipped: not yours to delete." : "";
-        if (!tiles.length) {
+        if (!files.length) {
             a.status.textContent = "Nothing deleted." + skippedText;
             return;
         }
-        if (!confirm("Delete " + plural(tiles.length, "file") + "? This cannot be undone." + skippedText)) return;
+        if (!confirm("Delete " + plural(files.length, "file") + "? This cannot be undone." + skippedText)) return;
         a.button.disabled = true;
         var failures = [], deleted = 0;
         try {
-            for (var i = 0; i < tiles.length; i++) {
-                var f = fileData(tiles[i]);
-                a.status.textContent = "Deleting " + (i + 1) + " of " + tiles.length + "…";
+            for (var i = 0; i < files.length; i++) {
+                var f = files[i];
+                a.status.textContent = "Deleting " + (i + 1) + " of " + files.length + "…";
                 try {
                     await apiFilesDelete(f.id, 0);
                 } catch (error) {
@@ -255,7 +248,7 @@
                 // Deleted on the server. Showing it must not turn it into a failure.
                 deleted++;
                 try {
-                    removeEverywhere(f.id);
+                    removeEverywhere(f.id, a.browser);
                     if (typeof notifyWorker === "function") notifyWorker({ type: "fileDeleted", id: f.id });
                 } catch (error) {
                     console.error("Error:", error);
@@ -274,17 +267,17 @@
     // upload page's automatic link uses. The server again keeps only files
     // this user may list, and refuses end-to-end encrypted ones.
     function createOneLink(a) {
-        var tiles = a.tiles, button = a.button;
+        var files = a.data, button = a.button;
         if (button.disabled) return;
         button.disabled = true; // each request makes a new collection
-        var opts = { holderId: a.linkResult.id, label: "One link for " + plural(tiles.length, "file") + ":" };
+        var opts = { holderId: a.linkResult.id, label: "One link for " + plural(files.length, "file") + ":" };
         fetch("./collections/create", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "same-origin",
             body: JSON.stringify({
                 // The name heads the public board: a lone file is named after itself
-                name: tiles.length === 1 ? tiles[0].getAttribute("data-name") : tiles.length + " files",
+                name: files.length === 1 ? files[0].name : files.length + " files",
                 fileIds: a.ids
             })
         })
@@ -394,18 +387,18 @@
         });
     }
 
-    function openCollect(tiles) {
+    function openCollect(files) {
         if (!collectDialog()) return;
-        var usable = tiles.filter(function (t) { return !fileData(t).e2e; });
-        collect.ids = usable.map(function (t) { return t.getAttribute("data-id"); });
+        var usable = files.filter(function (d) { return !d.e2e; });
+        collect.ids = usable.map(function (d) { return d.id; });
         var what = plural(usable.length, "file");
-        if (usable.length < tiles.length) {
-            what += " (" + plural(tiles.length - usable.length, "end-to-end encrypted file") + " left out: they cannot be in a collection)";
+        if (usable.length < files.length) {
+            what += " (" + plural(files.length - usable.length, "end-to-end encrypted file") + " left out: they cannot be in a collection)";
         }
         document.getElementById("fgs-collect-what").textContent = what;
         collect.result.textContent = "";
         collect.result.className = "";
-        collect.name.value = usable.length === 1 ? usable[0].getAttribute("data-name") : usable.length + " files";
+        collect.name.value = usable.length === 1 ? usable[0].name : usable.length + " files";
         collect.create.disabled = !usable.length;
         collect.list.textContent = "";
         var loading = document.createElement("div");
@@ -449,7 +442,7 @@
             date: document.getElementById("fgs-expiry-date"),
             limit: document.getElementById("fgs-limit-number"),
             closeButtons: modal.querySelectorAll("[data-bs-dismiss=modal]"),
-            tiles: [], running: false
+            files: [], running: false
         };
         function setRunning(running) {
             expiry.running = running;
@@ -486,23 +479,22 @@
             expiry.apply.disabled = true;
             setRunning(true);
             expiry.failures.textContent = "";
-            var failed = 0, total = expiry.tiles.length, done = false;
+            var failed = 0, total = expiry.files.length, done = false;
             // finally: whatever happens (an exception included) the dialog
             // must become closable again
             try {
                 for (var i = 0; i < total; i++) {
                     expiry.status.textContent = "Updating " + (i + 1) + " of " + total + "…";
-                    var f;
-                    try {
-                        f = fileData(expiry.tiles[i]);
-                    } catch (error) {
-                        failed++;
-                        failure(expiry.failures, expiry.tiles[i].getAttribute("data-name") || "a file", errorText(error));
-                        continue;
-                    }
+                    var f = expiry.files[i];
                     if (!f.canEdit) {
                         failed++;
                         failure(expiry.failures, f.name, "you may not edit this file");
+                        continue;
+                    }
+                    // D4: the server refuses it; said here, without a request
+                    if (f.groupLock) {
+                        failed++;
+                        failure(expiry.failures, f.name, "expiry and download limit follow the group \u201c" + f.groupLock + "\u201d");
                         continue;
                     }
                     // null leaves it unchanged; 0 means unlimited / never to the API
@@ -539,15 +531,15 @@
         return expiry;
     }
 
-    function openExpiry(tiles) {
+    function openExpiry(files) {
         if (!expiryDialog()) return;
-        expiry.tiles = tiles;
+        expiry.files = files;
         expiry.setRunning(false);
         document.getElementById("fgs-expiry-keep").checked = true;
         document.getElementById("fgs-limit-keep").checked = true;
         expiry.date.value = localInputValue(new Date(Date.now() + 14 * 24 * 3600 * 1000));
         expiry.date.min = localInputValue(new Date());
-        document.getElementById("fgs-expiry-what").textContent = plural(tiles.length, "file");
+        document.getElementById("fgs-expiry-what").textContent = plural(files.length, "file");
         expiry.status.textContent = "";
         expiry.failures.textContent = "";
         expiry.apply.disabled = false;
@@ -566,23 +558,23 @@
         // A plain mailto: link; the body is made from the current URL, which
         // for an end-to-end encrypted file carries its #key (data-url)
         "email": function (a) {
-            a.button.setAttribute("href", "mailto:?body=" + encodeURIComponent(fileData(a.tiles[0]).url));
+            a.button.setAttribute("href", "mailto:?body=" + encodeURIComponent(a.data[0].fileUrl));
         },
         "share": function (a) {
-            var url = fileData(a.tiles[0]).url;
+            var url = a.data[0].fileUrl;
             if (navigator.share) {
-                navigator.share({ title: a.tiles[0].getAttribute("data-name"), url: url })
+                navigator.share({ title: a.data[0].name, url: url })
                     .catch(function () { /* the sheet was dismissed */ });
             } else {
                 copyText(url);
                 refocusLater(a.trigger);
             }
         },
-        "qr": function (a) { showQrCode(fileData(a.tiles[0]).url); },
-        "edit": function (a) { editFromMenu(a.menu, a.tiles[0], false); },
-        "replace": function (a) { editFromMenu(a.menu, a.tiles[0], true); },
-        "add-to-collection": function (a) { openCollect(a.tiles); },
-        "change-expiry": function (a) { openExpiry(a.tiles); },
+        "qr": function (a) { showQrCode(a.data[0].fileUrl); },
+        "edit": function (a) { editFromMenu(a.data[0], false); },
+        "replace": function (a) { editFromMenu(a.data[0], true); },
+        "add-to-collection": function (a) { openCollect(a.data); },
+        "change-expiry": function (a) { openExpiry(a.data); },
         "link": createOneLink,
         // One selected file is the menu's Delete (10 s undo); several are
         // confirmed and permanent. a.bulk is no test: the bar always sets it.
@@ -603,7 +595,8 @@
         var root = a.root, collectionId = root.getAttribute("data-collection-id");
         if (!collectionId || root.getAttribute("data-fgs-removing") === "true") return;
         var ids = a.ids;
-        var all = root.querySelectorAll("[data-fgs-grid] .fgs-tile").length;
+        // Every file of the collection, loaded or not
+        var all = a.browser.counts().all;
         if (ids.length >= all) {
             alert("A collection needs at least one file.\n\nDelete the collection instead.");
             return;

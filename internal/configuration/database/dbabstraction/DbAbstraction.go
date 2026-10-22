@@ -190,6 +190,15 @@ type Database interface {
 	// DeleteCollectionGroup removes the group link of a collection
 	DeleteCollectionGroup(collectionId string)
 
+	// GetViewAs returns the admin's active "View as…", or false
+	GetViewAs(adminId int) (models.ViewAs, bool)
+	// GetAllViewAs returns every active "View as…"
+	GetAllViewAs() []models.ViewAs
+	// SaveViewAs inserts or replaces the admin's "View as…"
+	SaveViewAs(v models.ViewAs)
+	// DeleteViewAs ends the admin's "View as…"
+	DeleteViewAs(adminId int)
+
 	// GetStatTraffic returns the total traffic from statistics
 	GetStatTraffic() uint64
 	// SaveStatTraffic stores the total traffic

@@ -464,12 +464,12 @@ func TestGroupBrowserMarkup(t *testing.T) {
 		`<option value="7">&lt;me&gt;</option>`, `<option value="">Everyone</option>`,
 		`class="fgs-initials" aria-hidden="true">A</span>`, `class="fgs-tick"`,
 		`data-menu="edit"`, `data-menu="replace"`, `data-menu="remove-from-group"`, `data-act="remove-from-group"`,
-		`data-fgs-sort data-fgs-sort-dir="asc">Taken`} {
+		`<th data-fgs-sortkey="taken"><button type="button" class="fgs-sort">Taken`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("group browser lacks %s", want)
 		}
 	}
-	for _, unwanted := range []string{`data-menu="copy"`, `data-menu="share"`, `data-menu="add-to-group"`, `data-fgs-sort>Uploaded`} {
+	for _, unwanted := range []string{`data-menu="copy"`, `data-menu="share"`, `data-menu="add-to-group"`, `data-fgs-sortkey="expires"`} {
 		if strings.Contains(html, unwanted) {
 			t.Errorf("group browser has %s", unwanted)
 		}
@@ -478,7 +478,8 @@ func TestGroupBrowserMarkup(t *testing.T) {
 	files := newFileBrowser("f-mark", ctxFiles, []browserItem{browserItemFromFile(r, f, user, ctxFiles, "", nil)}, user)
 	html = renderBrowser(t, files)
 	for _, want := range []string{`data-fgs-select-all`, `data-menu="add-to-group"`, `data-act="add-to-group"`,
-		`data-sort="uploaded-desc"`, `data-group-tools="false"`, `data-fgs-sort>Uploaded`} {
+		`data-sort="uploaded-desc"`, `data-group-tools="false"`, `<th data-fgs-sortkey="uploaded"><button type="button" class="fgs-sort">Uploaded`,
+		`data-fgs-sortkey="expires"`, `data-fgs-sortkey="downloads"`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("files browser lacks %s", want)
 		}
@@ -488,6 +489,97 @@ func TestGroupBrowserMarkup(t *testing.T) {
 			t.Errorf("files browser has %s", unwanted)
 		}
 	}
+}
+
+// Part 3, T2a: the list's batching state on the root, "Select all" over the
+// whole list, a sentinel after the grid and after the table, sortable List
+// headers (an arrow on the default column) and the List-only search box
+func TestTemplateListAttributes(t *testing.T) {
+	f := accessFile("listattrs00000001", func(f *models.File) { f.SHA1 = "listattrssha"; f.Name = "attrs.jpg" })
+	user := models.User{Id: 7}
+	r := sessionRequest("validsession")
+	b := newFileBrowser("g-list", ctxGroup, []browserItem{browserItemFromFile(r, f, user, ctxGroup, "G1", nil)}, user)
+	b.WithGroup(models.Group{Id: "G1"}, nil)
+	b.ListUrl, b.Total, b.All, b.New, b.Next, b.Sort, b.Desc = "./gl?id=G1&", 230, 250, 12, "CURSOR1", "taken", false
+	html := renderBrowser(t, b)
+	for _, want := range []string{
+		`data-list-url="./gl?id=G1&amp;"`, `data-total="230"`, `data-all="250"`, `data-new="12"`,
+		`data-next="CURSOR1"`, `data-sort-key="taken"`, `data-sort-desc="false"`,
+		`data-fgs-select-all>Select all (230)</button>`,
+		`<th data-fgs-sortkey="name"><button type="button" class="fgs-sort">Name`,
+		`<th data-fgs-sortkey="uploaded"><button type="button" class="fgs-sort">Uploaded`,
+		`<th data-fgs-sortkey="taken" aria-sort="ascending"><button type="button" class="fgs-sort">Taken<span class="fgs-sort-arrow" aria-hidden="true">↑</span>`,
+		`<th data-fgs-sortkey="size"><button type="button" class="fgs-sort">Size`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("list lacks %s", want)
+		}
+	}
+	// exactly one search box, with these attributes, in the toolbar (its
+	// class list and position within the toolbar are layout, not contract)
+	searchInputs := regexp.MustCompile(`<input[^>]*type="search"[^>]*>`).FindAllString(html, -1)
+	test.IsEqualInt(t, len(searchInputs), 1)
+	for _, attr := range []string{`data-fgs-search`, `placeholder="Search names"`, `aria-label="Search names"`} {
+		test.IsEqualBool(t, strings.Contains(searchInputs[0], attr), true)
+	}
+	toolbarStart := strings.Index(html, `data-fgs-toolbar`)
+	test.IsEqualBool(t, toolbarStart >= 0 && strings.Index(html, searchInputs[0]) > toolbarStart, true)
+	sentinel := `<div class="fgs-more" data-fgs-more aria-live="polite"></div>`
+	test.IsEqualInt(t, strings.Count(html, sentinel), 2)
+	// one directly after the grid, one directly after the table
+	test.IsEqualBool(t, regexp.MustCompile(`</div>\s*`+regexp.QuoteMeta(sentinel)+`\s*<div class="table-responsive" data-fgs-list>`).MatchString(html), true)
+	test.IsEqualBool(t, regexp.MustCompile(`</table>\s*`+regexp.QuoteMeta(sentinel)).MatchString(html), true)
+	// Group pages have no Expires and Downloads columns; "Uploaded by" is not sortable
+	test.IsEqualBool(t, strings.Contains(html, `data-fgs-sortkey="expires"`), false)
+	// R1: one "Sort & filter" dropdown holds the sort, the direction, Type and
+	// the group tools; the search stays in the toolbar, in every view
+	test.IsEqualBool(t, strings.Contains(html, "fgs-list-only"), false)
+	menuAt := strings.Index(html, `data-fgs-sortfilter`)
+	menuEnd := strings.Index(html, `data-fgs-filter-reset`)
+	if menuAt < 0 || menuEnd < menuAt {
+		t.Fatalf("no Sort & filter dropdown")
+	}
+	menu := html[menuAt:menuEnd]
+	for _, want := range []string{`data-fgs-person`, `<option value="">Everyone</option>`, `data-fgs-hide-downloaded`,
+		`name="g-list-sort" value="name" data-fgs-sort-option`, `name="g-list-sort" value="uploaded" data-fgs-sort-option`,
+		`name="g-list-sort" value="taken" data-fgs-sort-option checked`, `name="g-list-sort" value="size" data-fgs-sort-option`,
+		`name="g-list-dir" value="asc" data-fgs-sort-dir checked`, `name="g-list-dir" value="desc" data-fgs-sort-dir>`,
+		`name="g-list-kind" value="" data-fgs-kind checked`, `name="g-list-kind" value="image" data-fgs-kind`,
+		`name="g-list-kind" value="video" data-fgs-kind`, `name="g-list-kind" value="other" data-fgs-kind`} {
+		if !strings.Contains(menu, want) {
+			t.Errorf("Sort & filter lacks %s", want)
+		}
+	}
+	test.IsEqualBool(t, strings.Contains(menu, `value="expires"`), false)
+	test.IsEqualBool(t, strings.Contains(html, `data-fgs-filter-badge`), true)
+	test.IsEqualBool(t, strings.Contains(html, `Sort &amp; filter`), true)
+	test.IsEqualBool(t, strings.Contains(html, `<th>Uploaded by</th>`), true)
+	// No DataTables hooks are left
+	test.IsEqualBool(t, strings.Contains(html, "data-fgs-sort "), false)
+	test.IsEqualBool(t, strings.Contains(html, "data-fgs-nosort"), false)
+
+	// The Files tab: newest first, its management columns sortable
+	files := newFileBrowser("f-list", ctxFiles, nil, user)
+	files.ListUrl, files.Total, files.All, files.Sort, files.Desc = "./files/list?src=files&", 3, 9, "uploaded", true
+	html = renderBrowser(t, files)
+	for _, want := range []string{`data-sort-key="uploaded"`, `data-sort-desc="true"`, `Select all (3)`,
+		`<th data-fgs-sortkey="uploaded" aria-sort="descending"><button type="button" class="fgs-sort">Uploaded<span class="fgs-sort-arrow" aria-hidden="true">↓</span>`,
+		`<th data-fgs-sortkey="expires"><button type="button" class="fgs-sort">Expires`,
+		`<th data-fgs-sortkey="downloads"><button type="button" class="fgs-sort">Downloads`,
+		`name="f-list-sort" value="uploaded" data-fgs-sort-option checked`, `name="f-list-dir" value="desc" data-fgs-sort-dir checked`,
+		`name="f-list-sort" value="expires" data-fgs-sort-option`, `name="f-list-sort" value="downloads" data-fgs-sort-option`,
+		`name="f-list-kind" value="video" data-fgs-kind`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("files list lacks %s", want)
+		}
+	}
+	// No group tools on the Files tab; My files / Everything where it shows
+	test.IsEqualBool(t, strings.Contains(html, `data-fgs-person`), false)
+	files.ShowScope = true
+	html = renderBrowser(t, files)
+	menu = html[strings.Index(html, `data-fgs-sortfilter`):strings.Index(html, `data-fgs-filter-reset`)]
+	test.IsEqualBool(t, strings.Contains(menu, `data-scope="mine"`), true)
+	test.IsEqualBool(t, strings.Contains(menu, `data-scope="all"`), true)
 }
 
 // R3: Save to Photos in one tap where the tap's activation survives the
@@ -500,10 +592,21 @@ func TestSaveToPhotosScript(t *testing.T) {
 	for _, want := range []string{
 		"navigator.userActivation", ".isActive",
 		"opts.lastModified = date", "s * 1000", `getAttribute("data-taken")`, `getAttribute("data-uploaded")`,
-		`"Ready — tap to save"`, `" photos"`, "fgs-photos-ready",
+		`"Ready — tap to save"`, `" (batch "`, `"Next batch — tap to prepare ("`, "fgs-photos-ready",
+		"var PHOTO_BATCH_FILES = 20;", "var PHOTO_BATCH_BYTES = 1.5e9;", "var VIDEO_MAX_BYTES  = 500e6;",
+		"FGS.planPhotos = function (items, limits)", "FGS.photosPending",
+		` video(s) are too big to save to Photos from Safari. Download them as a .zip, then save them from the Files app.`,
+		`"Download those as .zip"`,
 		`"NotAllowedError"`, `"AbortError"`,
 		"hide.bs.dropdown", "show.bs.dropdown", "clickEvent",
 		".fgs-v-photos", `what === "photos"`,
+		// Final review I1: the Files tab's zip skips other people's files,
+		// so their big videos are pointed at the group's page instead
+		"zipSkipsForeign: skipForeign", `" video(s) from your groups: zip them on their group's page."`,
+		// I2: a retry fetches only what failed, never what was saved
+		"state.failedItems.push(it)", "FGS.planPhotos(again)", `"Try the " + again.length + " again"`,
+		// Viewer: the note above the caption bar, with the page's zip
+		`querySelector(".fgs-v-info")`, "uploaded: it.uploaded, foreign: it.foreign }], button, viewerPhotos",
 	} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("media.js lacks %s", want)
@@ -602,5 +705,115 @@ func TestHelpSheetMakesNoDatePromise(t *testing.T) {
 	test.IsEqualBool(t, strings.Contains(sheet, "fgs-help-sheet"), true)
 	for _, promise := range []string{"original date", "keep their", "timeline", "date and time"} {
 		test.IsEqualBool(t, strings.Contains(sheet, promise), false)
+	}
+}
+
+// R3 (V7–V9): the expand button that opens a file while selecting, in
+// Grid/Board and in List; the viewer's "Selected" checkbox; the column
+// slider with its default stop; the sticky toolbar and selection bar.
+func TestSelectModePreviewAndColumnSlider(t *testing.T) {
+	f := accessFile("browserexpand0001", func(f *models.File) { f.SHA1 = "browserexpandsha"; f.Name = "beach & sun.jpg" })
+	user := models.User{Id: 7}
+	r := sessionRequest("validsession")
+	item := browserItemFromFile(r, f, user, ctxGroup, "", map[int]string{7: "Seven"})
+	b := newFileBrowser("b-expand", ctxGroup, []browserItem{item}, user)
+	b.WithGroup(models.Group{Id: "grp42"}, nil)
+	html := renderBrowser(t, b)
+
+	expandTile := `<button type="button" class="fgs-tile-expand" aria-label="Open beach &amp; sun.jpg" title="Open"><i class="bi bi-arrows-angle-expand"></i></button>`
+	expandRow := `<button type="button" class="btn btn-sm fgs-row-expand" aria-label="Open beach &amp; sun.jpg" title="Open"><i class="bi bi-arrows-angle-expand"></i></button>`
+	// the rendered file and the template each live adds clone
+	test.IsEqualInt(t, strings.Count(html, expandTile), 1)
+	test.IsEqualInt(t, strings.Count(html, expandRow), 1)
+	test.IsEqualInt(t, strings.Count(html, `class="fgs-tile-expand"`), 2)
+	test.IsEqualInt(t, strings.Count(html, `fgs-row-expand"`), 2)
+	// part3_e2e parses the tiles with this prefix
+	test.IsEqualBool(t, strings.Contains(html, `<figure class="fgs-tile" data-mine=`), true)
+
+	// The slider counts columns: step 1, a default stop on its datalist
+	slider := regexp.MustCompile(`<input type="range"[^>]*>`).FindString(html)
+	for _, want := range []string{`step="1"`, `list="b-expand-cols-stops"`, `class="fgs-tiles-only fgs-size form-range fgs-tool2"`, `aria-label="Icon size"`} {
+		test.IsEqualBool(t, strings.Contains(slider, want), true)
+	}
+	test.IsEqualBool(t, strings.Contains(html, `<datalist id="b-expand-cols-stops"><option value="2"></option></datalist>`), true)
+	test.IsEqualBool(t, strings.Contains(html, `class="fgs-toolbar d-flex flex-wrap gap-2 align-items-center" data-fgs-toolbar`), true)
+
+	var out bytes.Buffer
+	test.IsNil(t, templateFolder.ExecuteTemplate(&out, "media_viewer", nil))
+	test.IsEqualBool(t, strings.Contains(out.String(), `<label class="fgs-v-select" hidden><input type="checkbox" class="form-check-input" data-fgs-v-select> Selected</label>`), true)
+
+	css, err := staticFolderEmbedded.ReadFile("web/static/css/media.css")
+	test.IsNil(t, err)
+	for _, want := range []string{
+		".fgs-toolbar{position:sticky;top:var(--fgs-viewas-h,0px)",
+		".fgs-selectbar{position:sticky;top:calc(var(--fgs-viewas-h,0px) + var(--fgs-toolbar-h,0px))",
+		".fgs-grid.fgs-has-cols{grid-template-columns:repeat(var(--fgs-cols),minmax(0,1fr))}",
+		".fgs-browser:not(.fgs-selecting) .fgs-tile-expand,.fgs-browser:not(.fgs-selecting) .fgs-row-expand{display:none}",
+		".fgs-v-select[hidden]{display:none}",
+	} {
+		if !strings.Contains(string(css), want) {
+			t.Errorf("media.css lacks %s", want)
+		}
+	}
+	viewas, err := staticFolderEmbedded.ReadFile("web/static/js/viewas.js")
+	test.IsNil(t, err)
+	test.IsEqualBool(t, strings.Contains(string(viewas), "2.5rem"), false)
+	js, err := staticFolderEmbedded.ReadFile("web/static/js/media.js")
+	test.IsNil(t, err)
+	for _, want := range []string{"FGS.tileColumns = function (width, remembered, view)", "FGS.snapColumns = function (position, def)",
+		`".fgs-tile-expand"`, `".fgs-row-expand"`, `"--fgs-toolbar-h"`, `[data-fgs-v-select]`} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("media.js lacks %s", want)
+		}
+	}
+}
+
+// R3 fix round 1: a one-row phone toolbar (search, shape and slider behind
+// a toggle), a one-row scrolling selection bar, the phone rules after the
+// base ones, a selection-bar offset no stale viewas.js rule can beat, and
+// a versioned viewas.min.js.
+func TestR3PhoneCompactionAndViewAsVersion(t *testing.T) {
+	user := models.User{Id: 7}
+	b := newFileBrowser("b-compact", ctxGroup, nil, user)
+	b.WithGroup(models.Group{Id: "grp42"}, nil)
+	html := renderBrowser(t, b)
+	test.IsEqualBool(t, strings.Contains(html, `<button type="button" class="btn btn-sm btn-outline-light fgs-tools-toggle" data-fgs-tools-toggle aria-expanded="false" aria-label="Search and tile size" title="Search and tile size"><i class="bi bi-search"></i></button>`), true)
+	test.IsEqualBool(t, strings.Contains(html, `<input type="search" class="form-control form-control-sm fgs-tool2" data-fgs-search`), true)
+	test.IsEqualBool(t, strings.Contains(html, `class="fgs-grid-only btn-group fgs-shape-toggle fgs-tool2"`), true)
+	test.IsEqualBool(t, strings.Contains(html, `class="fgs-tiles-only fgs-size form-range fgs-tool2"`), true)
+	// The bulk buttons in one row of their own, the count, status and link result outside it
+	actions := strings.Index(html, `<div class="fgs-selactions">`)
+	test.IsEqualBool(t, actions > strings.Index(html, `<span class="fgs-selcount"></span>`), true)
+	test.IsEqualBool(t, strings.Index(html, `data-fgs-select-all`) > actions, true)
+	test.IsEqualBool(t, strings.Index(html, `-selstatus"`) > strings.Index(html, `data-act="download"`), true)
+
+	css, err := staticFolderEmbedded.ReadFile("web/static/css/media.css")
+	test.IsNil(t, err)
+	s := string(css)
+	base := strings.Index(s, ".fgs-selectbar{position:sticky")
+	phone := strings.Index(s, "@media (max-width:575.98px)")
+	test.IsEqualBool(t, base > 0 && phone > base, true)
+	for _, want := range []string{
+		".fgs-browser>.fgs-selectbar[data-fgs-selectbar]{top:calc(var(--fgs-viewas-h,0px) + var(--fgs-toolbar-h,0px))}",
+		".fgs-selactions{display:contents}",
+		".fgs-selactions{display:flex;flex:1 1 0;min-width:0;flex-wrap:nowrap;overflow-x:auto",
+		".fgs-toolbar:not(.fgs-tools-open) .fgs-tool2{display:none!important}",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("media.css lacks %s", want)
+		}
+	}
+
+	header, err := templateFolderEmbedded.ReadFile("web/templates/html_header.tmpl")
+	test.IsNil(t, err)
+	test.IsEqualBool(t, strings.Contains(string(header), `<script src="./js/min/viewas.min.js?v={{ template "js_media_version"}}"></script>`), true)
+	test.IsEqualBool(t, strings.Contains(string(header), `<script src="./js/min/viewas.min.js"></script>`), false)
+
+	js, err := staticFolderEmbedded.ReadFile("web/static/js/media.js")
+	test.IsNil(t, err)
+	for _, want := range []string{`"cols-" + view`, "[data-fgs-tools-toggle]", `"fgs-tools-open"`} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("media.js lacks %s", want)
+		}
 	}
 }

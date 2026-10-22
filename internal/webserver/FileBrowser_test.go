@@ -699,3 +699,113 @@ func TestHelpSheetMakesNoDatePromise(t *testing.T) {
 		test.IsEqualBool(t, strings.Contains(sheet, promise), false)
 	}
 }
+
+// R3 (V7–V9): the expand button that opens a file while selecting, in
+// Grid/Board and in List; the viewer's "Selected" checkbox; the column
+// slider with its default stop; the sticky toolbar and selection bar.
+func TestSelectModePreviewAndColumnSlider(t *testing.T) {
+	f := accessFile("browserexpand0001", func(f *models.File) { f.SHA1 = "browserexpandsha"; f.Name = "beach & sun.jpg" })
+	user := models.User{Id: 7}
+	r := sessionRequest("validsession")
+	item := browserItemFromFile(r, f, user, ctxGroup, "", map[int]string{7: "Seven"})
+	b := newFileBrowser("b-expand", ctxGroup, []browserItem{item}, user)
+	b.WithGroup(models.Group{Id: "grp42"}, nil)
+	html := renderBrowser(t, b)
+
+	expandTile := `<button type="button" class="fgs-tile-expand" aria-label="Open beach &amp; sun.jpg" title="Open"><i class="bi bi-arrows-angle-expand"></i></button>`
+	expandRow := `<button type="button" class="btn btn-sm fgs-row-expand" aria-label="Open beach &amp; sun.jpg" title="Open"><i class="bi bi-arrows-angle-expand"></i></button>`
+	// the rendered file and the template each live adds clone
+	test.IsEqualInt(t, strings.Count(html, expandTile), 1)
+	test.IsEqualInt(t, strings.Count(html, expandRow), 1)
+	test.IsEqualInt(t, strings.Count(html, `class="fgs-tile-expand"`), 2)
+	test.IsEqualInt(t, strings.Count(html, `fgs-row-expand"`), 2)
+	// part3_e2e parses the tiles with this prefix
+	test.IsEqualBool(t, strings.Contains(html, `<figure class="fgs-tile" data-mine=`), true)
+
+	// The slider counts columns: step 1, a default stop on its datalist
+	slider := regexp.MustCompile(`<input type="range"[^>]*>`).FindString(html)
+	for _, want := range []string{`step="1"`, `list="b-expand-cols-stops"`, `class="fgs-tiles-only fgs-size form-range fgs-tool2"`, `aria-label="Icon size"`} {
+		test.IsEqualBool(t, strings.Contains(slider, want), true)
+	}
+	test.IsEqualBool(t, strings.Contains(html, `<datalist id="b-expand-cols-stops"><option value="2"></option></datalist>`), true)
+	test.IsEqualBool(t, strings.Contains(html, `class="fgs-toolbar d-flex flex-wrap gap-2 align-items-center" data-fgs-toolbar`), true)
+
+	var out bytes.Buffer
+	test.IsNil(t, templateFolder.ExecuteTemplate(&out, "media_viewer", nil))
+	test.IsEqualBool(t, strings.Contains(out.String(), `<label class="fgs-v-select" hidden><input type="checkbox" class="form-check-input" data-fgs-v-select> Selected</label>`), true)
+
+	css, err := staticFolderEmbedded.ReadFile("web/static/css/media.css")
+	test.IsNil(t, err)
+	for _, want := range []string{
+		".fgs-toolbar{position:sticky;top:var(--fgs-viewas-h,0px)",
+		".fgs-selectbar{position:sticky;top:calc(var(--fgs-viewas-h,0px) + var(--fgs-toolbar-h,0px))",
+		".fgs-grid.fgs-has-cols{grid-template-columns:repeat(var(--fgs-cols),minmax(0,1fr))}",
+		".fgs-browser:not(.fgs-selecting) .fgs-tile-expand,.fgs-browser:not(.fgs-selecting) .fgs-row-expand{display:none}",
+		".fgs-v-select[hidden]{display:none}",
+	} {
+		if !strings.Contains(string(css), want) {
+			t.Errorf("media.css lacks %s", want)
+		}
+	}
+	viewas, err := staticFolderEmbedded.ReadFile("web/static/js/viewas.js")
+	test.IsNil(t, err)
+	test.IsEqualBool(t, strings.Contains(string(viewas), "2.5rem"), false)
+	js, err := staticFolderEmbedded.ReadFile("web/static/js/media.js")
+	test.IsNil(t, err)
+	for _, want := range []string{"FGS.tileColumns = function (width, remembered, view)", "FGS.snapColumns = function (position, def)",
+		`".fgs-tile-expand"`, `".fgs-row-expand"`, `"--fgs-toolbar-h"`, `[data-fgs-v-select]`} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("media.js lacks %s", want)
+		}
+	}
+}
+
+// R3 fix round 1: a one-row phone toolbar (search, shape and slider behind
+// a toggle), a one-row scrolling selection bar, the phone rules after the
+// base ones, a selection-bar offset no stale viewas.js rule can beat, and
+// a versioned viewas.min.js.
+func TestR3PhoneCompactionAndViewAsVersion(t *testing.T) {
+	user := models.User{Id: 7}
+	b := newFileBrowser("b-compact", ctxGroup, nil, user)
+	b.WithGroup(models.Group{Id: "grp42"}, nil)
+	html := renderBrowser(t, b)
+	test.IsEqualBool(t, strings.Contains(html, `<button type="button" class="btn btn-sm btn-outline-light fgs-tools-toggle" data-fgs-tools-toggle aria-expanded="false" aria-label="Search and tile size" title="Search and tile size"><i class="bi bi-search"></i></button>`), true)
+	test.IsEqualBool(t, strings.Contains(html, `<input type="search" class="form-control form-control-sm fgs-tool2" data-fgs-search`), true)
+	test.IsEqualBool(t, strings.Contains(html, `class="fgs-grid-only btn-group fgs-shape-toggle fgs-tool2"`), true)
+	test.IsEqualBool(t, strings.Contains(html, `class="fgs-tiles-only fgs-size form-range fgs-tool2"`), true)
+	// The bulk buttons in one row of their own, the count, status and link result outside it
+	actions := strings.Index(html, `<div class="fgs-selactions">`)
+	test.IsEqualBool(t, actions > strings.Index(html, `<span class="fgs-selcount"></span>`), true)
+	test.IsEqualBool(t, strings.Index(html, `data-fgs-select-all`) > actions, true)
+	test.IsEqualBool(t, strings.Index(html, `-selstatus"`) > strings.Index(html, `data-act="download"`), true)
+
+	css, err := staticFolderEmbedded.ReadFile("web/static/css/media.css")
+	test.IsNil(t, err)
+	s := string(css)
+	base := strings.Index(s, ".fgs-selectbar{position:sticky")
+	phone := strings.Index(s, "@media (max-width:575.98px)")
+	test.IsEqualBool(t, base > 0 && phone > base, true)
+	for _, want := range []string{
+		".fgs-browser>.fgs-selectbar[data-fgs-selectbar]{top:calc(var(--fgs-viewas-h,0px) + var(--fgs-toolbar-h,0px))}",
+		".fgs-selactions{display:contents}",
+		".fgs-selactions{display:flex;flex:1 1 0;min-width:0;flex-wrap:nowrap;overflow-x:auto",
+		".fgs-toolbar:not(.fgs-tools-open) .fgs-tool2{display:none!important}",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("media.css lacks %s", want)
+		}
+	}
+
+	header, err := templateFolderEmbedded.ReadFile("web/templates/html_header.tmpl")
+	test.IsNil(t, err)
+	test.IsEqualBool(t, strings.Contains(string(header), `<script src="./js/min/viewas.min.js?v={{ template "js_media_version"}}"></script>`), true)
+	test.IsEqualBool(t, strings.Contains(string(header), `<script src="./js/min/viewas.min.js"></script>`), false)
+
+	js, err := staticFolderEmbedded.ReadFile("web/static/js/media.js")
+	test.IsNil(t, err)
+	for _, want := range []string{`"cols-" + view`, "[data-fgs-tools-toggle]", `"fgs-tools-open"`} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("media.js lacks %s", want)
+		}
+	}
+}

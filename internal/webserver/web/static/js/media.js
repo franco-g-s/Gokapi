@@ -595,6 +595,9 @@
   var v = null, items = [], at = 0, touchX = null, returnFocus = null;
   // The opening page's Save to Photos options (its zip for big videos)
   var viewerPhotos = null;
+  // Opened while selecting (R3, V8): { isSelected(id), setSelected(id, on) }
+  // of the opening list, behind the "Selected" checkbox; null otherwise
+  var viewerPick = null;
   // Paging (Part 3): more() promises the list's next files, asked for when
   // the reader reaches the last one; moreBusy while it is on its way,
   // moreWanted when they asked to go on meanwhile. session drops an answer
@@ -662,6 +665,11 @@
     // Photos are shown as a smaller preview; say so wherever the original can be fetched.
     // Kind, not the stream URL: a capped video withholds the stream but still shows only a poster.
     v.querySelector(".fgs-v-lowres").hidden = !(it.view && it.kind === "image" && it.download);
+    var pick = v.querySelector(".fgs-v-select");
+    if (pick) {
+      pick.hidden = !viewerPick;
+      if (viewerPick) pick.querySelector("[data-fgs-v-select]").checked = viewerPick.isSelected(it.id);
+    }
     updateNav();
     // The last one loaded: ask for the next files now
     if (at === items.length - 1) fetchMore();
@@ -696,7 +704,7 @@
     else if (delta > 0 && more) { moreWanted = true; fetchMore(); }
   }
   function close() {
-    session++; more = null; moreBusy = false; moreWanted = false;
+    session++; more = null; moreBusy = false; moreWanted = false; viewerPick = null;
     v.hidden = true; clearStage(v.querySelector(".fgs-v-stage")); document.body.style.overflow = "";
     FGS.resetSaveToPhotos(v.querySelector(".fgs-v-photos"));
     var back = returnFocus; returnFocus = null;
@@ -762,8 +770,10 @@
   // list: FGS.itemFromEl items; more (optional): a function returning a
   // Promise of the items that follow the list's last one; photosOpts
   // (optional): FGS.saveToPhotos options for the viewer's Save to Photos
-  // (zipIds, zipSkipsForeign; never a status, which the viewer covers)
-  FGS.openViewer = function (list, index, moreItems, photosOpts) {
+  // (zipIds, zipSkipsForeign; never a status, which the viewer covers);
+  // selection (optional, R3): { isSelected(id), setSelected(id, on) } of a
+  // list in select mode, which shows the "Selected" checkbox
+  FGS.openViewer = function (list, index, moreItems, photosOpts, selection) {
     if (!v) {
       v = document.getElementById("fgs-viewer");
       if (v) {
@@ -772,6 +782,10 @@
         // the bare stage) only if it or an ancestor below the document has a
         // click listener. The close itself is decided in the document handler.
         v.addEventListener("click", function () {});
+        var pickBox = v.querySelector("[data-fgs-v-select]");
+        if (pickBox) pickBox.addEventListener("change", function () {
+          if (viewerPick && items[at]) viewerPick.setSelected(items[at].id, pickBox.checked);
+        });
       }
     }
     if (!v || !list || !list.length) return;
@@ -779,6 +793,7 @@
     items = list.slice(); at = Math.min(Math.max(0, index | 0), list.length - 1);
     session++; more = typeof moreItems === "function" ? moreItems : null; moreBusy = false; moreWanted = false;
     viewerPhotos = photosOpts || null;
+    viewerPick = selection && typeof selection.isSelected === "function" ? selection : null;
     wheelSum = 0; wheelLockUntil = 0;
     v.hidden = false; document.body.style.overflow = "hidden";
     render();
@@ -817,8 +832,8 @@
     if (e.key === "Escape") { close(); return; }
     if (e.key === "Tab") {
       // Keep focus inside the dialog
-      var f = Array.prototype.filter.call(v.querySelectorAll("button, a[href], video[controls]"),
-        function (x) { return !x.disabled && !x.hidden; });
+      var f = Array.prototype.filter.call(v.querySelectorAll("button, a[href], video[controls], input"),
+        function (x) { return !x.disabled && !x.hidden && !x.closest("[hidden]"); });
       if (!f.length) { e.preventDefault(); return; }
       var i = f.indexOf(document.activeElement);
       if (i === -1) { e.preventDefault(); f[0].focus(); }
@@ -835,12 +850,13 @@
   // Masonry by shortest column. Heights come from stored dimensions, so the
   // whole board is placed before any image arrives and nothing jumps.
   // Places tiles in the shortest column, sized from their data-w / data-h
-  // (square without them). Returns false while the container is hidden:
-  // nothing sensible to compute, and a later show lays out again.
-  function masonry(container, tiles) {
+  // (square without them), in cols columns (the slider's count, R3).
+  // Returns false while the container is hidden: nothing sensible to
+  // compute, and a later show lays out again.
+  function masonry(container, tiles, cols) {
     var width = container.clientWidth, gap = 8;
     if (!width) return false;
-    var cols = Math.max(2, Math.round(width / 260));
+    cols = Math.max(1, cols | 0) || 1;
     var colW = (width - gap * (cols - 1)) / cols, heights = [];
     for (var i = 0; i < cols; i++) heights.push(0);
     tiles.forEach(function (t) {
@@ -854,6 +870,42 @@
     });
     container.style.height = Math.max.apply(null, heights) + "px";
     return true;
+  }
+
+  // Grid and Board columns (R3, V9). The slider counts columns: its left
+  // end is the most that fit at >= 96 px a tile, its right end 1. The
+  // default is each view's old look, never under two columns, as before:
+  // Grid's 160 px tiles, Board's ~260 px columns. remembered is the
+  // view's stored count, clamped to what fits now.
+  var TILE_GAP = 12, MIN_TILE = 96, DEFAULT_TILE = 160, BOARD_COLUMN = 260;
+  FGS.tileColumns = function (width, remembered, view) {
+    var max = Math.max(1, Math.floor((width + TILE_GAP) / (MIN_TILE + TILE_GAP)));
+    var old = view === "board" ? Math.round(width / BOARD_COLUMN) : Math.floor((width + TILE_GAP) / (DEFAULT_TILE + TILE_GAP));
+    var def = Math.min(max, Math.max(2, old));
+    var n = parseInt(remembered, 10);
+    var cols = n >= 1 && String(n) === String(remembered) ? Math.min(n, max) : def;
+    return { max: max, def: def, cols: cols };
+  };
+  // Where a drag was released, as a column count between stops: within one
+  // step of the default it is the default, else the nearest stop. So the
+  // default catches a release from either neighbour's near half, and every
+  // other count, the ends included, can still be chosen.
+  FGS.snapColumns = function (position, def) {
+    return Math.abs(position - def) < 1 ? def : Math.round(position);
+  };
+  // The view's columns for the grid's width now (null while it is
+  // hidden), in place on the grid for Grid's CSS (--fgs-cols) and Board's
+  // masonry. Each view remembers its own count ("cols-grid", "cols-board");
+  // the one shared "cols" of the first R3 build was Grid's.
+  function placeColumns(root, grid, view) {
+    var width = grid.clientWidth;
+    if (!width) return null;
+    var remembered = loadBrowserPref(root, "cols-" + view);
+    if (remembered === null && view === "grid") remembered = loadBrowserPref(root, "cols");
+    var c = FGS.tileColumns(width, remembered, view);
+    grid.style.setProperty("--fgs-cols", String(c.cols));
+    grid.classList.add("fgs-has-cols");
+    return c;
   }
 
   // ---------------------------------------------------------------------
@@ -948,7 +1000,7 @@
   // component.
   // localStorage throws in private mode: then nothing is remembered.
   var PER_GROUP_PREFS = { view: true, sort: true, hideDownloaded: true, kind: true };
-  var LEGACY_FILES_KEYS = { view: "filesLayout", shape: "filesTileShape", size: "filesIconSize", scope: "filesScope" };
+  var LEGACY_FILES_KEYS = { view: "filesLayout", shape: "filesTileShape", scope: "filesScope" };
   function browserPrefKey(root, k) {
     var context = root.getAttribute("data-context") || "";
     var group = root.getAttribute("data-group-id") || "";
@@ -1040,11 +1092,13 @@
     root.setAttribute("data-current-view", v);
     markActive(root, "data-layout", v);
     var grid = root.querySelector("[data-fgs-grid]");
-    if (!grid || v !== "board") return;
+    if (!grid || v === "list") return;
+    var c = placeColumns(root, grid, v);
+    if (v !== "board") return;
     grid.classList.add("fgs-board-mode");
-    masonry(grid, Array.prototype.filter.call(grid.children, function (t) {
+    if (c) masonry(grid, Array.prototype.filter.call(grid.children, function (t) {
       return t.classList.contains("fgs-tile") && !t.classList.contains("d-none");
-    }));
+    }), c.cols);
   };
 
   FGS.initFileBrowser = function (root) {
@@ -1064,6 +1118,8 @@
     var selectToggle = root.querySelector("[data-fgs-select-toggle]");
     var countEl = root.querySelector(".fgs-count");
     var size = root.querySelector(".fgs-size");
+    var sizeStop = size && size.list ? size.list.querySelector("option") : null;
+    var toolbar = root.querySelector("[data-fgs-toolbar]");
     var searchBox = root.querySelector("[data-fgs-search]");
     var sentinels = Array.prototype.slice.call(root.querySelectorAll("[data-fgs-more]"));
     var tplTile = root.querySelector("template[data-fgs-tpl=tile]");
@@ -1197,7 +1253,15 @@
         counts.total = shown;
         counts.all = Object.keys(tilesById).length;
       }
-      if (countEl) countEl.textContent = (root.getAttribute("data-count-label") || "Files: ") + counts.total;
+      if (countEl) {
+        // The label is a word phones drop (media.css), the number stays
+        var label = document.createElement("span");
+        label.className = "fgs-label";
+        label.textContent = root.getAttribute("data-count-label") || "Files: ";
+        countEl.textContent = "";
+        countEl.appendChild(label);
+        countEl.appendChild(document.createTextNode(String(counts.total)));
+      }
       // Empty, unless a batch is on its way or failed (the sentinel says so)
       root.classList.toggle("fgs-is-empty", shown === 0 && moreState === "");
       if (emptyNote) emptyNote.textContent = counts.all > 0 ? "No matching files" : "No files yet";
@@ -1219,6 +1283,7 @@
 
     function updateSelection() {
       bar.classList.toggle("d-none", !selecting);
+      placeBarsSoon();
       // A prepared set, or a link made from it, belongs to its selection
       var photos = bar.querySelector("[data-act=photos]");
       if (photos) FGS.resetSaveToPhotos(photos);
@@ -1322,14 +1387,23 @@
         return loadMore().then(after);
       }
       var po = photosOpts();
+      // While selecting, the viewer's "Selected" checkbox is the file's tick
+      var pick = !selecting ? null : {
+        isSelected: function (id) { return !!tilesById[id] && isSelected(tilesById[id]); },
+        setSelected: function (id, on) {
+          setChecked(id, on);
+          status.textContent = "";
+          updateSelection();
+        }
+      };
       FGS.openViewer(tiles.map(FGS.itemFromEl), Math.max(0, tiles.indexOf(tile)), listUrl ? more : null,
-        { zipIds: po.zipIds, zipSkipsForeign: po.zipSkipsForeign });
+        { zipIds: po.zipIds, zipSkipsForeign: po.zipSkipsForeign }, pick);
     }
 
     // Board: the grid's own tiles in masonry, true proportions, no captions
     function layoutBoard() {
-      if (view !== "board") return;
-      masonry(grid, visibleTiles());
+      if (view !== "board" || !columns) return;
+      masonry(grid, visibleTiles(), columns.cols);
     }
     function clearBoard() {
       Array.prototype.forEach.call(grid.querySelectorAll(".fgs-tile"), function (t) {
@@ -1339,8 +1413,10 @@
     }
     var boardTimer = null;
     function layoutLater() { window.clearTimeout(boardTimer); boardTimer = window.setTimeout(layoutBoard, 120); }
-    if ("ResizeObserver" in window) new ResizeObserver(layoutLater).observe(grid);
-    else window.addEventListener("resize", layoutLater);
+    // A new width: new ends and default stop, the remembered count clamped
+    function resized() { updateColumns(); layoutLater(); }
+    if ("ResizeObserver" in window) new ResizeObserver(resized).observe(grid);
+    else window.addEventListener("resize", resized);
 
     function applyView(v) {
       if (VIEWS.indexOf(v) < 0) v = root.getAttribute("data-default-view") || "grid";
@@ -1351,6 +1427,7 @@
       listWrap.classList.toggle("d-none", v !== "list");
       grid.classList.toggle("fgs-board-mode", v === "board");
       if (was === "board" && v !== "board") clearBoard();
+      updateColumns();
       setActive("data-layout", v);
       store("view", v);
       layoutBoard();
@@ -1422,9 +1499,78 @@
       setActive("data-shape", shape);
       store("shape", shape);
     }
-    function applySize() {
-      grid.style.setProperty("--fgs-tile", size.value + "px");
-      store("size", size.value);
+    // Columns (R3, V9): the slider runs from the most that fit (left) to 1
+    // (right), so its value is max + 1 - columns. The count is remembered
+    // as columns; columns is FGS.tileColumns for the grid's width now.
+    var columns = null;
+    function showColumns() {
+      if (!size || !columns) return;
+      size.max = String(columns.max);
+      size.value = String(columns.max + 1 - columns.cols);
+      size.disabled = columns.max < 2;
+      size.setAttribute("aria-valuetext", columns.cols + (columns.cols === 1 ? " column" : " columns"));
+      if (sizeStop) sizeStop.value = String(columns.max + 1 - columns.def);
+    }
+    function updateColumns() {
+      if (view !== "grid" && view !== "board") return;
+      var c = placeColumns(root, grid, view);
+      if (!c) return; // hidden (List): its width says nothing
+      columns = c;
+      showColumns();
+    }
+    function setColumns(n) {
+      if (!columns) return;
+      n = Math.min(columns.max, Math.max(1, n | 0));
+      store("cols-" + view, String(n));
+      columns = { max: columns.max, def: columns.def, cols: n };
+      grid.style.setProperty("--fgs-cols", String(n));
+      showColumns();
+      layoutBoard();
+    }
+    // A drag released within one step of the default stop lands on it
+    // (FGS.snapColumns). Pointer only: the arrow keys step one by one.
+    function snapOnRelease(e) {
+      if (!columns || columns.max < 2) return;
+      var box = size.getBoundingClientRect(), thumb = 16, span = box.width - thumb;
+      if (span <= 0) return;
+      var at = Math.min(1, Math.max(0, (e.clientX - box.left - thumb / 2) / span));
+      var position = columns.max - at * (columns.max - 1);
+      if (FGS.snapColumns(position, columns.def) === columns.def && columns.cols !== columns.def) setColumns(columns.def);
+    }
+
+    // Sticky toolbar and selection bar (R3, V7): the selection bar sits
+    // under the toolbar's measured height; while stuck, both keep clear of
+    // the branding's fixed buttons (the sidebar toggle at the top left, the
+    // user menu at the top right) by padding past whichever they overlap.
+    var FIXED_CHROME = ["fgs-sidebar-toggle", "fgs-usermenu"];
+    function clearChrome(el, stuck) {
+      var left = 0, right = 0;
+      if (stuck) {
+        var box = el.getBoundingClientRect();
+        FIXED_CHROME.forEach(function (id) {
+          var fixed = document.getElementById(id);
+          var r = fixed ? fixed.getBoundingClientRect() : null;
+          if (!r || !r.width || r.bottom <= box.top || r.top >= box.bottom || r.right <= box.left || r.left >= box.right) return;
+          if (r.left + r.width / 2 < box.left + box.width / 2) left = Math.max(left, Math.ceil(r.right - box.left) + 6);
+          else right = Math.max(right, Math.ceil(box.right - r.left) + 6);
+        });
+      }
+      el.style.setProperty("--fgs-inset-l", left + "px");
+      el.style.setProperty("--fgs-inset-r", right + "px");
+    }
+    function placeBars() {
+      if (!toolbar || !root.isConnected) return;
+      root.style.setProperty("--fgs-toolbar-h", Math.ceil(toolbar.getBoundingClientRect().height) + "px");
+      var top = parseFloat(window.getComputedStyle(toolbar).top) || 0;
+      var stuck = root.getBoundingClientRect().top < top - 1 && toolbar.getBoundingClientRect().top <= top + 1;
+      toolbar.classList.toggle("fgs-stuck", stuck);
+      clearChrome(toolbar, stuck);
+      clearChrome(bar, stuck && !bar.classList.contains("d-none"));
+    }
+    var barsFrame = 0;
+    function placeBarsSoon() {
+      if (barsFrame) return;
+      barsFrame = window.requestAnimationFrame(function () { barsFrame = 0; placeBars(); });
     }
 
     // Download and Save to Photos items, with the dates the File gets
@@ -1665,6 +1811,9 @@
     // A tile, or a name or thumbnail in the list: open it, or in select mode
     // (de)select it
     grid.addEventListener("click", function (e) {
+      // Select mode's expand button: open, the selection unchanged (R3)
+      var expand = e.target.closest(".fgs-tile-expand");
+      if (expand) { openAt(expand.closest(".fgs-tile")); return; }
       var open = e.target.closest(".fgs-tile-open");
       if (!open) return;
       var tile = open.closest(".fgs-tile");
@@ -1672,6 +1821,12 @@
       else openAt(tile);
     });
     listWrap.addEventListener("click", function (e) {
+      var expand = e.target.closest(".fgs-row-expand");
+      if (expand) {
+        var at = expand.closest("tr[data-row-id]");
+        openAt(at && tilesById[at.getAttribute("data-row-id")]);
+        return;
+      }
       var name = e.target.closest(".fgs-name-open, .fgs-list-thumb");
       if (!name) return;
       var tr = name.closest("tr[data-row-id]");
@@ -2052,6 +2207,7 @@
       var initials = tile.querySelector(".fgs-initials");
       if (initials) initials.textContent = initialsOf(uploader);
       tile.querySelector(".fgs-tile-open").setAttribute("aria-label", "Open " + name);
+      tile.querySelector(".fgs-tile-expand").setAttribute("aria-label", "Open " + name);
       tileCheck(tile).setAttribute("aria-label", "Select " + name);
       var small = tile.querySelector(".fgs-typeicon small");
       if (small) small.textContent = name.slice(0, 40);
@@ -2069,6 +2225,7 @@
       setData(row, "downloaded", !!file.Downloaded);
       if (ids) row.id = "row-" + id;
       rowCheck(row).setAttribute("aria-label", "Select " + name);
+      row.querySelector(".fgs-row-expand").setAttribute("aria-label", "Open " + name);
       row.querySelector("td[data-col=name]").setAttribute("data-order", name);
       var nameSpan = row.querySelector(".fgs-row-name");
       nameSpan.textContent = name;
@@ -2192,6 +2349,7 @@
       if (file.Size !== undefined) setData(tile, "size", file.Size);
       if (file.SizeBytes !== undefined) setData(tile, "bytes", file.SizeBytes);
       tile.querySelector(".fgs-tile-open").setAttribute("aria-label", "Open " + name);
+      tile.querySelector(".fgs-tile-expand").setAttribute("aria-label", "Open " + name);
       tileCheck(tile).setAttribute("aria-label", "Select " + name);
       tile.querySelector(".fgs-name").textContent = name;
       var small = tile.querySelector(".fgs-typeicon small");
@@ -2203,6 +2361,7 @@
       if (row) {
         Array.prototype.forEach.call(row.querySelectorAll(".fgs-list-icon i"), function (i) { i.className = "bi " + icon; });
         rowCheck(row).setAttribute("aria-label", "Select " + name);
+        row.querySelector(".fgs-row-expand").setAttribute("aria-label", "Open " + name);
         row.querySelector("td[data-col=name]").setAttribute("data-order", name);
         row.querySelector(".fgs-row-name").textContent = name;
         var cell = function (k) { return row.querySelector("td[data-col=" + k + "]"); };
@@ -2545,9 +2704,38 @@
     });
     selectToggle.addEventListener("click", function () { setSelecting(!selecting); });
     if (size) {
-      size.value = load("size") || "160";
-      size.addEventListener("input", applySize);
-      applySize();
+      size.addEventListener("input", function () {
+        if (columns) setColumns(columns.max + 1 - (parseInt(size.value, 10) || 1));
+      });
+      // Armed by a press on the slider, for that pointer only; a cancelled
+      // press (a touch turned into a scroll) disarms it, so a later tap
+      // elsewhere never snaps the slider
+      var pressId = null;
+      size.addEventListener("pointerdown", function (e) { pressId = e.pointerId; });
+      window.addEventListener("pointerup", function (e) {
+        if (pressId === null || e.pointerId !== pressId) return;
+        pressId = null;
+        snapOnRelease(e);
+      });
+      window.addEventListener("pointercancel", function (e) { if (e.pointerId === pressId) pressId = null; });
+    }
+    // Phones: search, shape and the slider open below the one-row toolbar
+    var toolsToggle = root.querySelector("[data-fgs-tools-toggle]");
+    if (toolsToggle && toolbar) toolsToggle.addEventListener("click", function () {
+      var open = toolbar.classList.toggle("fgs-tools-open");
+      toolsToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      // Lit while open, or while a search hidden behind it is filtering
+      var lit = open || !!(searchBox && searchBox.value.trim());
+      toolsToggle.classList.toggle("btn-light", lit);
+      toolsToggle.classList.toggle("btn-outline-light", !lit);
+      if (open && searchBox) searchBox.focus();
+      updateColumns();
+    });
+    if (toolbar) {
+      if ("ResizeObserver" in window) new ResizeObserver(placeBarsSoon).observe(toolbar);
+      window.addEventListener("scroll", placeBarsSoon, { passive: true });
+      window.addEventListener("resize", placeBarsSoon);
+      placeBars();
     }
     applyShape(load("shape") || "square");
     formatTimes(views);

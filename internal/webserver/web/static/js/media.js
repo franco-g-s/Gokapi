@@ -1188,7 +1188,8 @@
     // Files this page has downloaded (or queued): the server may list them
     // as new for a while yet, while the downloads are still on their way
     var had = new Set();
-    function markDownloaded(ids, keepVisible) {
+    // ofSelection: the files are the selection, acted on from the bar
+    function markDownloaded(ids, keepVisible, ofSelection) {
       (ids || []).forEach(function (id) {
         had.add(String(id));
         setData(tilesById[id], "downloaded", "true");
@@ -1197,8 +1198,9 @@
       if (keepVisible || !query.hide) return;
       // A "Select all" under the filter has been acted on and its files
       // leave the list: it ends here, so a later batch (which may still
-      // list files whose download is under way) cannot tick them again
-      if (sel.mode === "query") {
+      // list files whose download is under way) cannot tick them again.
+      // A single file taken from its menu only leaves the selection (below).
+      if (ofSelection && sel.mode === "query") {
         clearSelection();
         syncTicks();
       }
@@ -1263,9 +1265,13 @@
           if (gen !== generation || sel !== s) return null;
           if (!answer || !Array.isArray(answer.Items)) throw new Error("Unexpected answer");
           var seen = {};
+          // Files this page has downloaded meanwhile (a single file from its
+          // menu) left a hide or new-to-me capture, though the server may
+          // still list them while their download is under way
+          var leftHad = s.query.hide || s.fresh;
           var data = answer.Items.map(FGS.itemData).filter(function (d) {
             seen[d.id] = true;
-            return !s.except.has(d.id);
+            return !s.except.has(d.id) && !(leftHad && had.has(d.id));
           });
           s.plus.forEach(function (id) {
             if (!seen[id] && tilesById[id]) data.push(FGS.itemData(tilesById[id]));
@@ -1334,7 +1340,7 @@
       var usable = data.filter(function (d) { return d.url; });
       var skipped = data.length - usable.length;
       if (usable.length) FGS.downloadSequentially(usable, { button: button, status: status });
-      if (usable.length && groupTools) markDownloaded(usable.map(function (d) { return d.id; }));
+      if (usable.length && groupTools) markDownloaded(usable.map(function (d) { return d.id; }), false, true);
       if (skipped) {
         window.setTimeout(function () {
           status.textContent = manages
@@ -1354,7 +1360,7 @@
       if (zipAllUrl && selectionIsEverything()) window.location = zipAllUrl;
       else if (!zipIds(ids)) return;
       // Ticked only once the request has gone out
-      if (groupTools) markDownloaded(ids);
+      if (groupTools) markDownloaded(ids, false, true);
     }
 
     // A bar action on the resolved selection
@@ -2097,8 +2103,8 @@
       var total = answer.Total || 0, fresh = answer.New || 0;
       // The server still counts files whose download is under way: a first
       // batch leaves out the ones it listed, a later one keeps the count
-      // this page already has
-      if (skipped) {
+      // this page already has (it never grows from a later batch then)
+      if (skipped || (!first && query.hide && had.size)) {
         total = first ? Math.max(0, total - skipped) : Math.min(total, counts.total);
         fresh = first ? Math.max(0, fresh - skipped) : Math.min(fresh, counts.fresh);
       }

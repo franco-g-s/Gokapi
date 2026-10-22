@@ -932,4 +932,30 @@ docker rm -f p3e2e && docker volume rm p3e2e_data p3e2e_config
 
 ## Rulings during execution
 
-(Filled in by the controller while executing: each decision taken where this plan was silent, why, and what it costs if wrong. The measured Save to Photos values and the deploy record go here too.)
+Decisions the controller took while executing; the SDD ledger they came from is scratch and deleted after go-live, so this is the durable record.
+
+- Wave-1 tasks ran in parallel worktrees; new JS files (viewas.js, photos_probe.js) commit only their minifier converter hunk — cost if wrong: merge fixes.
+- F: the "superfluous WriteHeader" came from `queryUrl`'s short-id redirect (callers redirected twice), not `/join`; fixed with a `return` in its 4 callers, `/join` test kept as a guard — cost: none.
+- T1: the counted zip path (`ServeZip`) accepts POST as well as GET (HEAD/PUT/DELETE still refused); a POST is read only from an urlencoded body, anything else is an empty selection (410), never "all members" — cost: none.
+- T1: `/cl` blanks management data and UploaderId for anonymous visitors, as `/c` renders — cost: none.
+- V1: `/viewas/start` answers 501 under Header/Disabled auth (no session cookie to guard) — cost: none (live uses OAuth).
+- V1: the guard is the single decision point for the identity swap (request-context value); `requireLogin`, `SessionIdentity` and `showJoin` swap only from it — closes a demoted-admin write path found in review — cost: none.
+- V1: a ViewAs row whose admin is no longer an admin is ended with reason "logout" (no better reason in the list) — cost: a slightly misleading log line.
+- V1: `/join` resolves identity through the swap (GroupsTab.go edited) — cost: none.
+- T2a: a List sort carries into Grid/Board (one server order) — cost: Grid may show a name sort after sorting in List.
+- T2a parked (accepted): an unloaded file can be skipped under sort=taken when its preview's date taken lands between batches; it is still counted and reachable by reload — cost: a fresh upload missing from the board until reload.
+- T2b: Change expiry & limits lists group-locked files as failures without sending a request (D4; the server still refuses them) — cost: none.
+- T3: Save to Photos plans with the defaults 20 files / 1.5 GB per batch / 500 MB per video; a retry fetches only the files that failed ("Try the N again") — cost: one recount for a file whose body read failed after a 200.
+- Final review I1: on the Files tab, big group videos someone else uploaded are left out of the owner zip with a hint to zip them on the group page — cost: none.
+- E: the e2e script was written by an agent and reviewed like a task — cost: none.
+- **Revisions (Franco's preview requests, 2026-10-22):** see `2026-10-22-part3-revisions.md` (V1–V10). The probe was reverted before the PR; the Save to Photos constants are **defaults, not yet measured** (Franco asked to deploy without the measurement).
+- Docker: Colima runs live and the preview; Docker Desktop also runs on the mini — agents must name the context (`docker --context colima`).
+
+## Deployed
+
+Live since 2026-10-22 21:49 (about 15 s of downtime) as `gokapi-fgs:part3-2026-10-22` from `4b56271`. No branding change was needed.
+
+**Rollback:**
+- restore `~/apps/gokapi/docker-compose.yml.bak.2026-10-22` (image `gokapi-fgs:groups-2026-10-21`) and `docker compose up -d`;
+- the `ViewAs` table is ignored by the old image;
+- the database backup is `~/apps/gokapi/backups/backup-pre-part3-2026-10-22.sqlite` (integrity ok, schema 17, 222 files).

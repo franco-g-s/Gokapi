@@ -64,4 +64,8 @@ Wave 1 uses Go tests only for **R2**. **R1** may use the throwaway container on 
 
 ## Rulings during execution
 
-(Controller fills this in.)
+- R1: "Hide what I've downloaded" is remembered per list; the filter badge counts non-default filters (Everything = 1); "Reset filters" leaves sort and search — cost: none.
+- R1/R3: on phones, search, shape and the slider sit behind a toolbar toggle (it lights up while a search is active) so the stuck bars fit in ~80 px — departs from V1's "search visible in every view" on phones only — cost: one tap to search on a phone.
+- R2: user type changes through the existing promote/demote entries in each row's "⋯" menu (no edit dialog exists).
+- R3: the slider snaps to the default stop by the pointer's continuous release position (within one step), so every column count stays reachable; Grid and Board remember separate column counts, Board keeps its previous default (5 at 1214 px); `viewas.min.js` is versioned.
+- Pre-deploy: the Sort & filter menu is height-capped for short phones; lists without a feed (Upload) never restore filters.

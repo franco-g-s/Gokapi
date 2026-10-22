@@ -22,7 +22,10 @@
      data-group-tools="{{ .GroupTools }}" data-upload-sink="{{ .UploadSink }}"
      data-list-url="{{ .ListUrl }}" data-total="{{ .Total }}" data-all="{{ .All }}" data-new="{{ .New }}"
      data-next="{{ .Next }}" data-sort-key="{{ .Sort }}" data-sort-desc="{{ .Desc }}">
-  <div class="fgs-toolbar d-flex flex-wrap gap-2 align-items-center mb-3">
+  {{/* The toolbar and the selection bar stick to the top while the list
+       scrolls (R3, V7); media.js measures the toolbar into --fgs-toolbar-h
+       and keeps both clear of the branding's fixed buttons. */}}
+  <div class="fgs-toolbar d-flex flex-wrap gap-2 align-items-center" data-fgs-toolbar>
     <span class="fgs-count text-muted small me-auto" aria-live="polite"></span>
     {{/* Sort & filter (R1): one dropdown with every list's sort and filters.
          media.js keeps it, the List headers and the badge in step. */}}
@@ -86,11 +89,14 @@
       <button type="button" class="btn btn-sm {{ if eq .DefaultView "list" }}btn-light{{ else }}btn-outline-light{{ end }}" data-layout="list" title="List"><i class="bi bi-list-ul"></i> <span class="fgs-label">List</span></button>
     </div>
     <div class="fgs-grid-only btn-group fgs-shape-toggle" role="group" aria-label="Tile shape">
-      <button type="button" class="btn btn-sm btn-light" data-shape="square">Square</button>
-      <button type="button" class="btn btn-sm btn-outline-light" data-shape="true">True shape</button>
+      <button type="button" class="btn btn-sm btn-light" data-shape="square" title="Square"><i class="bi bi-square"></i> <span class="fgs-label">Square</span></button>
+      <button type="button" class="btn btn-sm btn-outline-light" data-shape="true" title="True shape"><i class="bi bi-aspect-ratio"></i> <span class="fgs-label">True shape</span></button>
     </div>
     <input type="search" class="form-control form-control-sm" data-fgs-search placeholder="Search names" aria-label="Search names">
-    <input type="range" min="96" max="320" value="160" id="{{ .Id }}-size" aria-label="Icon size" class="fgs-grid-only fgs-size form-range" style="width:8rem">
+    {{/* Columns (R3, V9): media.js sets max (the most that fit at 96 px)
+         and the default stop (the old 160 px look); the right end is 1 */}}
+    <input type="range" min="1" max="3" step="1" value="2" id="{{ .Id }}-size" list="{{ .Id }}-cols-stops" aria-label="Icon size" class="fgs-tiles-only fgs-size form-range" style="width:8rem">
+    <datalist id="{{ .Id }}-cols-stops"><option value="2"></option></datalist>
     <button type="button" class="btn btn-sm btn-outline-light" data-fgs-select-toggle aria-pressed="false">Select</button>
   </div>
 
@@ -180,6 +186,8 @@
   {{- if .B.GroupTools }}
   <span class="fgs-initials" aria-hidden="true">{{ $it.Initials }}</span>{{ end }}
   {{ template "file_browser_menu" . }}
+  {{- /* Select mode only (R3, V8): opens the viewer, the selection unchanged */}}
+  <button type="button" class="fgs-tile-expand" aria-label="Open {{ $f.Name }}" title="Open"><i class="bi bi-arrows-angle-expand"></i></button>
   <figcaption><span class="fgs-name">{{ $f.Name }}</span>
     <span class="fgs-meta"><span class="fgs-meta-uploader">{{ if $it.Uploader }}{{ $it.Uploader }} · {{ end }}</span><span data-ts="{{ $f.UploadDate }}"></span></span></figcaption>
 </figure>
@@ -195,6 +203,7 @@
   <td data-col="name" data-order="{{ $f.Name }}"><div class="fgs-list-name">
     {{- if $it.Preview.Thumb }}<img class="fgs-list-thumb" loading="lazy" decoding="async" src="{{ $it.Preview.Thumb }}" alt="" style="background:{{ $it.Preview.Color }}">{{ else }}<span class="fgs-list-thumb fgs-list-icon" aria-hidden="true"><i class="bi {{ or $it.Icon "bi-file-earmark" }}"></i></span>{{ end }}
     <button type="button" class="btn btn-link fgs-name-open" title="Open"><span class="fgs-row-name"{{ if $ids }} id="cell-name-{{ $f.Id }}"{{ end }}>{{ $f.Name }}</span></button>
+    <button type="button" class="btn btn-sm fgs-row-expand" aria-label="Open {{ $f.Name }}" title="Open"><i class="bi bi-arrows-angle-expand"></i></button>
     {{- if $b.GroupTools }}<span class="fgs-row-tick" aria-label="Downloaded" title="Downloaded"><i class="bi bi-check-circle-fill"></i></span>{{ end }}
   </div></td>
   {{ if $b.ShowUploader }}<td data-col="uploader">{{ $it.Uploader }}</td>{{ end }}

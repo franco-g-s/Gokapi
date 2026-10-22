@@ -191,6 +191,7 @@ function decryptFileEntries(fileMap) {
         const small = tile.querySelector(".fgs-typeicon small");
         if (small) small.textContent = filename.slice(0, 40);
         tile.querySelector(".fgs-tile-open").setAttribute("aria-label", "Open " + filename);
+        tile.querySelector(".fgs-tile-expand").setAttribute("aria-label", "Open " + filename);
         tile.querySelector(".fgs-tile-check").setAttribute("aria-label", "Select " + filename);
 
         for (const menu of menus) {
@@ -206,6 +207,7 @@ function decryptFileEntries(fileMap) {
             row.querySelector(".fgs-row-name").textContent = filename;
             row.querySelector("td[data-col=name]").setAttribute("data-order", filename);
             row.querySelector(".fgs-row-check").setAttribute("aria-label", "Select " + filename);
+            row.querySelector(".fgs-row-expand").setAttribute("aria-label", "Open " + filename);
             const copyButton = row.querySelector(".copyurl:not([data-menu])");
             if (copyButton) copyButton.setAttribute("data-clipboard-text", url);
             const table = row.closest("table");

@@ -61,7 +61,7 @@ let root;
 function makeRoot(attrs) {
     const a = Object.assign({ "data-current-view": attrs["data-default-view"] }, attrs);
     const buttons = ["grid", "board", "list"].map(button);
-    const grid = { classList: classList(), clientWidth: 0, children: [], style: {} };
+    const grid = { classList: classList(), clientWidth: 0, children: [], style: { setProperty(k, v) { this[k] = v; } } };
     root = {
         getAttribute: n => (n in a ? a[n] : null),
         setAttribute: (n, v) => { a[n] = String(v); },
@@ -151,6 +151,36 @@ check("kind: svg", FGS.fileKind("", "logo.svg"), "other");
 check("kind: no extension", FGS.fileKind("", "README"), "other");
 check("isPhotoOrVideo follows it", FGS.isPhotoOrVideo("", "notes.txt") || !FGS.isPhotoOrVideo("", "a.mov"), false);
 check("files: view key", FGS.browserPrefKey(makeRoot(files), "view"), "fgsBrowser.files.view");
+
+// R3 (V9): the slider counts columns. The left end is the most that fit at
+// >= 96 px (gap 12), the right end 1; the default is the old 160 px look
+// (never under 2 columns); a remembered count is clamped to what fits.
+let c = FGS.tileColumns(324, null);
+check("390 phone: left end 3 columns", c.max, 3);
+check("390 phone: default 2 columns", c.def, 2);
+check("390 phone: fresh shows the default", c.cols, 2);
+check("390 phone: remembered 8 clamps to 3", FGS.tileColumns(324, "8").cols, 3);
+check("390 phone: remembered 1 stays 1", FGS.tileColumns(324, "1").cols, 1);
+check("junk remembered: the default", FGS.tileColumns(324, "big").cols, 2);
+check("pixels from the old size key are not columns", FGS.tileColumns(324, "0").cols, 2);
+c = FGS.tileColumns(1000, null);
+check("desktop: left end 9", c.max, 9);
+check("desktop: default 5", c.def, 5);
+check("tiny: 1 column at most", FGS.tileColumns(80, null).max, 1);
+check("tiny: default clamped to 1", FGS.tileColumns(80, null).def, 1);
+// Released within one step of the default: the default; else the nearest stop
+check("snap: 4.4 next to 5", FGS.snapColumns(4.4, 5), 5);
+check("snap: 5.9 next to 5", FGS.snapColumns(5.9, 5), 5);
+check("snap: exactly one away stays", FGS.snapColumns(4, 5), 4);
+check("snap: 3.6 rounds to 4", FGS.snapColumns(3.6, 5), 4);
+check("snap: 1 (right end) on a phone stays 1", FGS.snapColumns(1, 2), 1);
+check("snap: 3 (left end) on a phone stays 3", FGS.snapColumns(3, 2), 3);
+// Before the first paint Board places its tiles in the remembered count
+r = makeRoot(group);
+r.grid.clientWidth = 324;
+loadMedia(storage({ "fgsBrowser.group.cols": "1" })).presetView(r);
+check("preset: Board gets the remembered count", r.grid.style["--fgs-cols"], "1");
+check("preset: and the class that uses it", r.grid.classList.contains("fgs-has-cols"), true);
 
 if (failures) {
     console.log(failures + " failed");

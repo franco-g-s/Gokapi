@@ -59,13 +59,13 @@
     ".fgs-viewas-banner button{margin-left:.25rem;padding:0 .6rem;border:1px solid #212529;border-radius:.25rem;",
     "background:transparent;color:#212529;font-size:.85rem}",
     // Everything fixed or sticky at the top moves down by the banner's height:
-    // the page, the branding's sidebar and its toggle, the user menu (whose
-    // top is an inline style) and the selection bar
+    // the page, the branding's sidebar and its toggle and the user menu (whose
+    // top is an inline style). The file lists' sticky toolbar and selection
+    // bar read --fgs-viewas-h themselves (media.css).
     "html.fgs-viewas body{padding-top:var(--fgs-viewas-h)}",
     "html.fgs-viewas #fgs-sidebar{top:var(--fgs-viewas-h)}",
     "html.fgs-viewas #fgs-sidebar-toggle{top:calc(.75rem + var(--fgs-viewas-h))}",
     "html.fgs-viewas #fgs-usermenu{top:calc(.5rem + var(--fgs-viewas-h))!important}",
-    "html.fgs-viewas .fgs-selectbar{top:calc(2.5rem + var(--fgs-viewas-h))}",
     // The selection bar's actions
     ".fgs-viewas [data-act]",
     // The \"⋯\" entries other than Open, and the list's quick download and copy buttons

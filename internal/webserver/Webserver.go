@@ -49,6 +49,7 @@ import (
 	"github.com/forceu/gokapi/internal/webserver/ratelimiter"
 	"github.com/forceu/gokapi/internal/webserver/sse"
 	"github.com/forceu/gokapi/internal/webserver/ssl"
+	"github.com/forceu/gokapi/internal/webserver/viewas"
 )
 
 // TODO add 404 handler
@@ -144,6 +145,10 @@ func Start() {
 	mux.HandleFunc("/p/poster", servePreviewFile("poster"))
 	mux.HandleFunc("/p/video", streamVideo)
 	mux.HandleFunc("/p/info", publicPreviewInfo)
+	// Part 3, V1: view as
+	mux.HandleFunc("/viewas", requireLogin(showViewAs, true, false))
+	mux.HandleFunc("/viewas/start", requireLogin(viewAsStart, false, false))
+	mux.HandleFunc("/viewas/end", requireLogin(viewAsEnd, false, false))
 	// Part 2, F2: the group creator's "Check for duplicates"
 	mux.HandleFunc("/groups/neardupes", requireLogin(nearCopyCheck, false, false))
 	// Part 2, R4: a collection turned into a group, its old link's modes and stopping it
@@ -192,7 +197,7 @@ func Start() {
 		Addr:         configuration.Get().Port,
 		ReadTimeout:  timeOutWebserverRead,
 		WriteTimeout: timeOutWebserverWrite,
-		Handler:      mux,
+		Handler:      viewas.Guard(mux),
 	}
 	infoMessage := "Webserver can be accessed at " + configuration.Get().ServerUrl + "admin\nPress CTRL+C to stop Gokapi"
 	if strings.Contains(configuration.Get().ServerUrl, "127.0.0.1") {
@@ -335,6 +340,11 @@ func serveE2EWasm(w http.ResponseWriter, r *http.Request) {
 
 // Handling of /logout
 func doLogout(w http.ResponseWriter, r *http.Request) {
+	// Part 3, V1: logging out ends "View as…" (the guard does too; this
+	// covers a request that never passed it)
+	if admin, _, active := viewas.Active(r); active {
+		viewas.End(admin.Id, "logout")
+	}
 	authentication.Logout(w, r)
 }
 
@@ -885,6 +895,8 @@ const (
 	ViewFiles = 6
 	// ViewGroups is the identifier for the Groups tab
 	ViewGroups = 7
+	// ViewViewAs is the identifier for the "View as…" picker (Part 3, V1)
+	ViewViewAs = 8
 )
 
 // Converts the globalConfig variable to an AdminView struct to pass the infos to
@@ -1202,6 +1214,13 @@ func requireLogin(next http.HandlerFunc, isUiCall, isPwChangeView bool) http.Han
 					redirect(w, r, "changePassword")
 					return
 				}
+			}
+			// Part 3, V1: an admin in "View as…" is the target from here on.
+			// The password check above always runs against the real admin.
+			if target, ok := viewas.Target(user.Id); ok {
+				viewas.Touch(user.Id)
+				r = viewas.MarkSwapped(r, user)
+				user = target
 			}
 			r = authentication.SetUserInRequest(r, user)
 			next.ServeHTTP(w, r)

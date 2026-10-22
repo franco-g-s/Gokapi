@@ -400,3 +400,32 @@ function sanitizeUserId(id) {
     }
     return numericId;
 }
+
+
+// Part 3, V1: "View as…", on the Users page and the /viewas picker
+function viewAsStart(userId, button) {
+    if (button) button.disabled = true;
+    fetch("./viewas/start", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: userId })
+    }).then(function (response) {
+        return response.json().catch(function () { return {}; }).then(function (data) {
+            if (!response.ok || data.Result !== "OK") {
+                throw new Error(data.ErrorMessage || ("HTTP " + response.status));
+            }
+            location.href = "./files";
+        });
+    }).catch(function (error) {
+        if (button) button.disabled = false;
+        alert("Unable to view as this person: " + error.message);
+    });
+}
+
+document.addEventListener("click", function (e) {
+    var button = e.target.closest && e.target.closest("[data-fgs-viewas-user]");
+    if (!button) return;
+    e.preventDefault();
+    viewAsStart(parseInt(button.getAttribute("data-fgs-viewas-user"), 10), button);
+});

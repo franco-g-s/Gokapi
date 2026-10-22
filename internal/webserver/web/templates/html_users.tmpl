@@ -107,6 +107,9 @@
                                 {{ end }}
                                 
                                 
+                                {{ if and $.ActiveUser.IsAdmin (ne $.ActiveUser.Id 0) (not .User.IsAdmin) (ne .User.Id $.ActiveUser.Id) }}
+                                <button type="button" class="btn btn-outline-light btn-sm" data-fgs-viewas-user="{{ .User.Id }}">View as…</button>
+                                {{ end }}
                                 <button id="delete-{{ .User.Id }}" type="button" class="btn btn-outline-danger btn-sm" {{if or (.User.IsSuperAdmin) (eq .User.Id $.ActiveUser.Id)}}disabled{{end}} onclick="showDeleteUserModal('{{ .User.Id }}', '{{ .User.Name }}')" title="Delete"><i class="bi bi-trash3"></i></button>
                                 </div></td>
                             </tr>

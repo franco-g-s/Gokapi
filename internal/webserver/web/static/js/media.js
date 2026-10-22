@@ -148,7 +148,7 @@
   // download URLs (/cd or /gd, counted; /files/download on the Files tab,
   // uncounted), never view or video URLs. Videos over VIDEO_MAX_BYTES are
   // left out before any request and handed to the zip (opts.zipIds).
-  // Measured on Franco's iPhone (model, iOS version, date) — the controller fills these in
+  // Defaults, not yet measured on an iPhone (2026-10-22): change these once Franco's /photosprobe numbers are in
   var PHOTO_BATCH_FILES = 20;      // files per share sheet
   var PHOTO_BATCH_BYTES = 1.5e9;   // bytes per share sheet
   var VIDEO_MAX_BYTES  = 500e6;    // larger videos go to the zip

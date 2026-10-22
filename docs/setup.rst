@@ -289,11 +289,9 @@ This disables all of Gokapi's internal authentication except for API calls. The 
 - ``/groups/stoplink``
 - ``/gz``
 - ``/logs``
-- ``/photosprobe``
 - ``/uploadChunk``
 - ``/uploadStatus``
 - ``/users``
-- ``/viewas``
 - ``/viewas/end``
 - ``/viewas/start``
 

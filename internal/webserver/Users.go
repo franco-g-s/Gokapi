@@ -17,7 +17,7 @@ type userFileStat struct {
 
 // userFileStats counts, per uploader, the files the Files tab lists: the same
 // rule as isListedFile, so the count on the Users page is the number of tiles
-// "View files" shows.
+// the Files tab shows for them (/files?user=<id>).
 func userFileStats() map[int]userFileStat {
 	config := configuration.Get()
 	now := time.Now().Unix()

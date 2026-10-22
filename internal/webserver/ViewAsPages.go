@@ -1,26 +1,16 @@
 package webserver
 
-// "View as…" (Part 3, V1): the picker and the start and end endpoints. The
-// state, the swap and the guard live in package viewas.
+// "View as…" (Part 3, V1): the start and end endpoints. It is started from the
+// Users tab (R2, V4); the state, the swap and the guard live in package viewas.
 
 import (
 	"errors"
 	"net/http"
-	"sort"
 
-	"github.com/forceu/gokapi/internal/configuration/database"
-	"github.com/forceu/gokapi/internal/helper"
 	"github.com/forceu/gokapi/internal/models"
 	"github.com/forceu/gokapi/internal/webserver/authentication"
 	"github.com/forceu/gokapi/internal/webserver/viewas"
 )
-
-// ViewAsView is the "View as…" picker
-type ViewAsView struct {
-	AdminView
-	// People are the non-admins other than yourself, by name
-	People []models.User
-}
 
 // realAdmin returns the real user behind the request, the admin behind a
 // swapped request included, if it is a real admin
@@ -40,31 +30,6 @@ func realAdmin(r *http.Request) (models.User, bool) {
 func viewasActive(r *http.Request) bool {
 	_, _, ok := viewas.Active(r)
 	return ok
-}
-
-// showViewAs answers GET /viewas: the picker, for real admins only
-func showViewAs(w http.ResponseWriter, r *http.Request) {
-	admin, ok := realAdmin(r)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	// The frame is the current user's: under "View as…" that is the target,
-	// so the nav and banner stay as they are on every other page
-	current, err := authentication.GetUserFromRequest(r)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	view := ViewAsView{AdminView: *(&AdminView{}).convertGlobalConfig(ViewViewAs, current), People: make([]models.User, 0)}
-	for _, u := range database.GetAllUsers() {
-		if u.Id != admin.Id && !u.IsAdmin() {
-			view.People = append(view.People, u)
-		}
-	}
-	sort.Slice(view.People, func(i, j int) bool { return view.People[i].Name < view.People[j].Name })
-	err = templateFolder.ExecuteTemplate(w, "viewas", &view)
-	helper.CheckIgnoreTimeout(err)
 }
 
 type viewAsStartRequest struct {

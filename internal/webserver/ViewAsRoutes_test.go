@@ -97,6 +97,8 @@ func TestViewAsRoutes(t *testing.T) {
 		"/api/", "/auth/token", "/uploadChunk", "/changePassword",
 		"/collections/create", "/collections/modify", "/collections/delete",
 		"/forgotpw", "/publicUpload", "/e2eSetup",
+		// the picker page is gone (R2)
+		"/viewas",
 	}
 	// every /groups/* POST route
 	for _, route := range routes {

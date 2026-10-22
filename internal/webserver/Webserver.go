@@ -153,7 +153,6 @@ func Start() {
 	mux.HandleFunc("/gl", requireLogin(groupListFeed, false, false))
 	mux.HandleFunc("/cl", collectionListFeed)
 	// Part 3, V1: view as
-	mux.HandleFunc("/viewas", requireLogin(showViewAs, true, false))
 	mux.HandleFunc("/viewas/start", requireLogin(viewAsStart, false, false))
 	mux.HandleFunc("/viewas/end", requireLogin(viewAsEnd, false, false))
 	// Part 2, F2: the group creator's "Check for duplicates"

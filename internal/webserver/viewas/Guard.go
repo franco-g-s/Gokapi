@@ -1,6 +1,7 @@
 package viewas
 
 import (
+	"context"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -59,8 +60,12 @@ func Allowed(method, path string) bool {
 }
 
 // Active returns the admin behind the request's session cookie and whom they
-// are viewing as. Read-only.
+// are viewing as: the guard's decision if the request passed it, otherwise
+// read from the session. Read-only.
 func Active(r *http.Request) (admin, target models.User, ok bool) {
+	if admin, target, ok = FromGuard(r); ok {
+		return admin, target, true
+	}
 	if !anyActive() {
 		return models.User{}, models.User{}, false
 	}
@@ -75,6 +80,53 @@ func Active(r *http.Request) (admin, target models.User, ok bool) {
 	return user, t, true
 }
 
+// resolve is the guard's one decision: who the session's admin is viewing as.
+// A row whose user is no longer a real admin is ended here, with "logout":
+// they lost the right to be signed in as an admin.
+func resolve(r *http.Request) (admin, target models.User, ok bool) {
+	user, found := peek(r)
+	if !found || !isActive(user.Id) {
+		return models.User{}, models.User{}, false
+	}
+	if !IsRealAdmin(user) {
+		End(user.Id, "logout")
+		return models.User{}, models.User{}, false
+	}
+	t, found := Target(user.Id)
+	if !found {
+		return models.User{}, models.User{}, false
+	}
+	return user, t, true
+}
+
+// decision is what the guard decided for a request in "View as…"
+type decision struct {
+	admin, target models.User
+}
+
+type decisionKey struct{}
+
+// FromGuard returns the guard's decision for this request: the admin and the
+// target. Only a request that passed the guard's active branch carries one,
+// and only such a request is ever swapped to the target.
+func FromGuard(r *http.Request) (admin, target models.User, ok bool) {
+	d, ok := r.Context().Value(decisionKey{}).(decision)
+	if !ok {
+		return models.User{}, models.User{}, false
+	}
+	return d.admin, d.target, true
+}
+
+// SwapFor returns the target the guard decided on, if this request passed the
+// guard as user's "View as…". Every swap goes through here.
+func SwapFor(r *http.Request, user models.User) (models.User, bool) {
+	admin, target, ok := FromGuard(r)
+	if !ok || admin.Id != user.Id {
+		return models.User{}, false
+	}
+	return target, true
+}
+
 // Guard wraps the whole mux. It refuses every change and every download of an
 // admin in "View as…". With nobody in "View as…" it reads nothing at all.
 func Guard(next http.Handler) http.Handler {
@@ -84,7 +136,7 @@ func Guard(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		admin, target, ok := Active(r)
+		admin, target, ok := resolve(r)
 		if !ok {
 			clearDisplayCookieIfSent(w, r)
 			next.ServeHTTP(w, r)
@@ -92,6 +144,7 @@ func Guard(next http.Handler) http.Handler {
 		}
 		if Allowed(r.Method, r.URL.Path) {
 			syncDisplayCookie(w, r, target)
+			r = r.WithContext(context.WithValue(r.Context(), decisionKey{}, decision{admin: admin, target: target}))
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -147,12 +200,13 @@ var refusalPage = template.Must(template.New("viewasrefusal").Parse(`<!doctype h
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
+<base href="{{ .Base }}">
 <title>View as…</title>
 <link href="./assets/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="./js/min/viewas.min.js"></script>
 </head>
 <body class="bg-dark text-white text-center p-5">
-<p>{{ . }}</p>
+<p>{{ .Message }}</p>
 <button type="button" class="btn btn-outline-light" data-fgs-viewas-exit>Exit</button>
 </body>
 </html>
@@ -170,5 +224,15 @@ func refuse(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=UTF-8")
 	w.WriteHeader(http.StatusForbidden)
-	_ = refusalPage.Execute(w, refusal)
+	_ = refusalPage.Execute(w, struct{ Base, Message string }{baseHref(r.URL.Path), refusal})
+}
+
+// baseHref points relative URLs at the site root from any depth, so the
+// refusal page's assets and Exit work under /h/x or /dh/x/x too
+func baseHref(path string) string {
+	depth := strings.Count(path, "/")
+	if depth <= 1 {
+		return "./"
+	}
+	return strings.Repeat("../", depth-1)
 }

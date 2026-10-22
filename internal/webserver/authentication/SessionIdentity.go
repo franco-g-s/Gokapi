@@ -25,8 +25,8 @@ func SessionIdentity(r *http.Request) (models.User, bool) {
 		if !ok {
 			return models.User{}, false
 		}
-		// Part 3, V1: an admin in "View as…" is the target here too
-		if t, ok := viewas.Target(u.Id); ok {
+		// Part 3, V1: an admin in "View as…" is the target here too, as the guard decided
+		if t, ok := viewas.SwapFor(r, u); ok {
 			return t, true
 		}
 		return u, true

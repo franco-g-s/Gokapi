@@ -178,6 +178,18 @@ func TestTickerEndsIdle(t *testing.T) {
 	test.IsEqualBool(t, hasSuffixLine(logLines(t, admin), endLine(admin, a, "timeout")), true)
 }
 
+func TestTickerEndsDemoted(t *testing.T) {
+	admin, a, _ := people(t, 8190, "tickdemoted")
+	test.IsNil(t, Start(admin, a.Id))
+	demoted := admin
+	demoted.UserLevel = models.UserLevelUser
+	database.SaveUser(demoted, false)
+	endIdle()
+	_, ok := database.GetViewAs(admin.Id)
+	test.IsEqualBool(t, ok, false)
+	test.IsEqualBool(t, hasSuffixLine(logLines(t, admin), endLine(demoted, a, "logout")), true)
+}
+
 func TestTickerKeepsFresh(t *testing.T) {
 	admin, a, _ := people(t, 8145, "fresh")
 	test.IsNil(t, Start(admin, a.Id))

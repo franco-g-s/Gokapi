@@ -200,7 +200,10 @@ func endIdle() {
 	defer mu.Unlock()
 	now := time.Now().Unix()
 	for _, row := range database.GetAllViewAs() {
-		if isIdle(row, now) {
+		if admin, ok := database.GetUser(row.AdminId); !ok || !IsRealAdmin(admin) {
+			// No longer an admin, or deleted: as in the guard
+			endLocked(row.AdminId, "logout")
+		} else if isIdle(row, now) {
 			endLocked(row.AdminId, "timeout")
 		}
 	}

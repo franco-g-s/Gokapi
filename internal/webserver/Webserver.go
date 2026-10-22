@@ -1215,9 +1215,10 @@ func requireLogin(next http.HandlerFunc, isUiCall, isPwChangeView bool) http.Han
 					return
 				}
 			}
-			// Part 3, V1: an admin in "View as…" is the target from here on.
-			// The password check above always runs against the real admin.
-			if target, ok := viewas.Target(user.Id); ok {
+			// Part 3, V1: an admin in "View as…" is the target from here on,
+			// exactly when the guard decided so for this request. The
+			// password check above always runs against the real admin.
+			if target, ok := viewas.SwapFor(r, user); ok {
 				viewas.Touch(user.Id)
 				r = viewas.MarkSwapped(r, user)
 				user = target

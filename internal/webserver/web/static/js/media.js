@@ -1185,12 +1185,23 @@
     // selection being worked on (Save to Photos' prepared set) survives.
     // Under "Hide what I've downloaded" they leave the list; the cursor is a
     // position in the order, so the next batch skips nothing.
+    // Files this page has downloaded (or queued): the server may list them
+    // as new for a while yet, while the downloads are still on their way
+    var had = new Set();
     function markDownloaded(ids, keepVisible) {
       (ids || []).forEach(function (id) {
+        had.add(String(id));
         setData(tilesById[id], "downloaded", "true");
         setData(rowsById[id], "downloaded", "true");
       });
       if (keepVisible || !query.hide) return;
+      // A "Select all" under the filter has been acted on and its files
+      // leave the list: it ends here, so a later batch (which may still
+      // list files whose download is under way) cannot tick them again
+      if (sel.mode === "query") {
+        clearSelection();
+        syncTicks();
+      }
       // Files of the selection not rendered yet leave the list too: they
       // matched it, and now no longer do
       var gone = 0;
@@ -2062,12 +2073,20 @@
 
     // One batch onto the end of the list, in the server's order; files
     // already listed (a live add) are skipped. Returns the new tiles.
-    function appendBatch(answer) {
-      var added = [];
+    function wasHad(json) { return had.has(String(json.Id)); }
+    function appendBatch(answer, first) {
+      var added = [], skipped = 0;
       answer.Items.forEach(function (json) {
         if (!json || tilesById[String(json.Id)]) return;
+        var done = wasHad(json);
+        // Under "Hide what I've downloaded", never back in the list
+        if (done && query.hide) { skipped++; return; }
         var built = buildItem(json);
         if (!built) return;
+        if (done) {
+          setData(built.tile, "downloaded", "true");
+          setData(built.row, "downloaded", "true");
+        }
         grid.appendChild(built.tile);
         tbody.appendChild(built.row);
         index(built.tile, built.row);
@@ -2075,9 +2094,17 @@
         added.push(built.tile);
       });
       next = answer.Next || "";
-      counts.total = answer.Total || 0;
+      var total = answer.Total || 0, fresh = answer.New || 0;
+      // The server still counts files whose download is under way: a first
+      // batch leaves out the ones it listed, a later one keeps the count
+      // this page already has
+      if (skipped) {
+        total = first ? Math.max(0, total - skipped) : Math.min(total, counts.total);
+        fresh = first ? Math.max(0, fresh - skipped) : Math.min(fresh, counts.fresh);
+      }
+      counts.total = total;
       counts.all = answer.All || 0;
-      counts.fresh = answer.New || 0;
+      counts.fresh = fresh;
       // A "Select all" covers what arrives
       syncTicks(added);
       // Once per batch, and the selection (with what was prepared or
@@ -2106,7 +2133,7 @@
           pending = null;
           if (first) views.classList.remove("fgs-reloading");
           setMore("");
-          var added = appendBatch(answer);
+          var added = appendBatch(answer, first);
           observeMore();
           return added;
         })

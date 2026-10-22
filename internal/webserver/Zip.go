@@ -37,12 +37,15 @@ func downloadCollectionZip(w http.ResponseWriter, r *http.Request) {
 // ids of the members to include. It only narrows the collection's own live
 // members - an id that is not one of them is ignored, never resolved - and a
 // filter that matches nothing yields nothing, never the whole collection.
+// It reads the query string and, for a POST, the form body, so a selection
+// too long for a URL can be posted (Part 3).
 func selectedMembers(members []models.File, r *http.Request) []models.File {
-	if !r.URL.Query().Has("files") {
+	_ = r.ParseForm()
+	if !r.Form.Has("files") {
 		return members
 	}
 	wanted := make(map[string]bool)
-	for _, id := range strings.Split(r.URL.Query().Get("files"), ",") {
+	for _, id := range strings.Split(r.Form.Get("files"), ",") {
 		if id != "" {
 			wanted[id] = true
 		}
@@ -67,8 +70,10 @@ func downloadFilesZip(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(err)
 	}
+	// ids= from the query string or, for a POST, the form body (Part 3)
+	_ = r.ParseForm()
 	files := make([]models.File, 0)
-	for _, id := range strings.Split(r.URL.Query().Get("ids"), ",") {
+	for _, id := range strings.Split(r.Form.Get("ids"), ",") {
 		f, ok := storage.GetFile(id)
 		if !ok || (f.UserId != user.Id && !user.HasPermissionListOtherUploads()) {
 			continue

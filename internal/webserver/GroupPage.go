@@ -207,9 +207,10 @@ func showGroup(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	role, member := storage.GroupRole(g, user.Id)
 	manager := storage.CanManageGroup(g, user)
-	files := storage.GroupFiles(g)
-	names := memberNamesOf(g, files)
-	items, files := groupBoard(r, g, files, user, names)
+	// The whole board: the page renders its first batch, and near-copies
+	// and the person filter are worked out over all of it
+	source, files, names := groupSource(r, g, user)
+	items := source.Items
 
 	view := GroupView{
 		AdminView: *(&AdminView{}).convertGlobalConfig(ViewGroups, user),
@@ -277,8 +278,9 @@ func showGroup(w http.ResponseWriter, r *http.Request) {
 		view.NearCopies = append(view.NearCopies, groupNearCopyOf(near, itemById, someone, user.Id))
 	}
 
-	view.Browser = newFileBrowser("fgs-group", ctxGroup, items, user)
+	view.Browser = newFileBrowser("fgs-group", ctxGroup, nil, user)
 	view.Browser.WithGroup(g, people)
+	view.Browser.WithList(source, listUrl("./gl?id=", g.Id))
 	view.Browser.UploadSink = true
 	addNoCacheHeader(w)
 	helper.CheckIgnoreTimeout(templateFolder.ExecuteTemplate(w, "group_page", &view))

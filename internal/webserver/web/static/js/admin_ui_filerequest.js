@@ -558,11 +558,10 @@ function createFileRequestRow(jsonResult, user) {
     // fetched, and the dates the saved files get
     function photos(a) {
         const button = a.button;
-        const prepared = button._fgs && button._fgs.files;
-        const items = prepared ? [] : a.data.map(d => Object.assign({}, d, {
+        const items = FGS.photosPending(button) ? [] : a.data.map(d => Object.assign({}, d, {
             url: () => presignUrl(d.id)
         }));
-        FGS.saveToPhotos(items, button);
+        FGS.saveToPhotos(items, button, { status: a.status, zipIds: ids => a.browser.zipIds(ids) });
     }
 
     // Takes a deleted file out of this request's list and keeps the row's

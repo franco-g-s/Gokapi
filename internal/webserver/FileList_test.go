@@ -50,7 +50,12 @@ func TestListQueryParse(t *testing.T) {
 	q = mustParse(t, "limit=1")
 	test.IsEqualInt(t, q.Limit, 1)
 
-	for _, bad := range []string{"limit=0", "limit=501", "limit=-1", "limit=x", "sort=bogus"} {
+	for _, kind := range []string{"image", "video", "other"} {
+		test.IsEqualString(t, mustParse(t, "kind="+kind).Kind, kind)
+	}
+	test.IsEqualString(t, mustParse(t, "").Kind, "")
+
+	for _, bad := range []string{"limit=0", "limit=501", "limit=-1", "limit=x", "sort=bogus", "kind=bogus", "kind=Image"} {
 		_, err := parseListQuery(httptest.NewRequest("GET", "/gl?"+bad, nil))
 		test.IsNotNil(t, err)
 	}
@@ -115,6 +120,29 @@ func TestListMatchingFilters(t *testing.T) {
 	sameIds(t, matchingIds(files, listQuery{Scope: "mine"}), "mine")
 	sameIds(t, matchingIds(files, listQuery{Scope: "all"}), "mine", "had", "fresh", "other")
 	sameIds(t, matchingIds(files, listQuery{Scope: "all", Search: "fjord"}), "mine", "other")
+
+	// Type (R1): the preview's kind, else the extension, as FGS.isPhotoOrVideo
+	sameIds(t, matchingIds(group, listQuery{Kind: "image"}), "mine", "had", "fresh")
+	sameIds(t, matchingIds(group, listQuery{Kind: "video"}), "other")
+	sameIds(t, matchingIds(group, listQuery{Kind: "other"}))
+	sameIds(t, matchingIds(files, listQuery{Scope: "all", Kind: "video"}), "other")
+	sameIds(t, matchingIds(group, listQuery{Kind: "image", Person: 2}), "had", "fresh")
+	kinds := listSource{Items: []browserItem{
+		{File: models.FileApiOutput{Id: "clip", Name: "clip.bin"}, Preview: previewInfo{Kind: "video"}},
+		{File: models.FileApiOutput{Id: "pic", Name: "scan.bin"}, Preview: previewInfo{Kind: "image", Status: "pending"}},
+		{File: models.FileApiOutput{Id: "heic", Name: "IMG_1.HEIC"}},
+		{File: models.FileApiOutput{Id: "m4v", Name: "a.M4V"}},
+		{File: models.FileApiOutput{Id: "txt", Name: "notes.txt"}},
+		{File: models.FileApiOutput{Id: "svg", Name: "logo.svg"}},
+		{File: models.FileApiOutput{Id: "bare", Name: "README"}},
+	}, DefaultSort: "uploaded", DefaultDesc: true, GroupTools: true}
+	sameIds(t, matchingIds(kinds, listQuery{Kind: "image"}), "pic", "heic")
+	sameIds(t, matchingIds(kinds, listQuery{Kind: "video"}), "clip", "m4v")
+	sameIds(t, matchingIds(kinds, listQuery{Kind: "other"}), "txt", "svg", "bare")
+	sameIds(t, matchingIds(kinds, listQuery{}), "clip", "pic", "heic", "m4v", "txt", "svg", "bare")
+	// New counts under the Type filter too
+	test.IsEqualInt(t, kinds.newCount(listQuery{Kind: "video"}), 2)
+	test.IsEqualInt(t, group.newCount(listQuery{Kind: "image"}), 1)
 }
 
 // sortFixture has two items that tie on every key, so the id decides

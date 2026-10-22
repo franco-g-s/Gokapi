@@ -163,10 +163,17 @@
     return (m && MIME_BY_EXT[m[1].toLowerCase()]) || blobType || "application/octet-stream";
   }
 
-  // A photo or video Photos can take: by the preview's kind, or by the name
-  // where there is no preview (yet)
+  // A file's Type: the preview's kind, or by the name where there is no
+  // preview (yet); "other" for the rest. The server's kindOf (FileList.go)
+  // holds the same rule for the Type filter.
+  FGS.fileKind = function (kind, name) {
+    if (kind === "image" || kind === "video") return kind;
+    var m = /^(image|video)\//.exec(photoMime(name, ""));
+    return m ? m[1] : "other";
+  };
+  // A photo or video Photos can take
   FGS.isPhotoOrVideo = function (kind, name) {
-    return kind === "image" || kind === "video" || /^(image|video)\//.test(photoMime(name, ""));
+    return FGS.fileKind(kind, name) !== "other";
   };
 
   // A file list tile (or anything carrying its data-*) as a Save to Photos /
@@ -935,15 +942,17 @@
   }
 
   // A list's remembered choices, per context: "fgsBrowser.<context>.<k>".
-  // The view and the List sort of a group page are per group, so a tap on
-  // Grid in one group leaves every other group on Board. The Files tab falls
-  // back to the keys it used before it moved onto this component.
+  // A group page's view, sort and filters are per group (R1: as the view
+  // is), so a tap on Grid in one group leaves every other group on Board.
+  // The Files tab falls back to the keys it used before it moved onto this
+  // component.
   // localStorage throws in private mode: then nothing is remembered.
+  var PER_GROUP_PREFS = { view: true, sort: true, hideDownloaded: true, kind: true };
   var LEGACY_FILES_KEYS = { view: "filesLayout", shape: "filesTileShape", size: "filesIconSize", scope: "filesScope" };
   function browserPrefKey(root, k) {
     var context = root.getAttribute("data-context") || "";
     var group = root.getAttribute("data-group-id") || "";
-    if ((k === "view" || k === "sort") && context === "group" && group) context = "group." + group;
+    if (PER_GROUP_PREFS[k] && context === "group" && group) context = "group." + group;
     return "fgsBrowser." + context + "." + k;
   }
   FGS.browserPrefKey = browserPrefKey;
@@ -972,6 +981,8 @@
   // A header's first click: newest, biggest and most first; names and
   // shooting order from the start
   var DESC_FIRST = { uploaded: true, size: true, expires: true, downloads: true };
+  // The Type filter's values (kind=)
+  var KINDS = ["image", "video", "other"];
   function defaultOrder(root) {
     var key = root.getAttribute("data-sort-key");
     if (SORT_KEYS.indexOf(key) >= 0) return { sort: key, desc: root.getAttribute("data-sort-desc") === "true" };
@@ -985,11 +996,12 @@
     return { sort: m[1], desc: m[2] === "desc" };
   }
   // The query a list starts with: its defaults, then the remembered scope,
-  // "Hide what I've downloaded" and sort. The person and the search are
-  // never remembered.
+  // "Hide what I've downloaded", Type and sort. The person and the search
+  // are never remembered.
   function initialQuery(root) {
     var order = rememberedOrder(root) || defaultOrder(root);
-    var q = { scope: "", person: "", hide: false, q: "", sort: order.sort, desc: order.desc };
+    var kind = loadBrowserPref(root, "kind");
+    var q = { scope: "", person: "", hide: false, kind: KINDS.indexOf(kind) >= 0 ? kind : "", q: "", sort: order.sort, desc: order.desc };
     if (root.querySelector("button[data-scope]")) q.scope = loadBrowserPref(root, "scope") === "all" ? "all" : "mine";
     if (root.querySelector("[data-fgs-hide-downloaded]")) q.hide = loadBrowserPref(root, "hideDownloaded") === "true";
     return q;
@@ -999,7 +1011,7 @@
   function needsReload(root) {
     if (!root.getAttribute("data-list-url")) return false;
     var q = initialQuery(root), d = defaultOrder(root);
-    return q.scope === "all" || q.hide || q.sort !== d.sort || q.desc !== d.desc;
+    return q.scope === "all" || q.hide || !!q.kind || q.sort !== d.sort || q.desc !== d.desc;
   }
 
   // The button of this value is the active one in its group of buttons
@@ -1074,6 +1086,12 @@
     var personSelect = root.querySelector("[data-fgs-person]");
     var hideDownloaded = root.querySelector("[data-fgs-hide-downloaded]");
     var scopeSwitch = !!root.querySelector("button[data-scope]");
+    // The Sort & filter dropdown (R1)
+    var sortRadios = Array.prototype.slice.call(root.querySelectorAll("[data-fgs-sort-option]"));
+    var dirRadios = Array.prototype.slice.call(root.querySelectorAll("[data-fgs-sort-dir]"));
+    var kindRadios = Array.prototype.slice.call(root.querySelectorAll("[data-fgs-kind]"));
+    var filterBadge = root.querySelector("[data-fgs-filter-badge]");
+    var filterReset = root.querySelector("[data-fgs-filter-reset]");
     // The upload page's element ids, only where the page holds one browser
     var legacyIds = root.getAttribute("data-legacy-ids") === "true";
     var selecting = false, view = null, api = null;
@@ -1277,6 +1295,7 @@
       if (query.scope === "mine" && tile.getAttribute("data-mine") !== "true") return false;
       if (query.person && tile.getAttribute("data-uploader-id") !== query.person) return false;
       if (query.hide && !isNewToMe(tile)) return false;
+      if (query.kind && FGS.fileKind(tile.getAttribute("data-kind"), tile.getAttribute("data-name")) !== query.kind) return false;
       var q = query.q.trim().toLowerCase();
       return !q || (tile.getAttribute("data-name") || "").toLowerCase().indexOf(q) >= 0;
     }
@@ -1334,13 +1353,6 @@
       if (was === "board" && v !== "board") clearBoard();
       setActive("data-layout", v);
       store("view", v);
-      // The search box is List's: leaving List clears a search, so Grid and
-      // Board never show a list filtered by something they do not show
-      if (v !== "list" && query.q) {
-        if (searchBox) searchBox.value = "";
-        query.q = "";
-        reload();
-      }
       layoutBoard();
       updateSelection();
       // The other view's sentinel may be the one in reach now
@@ -1355,6 +1367,7 @@
       store("scope", s);
       if (s === query.scope) return;
       query.scope = s;
+      showFilters();
       reload();
     }
 
@@ -1465,7 +1478,7 @@
         return Array.prototype.filter.call(grid.children, function (t) { return t.classList.contains("fgs-tile"); }).map(FGS.itemData);
       };
       if (!listUrl || (!next && !filtered(query))) return Promise.resolve(rendered());
-      var everything = { scope: query.scope ? "all" : "", person: "", hide: false, q: "", sort: query.sort, desc: query.desc };
+      var everything = { scope: query.scope ? "all" : "", person: "", hide: false, kind: "", q: "", sort: query.sort, desc: query.desc };
       return fetch(feedUrlFor(everything, "") + "&limit=all", { credentials: "same-origin", cache: "no-store" })
         .then(function (r) {
           if (!r.ok) throw new Error("The server answered " + r.status);
@@ -1476,7 +1489,7 @@
           return answer.Items.map(FGS.itemData);
         });
     }
-    function filtered(q) { return q.scope === "mine" || !!q.person || !!q.hide || !!q.q.trim(); }
+    function filtered(q) { return q.scope === "mine" || !!q.person || !!q.hide || !!q.kind || !!q.q.trim(); }
 
     // A zip of these files: a POSTed form (no URL length limit), answered
     // with an attachment, so the page stays. ZipUrl ends in the parameter
@@ -2246,6 +2259,7 @@
       if (q.scope) params.push("scope=" + q.scope);
       if (q.person) params.push("person=" + encodeURIComponent(q.person));
       if (q.hide) params.push("hide=1");
+      if (q.kind) params.push("kind=" + q.kind);
       if (q.q.trim()) params.push("q=" + encodeURIComponent(q.q.trim()));
       params.push("sort=" + q.sort, "dir=" + (q.desc ? "desc" : "asc"));
       if (after) params.push("after=" + encodeURIComponent(after));
@@ -2413,9 +2427,21 @@
       });
     }
 
-    // List: a header sorts by its column (the second click on the active
-    // one turns it round), remembered like the view
+    // The sort, in every view (R1): from a List header (the second click on
+    // the active one turns it round) or the Sort & filter dropdown, which a
+    // new key gives the header's first direction. Remembered like the view.
+    function setOrder(key, desc) {
+      if (SORT_KEYS.indexOf(key) < 0) return;
+      if (key === query.sort && desc === query.desc) return;
+      query.sort = key;
+      query.desc = desc;
+      store("sort", query.sort + ":" + (query.desc ? "desc" : "asc"));
+      showSort();
+      reload();
+    }
     function showSort() {
+      sortRadios.forEach(function (r) { r.checked = r.value === query.sort; });
+      dirRadios.forEach(function (r) { r.checked = r.value === (query.desc ? "desc" : "asc"); });
       Array.prototype.forEach.call(table.tHead.querySelectorAll("th[data-fgs-sortkey]"), function (th) {
         var on = th.getAttribute("data-fgs-sortkey") === query.sort;
         if (on) th.setAttribute("aria-sort", query.desc ? "descending" : "ascending");
@@ -2428,15 +2454,43 @@
       var button = e.target.closest("th[data-fgs-sortkey] button");
       if (!button) return;
       var key = button.closest("th").getAttribute("data-fgs-sortkey");
-      if (key === query.sort) query.desc = !query.desc;
-      else {
-        query.sort = key;
-        query.desc = !!DESC_FIRST[key];
-      }
-      store("sort", query.sort + ":" + (query.desc ? "desc" : "asc"));
-      showSort();
-      reload();
+      setOrder(key, key === query.sort ? !query.desc : !!DESC_FIRST[key]);
     });
+
+    // The filters of the Sort & filter dropdown: Type everywhere, My files /
+    // Everything (applyScope), and the group page's person and "Hide what
+    // I've downloaded". The badge counts the ones not at their default;
+    // Reset puts those back (the sort and the search stay).
+    function activeFilters() {
+      return (query.kind ? 1 : 0) + (query.person ? 1 : 0) + (query.hide ? 1 : 0) + (scopeSwitch && query.scope === "all" ? 1 : 0);
+    }
+    function showFilters() {
+      kindRadios.forEach(function (r) { r.checked = r.value === query.kind; });
+      if (personSelect) personSelect.value = query.person;
+      if (hideDownloaded) hideDownloaded.checked = query.hide;
+      if (scopeSwitch) setActive("data-scope", query.scope);
+      if (filterBadge) {
+        var n = activeFilters();
+        filterBadge.textContent = n ? String(n) : "";
+        filterBadge.hidden = !n;
+        var toggle = filterBadge.closest("button");
+        if (toggle) toggle.setAttribute("aria-label", "Sort & filter" + (n ? " (" + n + " filter" + (n === 1 ? "" : "s") + " on)" : ""));
+      }
+    }
+    function resetFilters() {
+      if (!activeFilters()) return;
+      query.kind = "";
+      query.person = "";
+      query.hide = false;
+      store("kind", "");
+      if (hideDownloaded) store("hideDownloaded", "false");
+      if (scopeSwitch) {
+        query.scope = "mine";
+        store("scope", "mine");
+      }
+      showFilters();
+      reload();
+    }
 
     api = {
       root: root,
@@ -2470,7 +2524,7 @@
         var built = buildItem(json, preview);
         return built ? { tile: built.tile, row: built.row } : null;
       },
-      // The current query ({scope, person, hide, q, sort, desc}), the counts
+      // The current query ({scope, person, hide, kind, q, sort, desc}), the counts
       // of the last answer ({total, all, new}) and the cursor ("" = all in)
       query: function () { return Object.assign({}, query); },
       counts: function () { return { total: counts.total, all: counts.all, "new": counts.fresh }; },
@@ -2498,25 +2552,48 @@
     applyShape(load("shape") || "square");
     formatTimes(views);
     applyView(initialView(root));
-    if (scopeSwitch) setActive("data-scope", query.scope);
     // Group pages: whose files (never remembered: each group has its own
-    // people), and "Hide what I've downloaded" (remembered)
+    // people; a browser may restore the last choice, showFilters undoes
+    // it), and "Hide what I've downloaded" (remembered)
     if (personSelect) {
-      personSelect.value = ""; // a browser may restore the last choice
       personSelect.addEventListener("change", function () {
         query.person = personSelect.value;
+        showFilters();
         reload();
       });
+      // Arrow keys choose a person rather than move through the dropdown
+      personSelect.addEventListener("keydown", function (e) { if (e.key !== "Escape") e.stopPropagation(); });
     }
     if (hideDownloaded) {
-      hideDownloaded.checked = query.hide;
       hideDownloaded.addEventListener("change", function () {
         store("hideDownloaded", hideDownloaded.checked ? "true" : "false");
         // Your own uploads count as already had (D12)
         query.hide = hideDownloaded.checked;
+        showFilters();
         reload();
       });
     }
+    kindRadios.forEach(function (r) {
+      r.addEventListener("change", function () {
+        if (!r.checked || r.value === query.kind) return;
+        query.kind = KINDS.indexOf(r.value) >= 0 ? r.value : "";
+        store("kind", query.kind);
+        showFilters();
+        reload();
+      });
+    });
+    sortRadios.forEach(function (r) {
+      r.addEventListener("change", function () {
+        if (r.checked && r.value !== query.sort) setOrder(r.value, !!DESC_FIRST[r.value]);
+      });
+    });
+    dirRadios.forEach(function (r) {
+      r.addEventListener("change", function () {
+        if (r.checked) setOrder(query.sort, r.value === "desc");
+      });
+    });
+    if (filterReset) filterReset.addEventListener("click", resetFilters);
+    showFilters();
     if (searchBox) {
       searchBox.value = ""; // never remembered, nor restored by the browser
       var searchTimer = null;

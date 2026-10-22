@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/forceu/gokapi/internal/models"
+	"github.com/forceu/gokapi/internal/preview"
 )
 
 // listBatch is how many items a page renders and a feed answers by default
@@ -31,12 +32,16 @@ var (
 	errListScope  = errors.New("unknown scope")
 	errListPerson = errors.New("invalid person")
 	errListCursor = errors.New("invalid cursor")
+	errListKind   = errors.New("unknown kind")
 	// errListCursorSort: the list was re-sorted since the cursor was made
 	errListCursorSort = errors.New("cursor does not match the sort")
 )
 
 // listSorts are the sort= values a feed accepts
 var listSorts = []string{"name", "uploaded", "taken", "size", "expires", "downloads"}
+
+// listKinds are the kind= values a feed accepts (the Type filter)
+var listKinds = []string{"image", "video", "other"}
 
 // listQuery is one request for a batch of a list
 type listQuery struct {
@@ -45,6 +50,7 @@ type listQuery struct {
 	NewOnly bool   // new=1: the same predicate, for "Select everything new to me"
 	Scope   string // scope=mine|all (Files tab switch); "" = the source's default
 	Search  string // q=: case-insensitive substring of the file name
+	Kind    string // kind=image|video|other (Type); "" = every kind
 	Sort    string // sort=name|uploaded|taken|size|expires|downloads; "" = the source's default
 	Desc    bool   // dir=desc; ignored when Sort is ""
 	After   string // after=<cursor> from the previous answer's Next
@@ -60,6 +66,7 @@ func parseListQuery(r *http.Request) (listQuery, error) {
 		NewOnly: values.Get("new") == "1",
 		Scope:   values.Get("scope"),
 		Search:  values.Get("q"),
+		Kind:    values.Get("kind"),
 		Sort:    values.Get("sort"),
 		Desc:    values.Get("dir") == "desc",
 		After:   values.Get("after"),
@@ -77,6 +84,9 @@ func parseListQuery(r *http.Request) (listQuery, error) {
 	}
 	if q.Sort != "" && !slices.Contains(listSorts, q.Sort) {
 		return listQuery{}, errListSort
+	}
+	if q.Kind != "" && !slices.Contains(listKinds, q.Kind) {
+		return listQuery{}, errListKind
 	}
 	if raw := values.Get("limit"); raw == "all" {
 		q.Limit = -1
@@ -113,6 +123,20 @@ func (s listSource) order(q listQuery) (string, bool) {
 // newToViewer is the D12 predicate: neither downloaded nor uploaded by them
 func newToViewer(item browserItem) bool { return !item.Downloaded && !item.Mine }
 
+// kindOf is an item's Type: its preview's kind, else its extension's (no
+// preview yet, or none), else "other". media.js (FGS.fileKind, behind
+// FGS.isPhotoOrVideo) holds the same rule.
+func kindOf(item browserItem) string {
+	switch item.Preview.Kind {
+	case models.PreviewKindImage, models.PreviewKindVideo:
+		return item.Preview.Kind
+	}
+	if kind := preview.Kind("", item.File.Name); kind != "" {
+		return kind
+	}
+	return "other"
+}
+
 // passes reports whether an item survives the query's filters; withNew
 // false leaves out hide and new, for counting New
 func (s listSource) passes(item browserItem, q listQuery, withNew bool) bool {
@@ -132,6 +156,9 @@ func (s listSource) passes(item browserItem, q listQuery, withNew bool) bool {
 		if withNew && (q.HideHad || q.NewOnly) && !newToViewer(item) {
 			return false
 		}
+	}
+	if q.Kind != "" && kindOf(item) != q.Kind {
+		return false
 	}
 	if search := strings.ToLower(strings.TrimSpace(q.Search)); search != "" &&
 		!strings.Contains(strings.ToLower(item.File.Name), search) {

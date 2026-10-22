@@ -24,21 +24,62 @@
      data-next="{{ .Next }}" data-sort-key="{{ .Sort }}" data-sort-desc="{{ .Desc }}">
   <div class="fgs-toolbar d-flex flex-wrap gap-2 align-items-center mb-3">
     <span class="fgs-count text-muted small me-auto" aria-live="polite"></span>
-    {{ if .GroupTools }}
-    <select class="form-select form-select-sm w-auto" data-fgs-person aria-label="Whose files">
-      <option value="">Everyone</option>
-      {{- range .People }}
-      <option value="{{ .Id }}">{{ .Name }}</option>
-      {{- end }}
-    </select>
-    <label class="form-check-label small text-nowrap"><input type="checkbox" class="form-check-input" data-fgs-hide-downloaded> Hide what I&#39;ve downloaded</label>
-    {{ end }}
-    {{ if .ShowScope }}
-    <div class="btn-group" role="group" aria-label="Whose files">
-      <button type="button" class="btn btn-sm btn-light" data-scope="mine">My files</button>
-      <button type="button" class="btn btn-sm btn-outline-light" data-scope="all">Everything</button>
+    {{/* Sort & filter (R1): one dropdown with every list's sort and filters.
+         media.js keeps it, the List headers and the badge in step. */}}
+    <div class="dropdown fgs-menu fgs-sortfilter" data-fgs-sortfilter>
+      <button type="button" class="btn btn-sm btn-outline-light" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" title="Sort &amp; filter"><i class="bi bi-funnel"></i> <span class="fgs-label">Sort &amp; filter</span> <span class="badge rounded-pill text-bg-light fgs-filter-badge" data-fgs-filter-badge hidden></span></button>
+      <div class="dropdown-menu dropdown-menu-end fgs-sortfilter-menu">
+        <fieldset class="fgs-sf-group">
+          <legend class="dropdown-header">Sort by</legend>
+          {{ template "file_browser_sort_option" ($.SortOption "name" "Name") }}
+          {{ template "file_browser_sort_option" ($.SortOption "uploaded" "Uploaded") }}
+          {{ template "file_browser_sort_option" ($.SortOption "taken" "Taken") }}
+          {{ template "file_browser_sort_option" ($.SortOption "size" "Size") }}
+          {{- if .ManagesColumns }}
+          {{ template "file_browser_sort_option" ($.SortOption "expires" "Expires") }}
+          {{ template "file_browser_sort_option" ($.SortOption "downloads" "Downloads") }}
+          {{- end }}
+        </fieldset>
+        <fieldset class="fgs-sf-group fgs-sf-row">
+          <legend class="visually-hidden">Order</legend>
+          <label class="form-check-label"><input type="radio" class="form-check-input" name="{{ .Id }}-dir" value="asc" data-fgs-sort-dir{{ if not .Desc }} checked{{ end }}> Ascending</label>
+          <label class="form-check-label"><input type="radio" class="form-check-input" name="{{ .Id }}-dir" value="desc" data-fgs-sort-dir{{ if .Desc }} checked{{ end }}> Descending</label>
+        </fieldset>
+        <div class="dropdown-divider"></div>
+        <fieldset class="fgs-sf-group">
+          <legend class="dropdown-header">Type</legend>
+          <div class="fgs-sf-row">
+          <label class="form-check-label"><input type="radio" class="form-check-input" name="{{ .Id }}-kind" value="" data-fgs-kind checked> All</label>
+          <label class="form-check-label"><input type="radio" class="form-check-input" name="{{ .Id }}-kind" value="image" data-fgs-kind> Photos</label>
+          <label class="form-check-label"><input type="radio" class="form-check-input" name="{{ .Id }}-kind" value="video" data-fgs-kind> Videos</label>
+          <label class="form-check-label"><input type="radio" class="form-check-input" name="{{ .Id }}-kind" value="other" data-fgs-kind> Other</label>
+          </div>
+        </fieldset>
+        {{ if .ShowScope }}
+        <fieldset class="fgs-sf-group">
+          <legend class="dropdown-header">Show</legend>
+          <div class="btn-group" role="group" aria-label="Whose files">
+            <button type="button" class="btn btn-sm btn-light" data-scope="mine">My files</button>
+            <button type="button" class="btn btn-sm btn-outline-light" data-scope="all">Everything</button>
+          </div>
+        </fieldset>
+        {{ end }}
+        {{ if .GroupTools }}
+        <fieldset class="fgs-sf-group">
+          <legend class="dropdown-header">Uploaded by</legend>
+          <select class="form-select form-select-sm" data-fgs-person aria-label="Whose files">
+            <option value="">Everyone</option>
+            {{- range .People }}
+            <option value="{{ .Id }}">{{ .Name }}</option>
+            {{- end }}
+          </select>
+          <label class="form-check-label small mt-2 d-block"><input type="checkbox" class="form-check-input" data-fgs-hide-downloaded> Hide what I&#39;ve downloaded</label>
+        </fieldset>
+        {{ end }}
+        <div class="dropdown-divider"></div>
+        <button type="button" class="dropdown-item" data-fgs-filter-reset><i class="bi bi-arrow-counterclockwise"></i> Reset filters</button>
+      </div>
     </div>
-    {{ end }}
     <div class="btn-group" role="group" aria-label="Layout">
       <button type="button" class="btn btn-sm {{ if eq .DefaultView "grid" }}btn-light{{ else }}btn-outline-light{{ end }}" data-layout="grid" title="Grid"><i class="bi bi-grid-3x3-gap"></i> <span class="fgs-label">Grid</span></button>
       <button type="button" class="btn btn-sm {{ if eq .DefaultView "board" }}btn-light{{ else }}btn-outline-light{{ end }}" data-layout="board" title="Board"><i class="bi bi-columns-gap"></i> <span class="fgs-label">Board</span></button>
@@ -48,7 +89,7 @@
       <button type="button" class="btn btn-sm btn-light" data-shape="square">Square</button>
       <button type="button" class="btn btn-sm btn-outline-light" data-shape="true">True shape</button>
     </div>
-    <input type="search" class="form-control form-control-sm fgs-list-only" data-fgs-search placeholder="Search names" aria-label="Search names">
+    <input type="search" class="form-control form-control-sm" data-fgs-search placeholder="Search names" aria-label="Search names">
     <input type="range" min="96" max="320" value="160" id="{{ .Id }}-size" aria-label="Icon size" class="fgs-grid-only fgs-size form-range" style="width:8rem">
     <button type="button" class="btn btn-sm btn-outline-light" data-fgs-select-toggle aria-pressed="false">Select</button>
   </div>
@@ -98,6 +139,9 @@
        media.css shows only data-current-view's view). Never throws. */}}
 <script>try{window.FGS&&FGS.presetView&&FGS.presetView(document.getElementById({{ .Id }}))}catch(e){}</script>
 {{ end }}
+
+{{/* One sort key of the Sort & filter dropdown. Dot is a browserSortOption. */}}
+{{ define "file_browser_sort_option" }}<label class="form-check-label d-block"><input type="radio" class="form-check-input" name="{{ .B.Id }}-sort" value="{{ .Key }}" data-fgs-sort-option{{ if eq .Key .B.Sort }} checked{{ end }}> {{ .Label }}</label>{{ end }}
 
 {{/* One selection-bar button. Zip only where the page has a zip endpoint. */}}
 {{ define "file_browser_bulk_button" }}

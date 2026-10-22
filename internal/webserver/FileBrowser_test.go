@@ -506,7 +506,6 @@ func TestTemplateListAttributes(t *testing.T) {
 		`data-list-url="./gl?id=G1&amp;"`, `data-total="230"`, `data-all="250"`, `data-new="12"`,
 		`data-next="CURSOR1"`, `data-sort-key="taken"`, `data-sort-desc="false"`,
 		`data-fgs-select-all>Select all (230)</button>`,
-		`<input type="search" class="form-control form-control-sm" data-fgs-search placeholder="Search names" aria-label="Search names">`,
 		`<th data-fgs-sortkey="name"><button type="button" class="fgs-sort">Name`,
 		`<th data-fgs-sortkey="uploaded"><button type="button" class="fgs-sort">Uploaded`,
 		`<th data-fgs-sortkey="taken" aria-sort="ascending"><button type="button" class="fgs-sort">Taken<span class="fgs-sort-arrow" aria-hidden="true">↑</span>`,
@@ -516,6 +515,15 @@ func TestTemplateListAttributes(t *testing.T) {
 			t.Errorf("list lacks %s", want)
 		}
 	}
+	// exactly one search box, with these attributes, in the toolbar (its
+	// class list and position within the toolbar are layout, not contract)
+	searchInputs := regexp.MustCompile(`<input[^>]*type="search"[^>]*>`).FindAllString(html, -1)
+	test.IsEqualInt(t, len(searchInputs), 1)
+	for _, attr := range []string{`data-fgs-search`, `placeholder="Search names"`, `aria-label="Search names"`} {
+		test.IsEqualBool(t, strings.Contains(searchInputs[0], attr), true)
+	}
+	toolbarStart := strings.Index(html, `data-fgs-toolbar`)
+	test.IsEqualBool(t, toolbarStart >= 0 && strings.Index(html, searchInputs[0]) > toolbarStart, true)
 	sentinel := `<div class="fgs-more" data-fgs-more aria-live="polite"></div>`
 	test.IsEqualInt(t, strings.Count(html, sentinel), 2)
 	// one directly after the grid, one directly after the table

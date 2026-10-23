@@ -722,6 +722,7 @@ func ServeFilesAsZip(files []models.File, filename string, w http.ResponseWriter
 	defer zipWriter.Close()
 	filenames := make(map[string]bool)
 	for _, file := range files {
+		realName := file.Name
 		file.Name = makeFilenameUnique(file.Name, &filenames)
 		header := &zip.FileHeader{
 			Name:     file.Name,
@@ -731,7 +732,9 @@ func ServeFilesAsZip(files []models.File, filename string, w http.ResponseWriter
 		entryWriter, err := zipWriter.CreateHeader(header)
 		helper.Check(err)
 		logging.LogDownload(file, r, saveIp)
-		recordDownload(file, r)
+		recorded := file
+		recorded.Name = realName // the file's name, not the zip entry's "X (1).ext"
+		recordDownload(recorded, r)
 		go serverstats.AddTraffic(uint64(file.SizeBytes))
 		if !file.IsLocalStorage() {
 			statusId := downloadstatus.SetDownload(file)

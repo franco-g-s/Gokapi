@@ -276,3 +276,18 @@ func TestFeedResetWhenAllPruned(t *testing.T) {
 	f := Feed(&behind, 500)
 	test.IsEqualBool(t, f.Reset && len(f.Events) == 0 && f.Next == rows[1].Id, true)
 }
+
+// A failing write never escapes into the upload, download or zip stream
+// that called it, and the disk watcher survives it too
+func TestRecordIsBestEffort(t *testing.T) {
+	clearActivity(t)
+	orig := saveActivity
+	defer func() { saveActivity = orig }()
+	saveActivity = func(models.Activity) { panic("database is locked") }
+	Download(models.File{Id: "be1", UserId: 7}, 0, "file")
+	Upload(models.File{Id: "be2", UserId: 7}, models.User{Id: 7})
+	newDiskWatcher(20 << 30).check(1)
+	saveActivity = orig
+	test.IsEqualInt(t, len(allRows(t)), 0)
+	pruneOnce() // runs, and would not panic either
+}

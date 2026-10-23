@@ -5,6 +5,7 @@
 package activity
 
 import (
+	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -30,13 +31,32 @@ const (
 	MaxLimit     = 1000
 )
 
+// saveActivity is database.SaveActivity; tests replace it to simulate a failing write
+var saveActivity = database.SaveActivity
+
 // record writes one row, stamped now. A no-op without group support (Redis).
-func record(a models.Activity) {
+// Best-effort: a failing write prints one stdout line and never aborts the
+// upload, download or zip stream whose real work has already succeeded.
+func record(a models.Activity, fill ...func(*models.Activity)) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("activity: cannot record %s: %v\n", a.Kind, r)
+		}
+	}()
 	if !database.SupportsGroups() {
 		return
 	}
+	for _, f := range fill {
+		f(&a)
+	}
 	a.At = time.Now().Unix()
-	database.SaveActivity(a)
+	saveActivity(a)
+}
+
+// recordFile is record for a file event. The group lookup runs inside
+// record's recover, so it is best-effort too.
+func recordFile(a models.Activity, f models.File) {
+	record(a, func(a *models.Activity) { *a = withFile(*a, f) })
 }
 
 // withFile fills the file fields, and the file's group as it is right now
@@ -94,13 +114,13 @@ func Upload(f models.File, actor models.User) {
 	if f.UploadRequestId != "" {
 		a.ActorId = 0
 	}
-	record(withFile(a, f))
+	recordFile(a, f)
 }
 
 // Download records one original file served, with the same user and route
 // as its Downloads row. actorId 0 is "someone".
 func Download(f models.File, actorId int, via string) {
-	record(withFile(models.Activity{Kind: models.ActivityDownload, ActorId: actorId, Via: via}, f))
+	recordFile(models.Activity{Kind: models.ActivityDownload, ActorId: actorId, Via: via}, f)
 }
 
 // GroupCreated records a new group
@@ -133,7 +153,7 @@ func SignInBlocked(email string) {
 
 // PreviewFailed records a file whose preview failed for the last time (Q3)
 func PreviewFailed(f models.File) {
-	record(withFile(models.Activity{Kind: models.ActivityWarningPreview}, f))
+	recordFile(models.Activity{Kind: models.ActivityWarningPreview}, f)
 }
 
 // ViewAs records the start or end of a "View as…" (Q13). The actor is the
@@ -190,10 +210,21 @@ func watchDisk(dataDir string) {
 
 func prune() {
 	for {
-		if database.SupportsGroups() {
-			database.PruneActivity(time.Now().Add(-retention).Unix())
-		}
+		pruneOnce()
 		time.Sleep(pruneInterval)
+	}
+}
+
+// pruneOnce deletes rows older than the retention. A failure prints one
+// stdout line; the loop carries on.
+func pruneOnce() {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("activity: cannot prune: %v\n", r)
+		}
+	}()
+	if database.SupportsGroups() {
+		database.PruneActivity(time.Now().Add(-retention).Unix())
 	}
 }
 

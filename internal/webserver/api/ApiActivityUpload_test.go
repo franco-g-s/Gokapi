@@ -10,9 +10,6 @@ import (
 	"github.com/forceu/gokapi/internal/test"
 )
 
-// This file sorts after Api_test.go on purpose: the users it creates move the
-// users table's autoincrement, which TestUserCreate asserts
-
 func uploadRowsNamed(name string) []models.Activity {
 	var result []models.Activity
 	for _, a := range database.GetActivitySince(0, 100000) {
@@ -26,20 +23,22 @@ func uploadRowsNamed(name string) []models.Activity {
 // The chunk-complete upload is recorded once, with its group; a duplicate
 // that attachToGroup deletes records nothing (M6)
 func TestChunkCompleteRecordsUpload(t *testing.T) {
-	creator := models.User{Id: 130, Name: "dora@example.com", UserLevel: models.UserLevelUser}
-	member := models.User{Id: 131, Name: "emil@example.com", UserLevel: models.UserLevelUser}
+	// The package's own fixture users: creating new ones would move the users
+	// table's autoincrement, which TestUserCreate asserts, so this test does
+	// not depend on running after it
+	creator, found := database.GetUser(idAdmin)
+	test.IsEqualBool(t, found, true)
+	member, found := database.GetUser(idUser)
+	test.IsEqualBool(t, found, true)
 	creatorKey := groupUploadKey(t, creator)
 	memberKey := groupUploadKey(t, member)
-	// Leave the package's shared fixtures as they were: other tests count
-	// users, keys and files
+	// Leave the shared fixtures as they were: other tests count keys and files
 	defer func() {
 		for _, f := range groupUploadFilesNamed("act-member.jpg") {
 			database.DeleteMetaData(f.Id)
 		}
 		database.DeleteApiKey(creatorKey.Id)
 		database.DeleteApiKey(memberKey.Id)
-		database.DeleteUser(creator.Id)
-		database.DeleteUser(member.Id)
 	}()
 	g, err := storage.CreateGroup("Activity target", 30, creator)
 	test.IsNil(t, err)

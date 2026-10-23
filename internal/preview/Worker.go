@@ -156,6 +156,8 @@ func backfill() int {
 				p.Status = models.PreviewFailed
 				p.Updated = time.Now().Unix()
 				database.SavePreview(p)
+				// The final attempt killed the process, so fail() never ran (Q3)
+				activity.PreviewFailed(f)
 				continue
 			}
 		}

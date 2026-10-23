@@ -169,6 +169,16 @@ func liveGroup(g models.Group) (models.Group, error) {
 
 // CreateGroup creates a group with the creator as its first member
 func CreateGroup(name string, days int, creator models.User) (models.Group, error) {
+	g, err := createGroup(name, days, creator)
+	if err == nil {
+		activity.GroupCreated(g, creator)
+	}
+	return g, err
+}
+
+// createGroup is CreateGroup without the activity row, for callers that may
+// delete the group again straight away (GroupFromCollection, M4)
+func createGroup(name string, days int, creator models.User) (models.Group, error) {
 	if !database.SupportsGroups() {
 		return models.Group{}, ErrGroupsUnsupported
 	}
@@ -193,7 +203,6 @@ func CreateGroup(name string, days int, creator models.User) (models.Group, erro
 	})
 	database.SaveGroup(g)
 	database.SaveGroupMember(models.GroupMember{GroupId: g.Id, UserId: creator.Id, Joined: now, Role: models.GroupRoleCreator})
-	activity.GroupCreated(g, creator)
 	return g, nil
 }
 

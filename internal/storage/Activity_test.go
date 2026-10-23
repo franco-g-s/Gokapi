@@ -3,9 +3,11 @@
 package storage
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/models"
@@ -68,4 +70,51 @@ func TestGroupActivityRecorded(t *testing.T) {
 	joined := activityRows(ofGroup(models.ActivityGroupJoined))
 	test.IsEqualInt(t, len(joined), 1)
 	test.IsEqualInt(t, joined[0].ActorId, member.Id)
+}
+
+// A collection whose files are all refused leaves no group behind (M4), so
+// it must not record a group_created either; a conversion that works records one
+func TestGroupFromCollectionActivity(t *testing.T) {
+	owner := models.User{Id: 7, UserLevel: models.UserLevelUser}
+	createdNamed := func(name string) []models.Activity {
+		return activityRows(func(a models.Activity) bool { return a.Kind == models.ActivityGroupCreated && a.GroupName == name })
+	}
+	refused := groupFile("actcolrefused", 7, func(f *models.File) { f.Encryption.IsEndToEndEncrypted = true })
+	defer dropGroupFiles(refused)
+	bad := models.Collection{Id: "actcolbad", Name: "Activity refused", UserId: 7, CreationDate: time.Now().Unix(), FileIds: []string{refused.Id}}
+	database.SaveCollection(bad)
+	defer database.DeleteCollection(bad.Id)
+	_, _, err := GroupFromCollection(bad.Id, 60, FromCollectionOptions{}, owner)
+	test.IsEqualBool(t, errors.Is(err, ErrGroupNothingAdded), true)
+	test.IsEqualInt(t, len(createdNamed("Activity refused")), 0)
+
+	ok := groupFile("actcolok", 7, nil)
+	defer dropGroupFiles(ok)
+	good := models.Collection{Id: "actcolgood", Name: "Activity converted", UserId: 7, CreationDate: time.Now().Unix(), FileIds: []string{ok.Id}}
+	database.SaveCollection(good)
+	defer database.DeleteCollection(good.Id)
+	g, _, err := GroupFromCollection(good.Id, 60, FromCollectionOptions{}, owner)
+	test.IsNil(t, err)
+	defer database.DeleteCollectionGroup(good.Id)
+	defer database.DeleteGroup(g.Id)
+	rows := createdNamed("Activity converted")
+	test.IsEqualInt(t, len(rows), 1)
+	test.IsEqualBool(t, rows[0].GroupId == g.Id && rows[0].ActorId == 7, true)
+}
+
+// A zip renames clashing entries to "X (1).ext"; the activity row keeps the
+// file's real name
+func TestZipDownloadRecordsRealName(t *testing.T) {
+	a := groupFile("actzipa", 7, func(f *models.File) { f.Name = "same.jpg" })
+	b := groupFile("actzipb", 7, func(f *models.File) { f.Name = "same.jpg"; f.SHA1 = "sha-actzipb2" })
+	defer dropGroupFiles(a, b)
+	r := downloadlog.With(httptest.NewRequest(http.MethodGet, "/x", nil), models.DownloadViaZip, 8)
+	ServeFilesAsZip([]models.File{a, b}, "test", httptest.NewRecorder(), r)
+	rows := activityRows(func(x models.Activity) bool {
+		return x.Kind == models.ActivityDownload && (x.FileId == a.Id || x.FileId == b.Id)
+	})
+	test.IsEqualInt(t, len(rows), 2)
+	for _, row := range rows {
+		test.IsEqualString(t, row.FileName, "same.jpg")
+	}
 }

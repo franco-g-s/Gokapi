@@ -607,6 +607,25 @@ class Feed(unittest.TestCase):
         self.assertEqual(sent, [])
         self.assertIsNone(state["failing"]["feed"])
 
+    def test_once_exits_nonzero_when_feed_unread(self):
+        tmp = tempfile.mkdtemp()
+        try:
+            path = os.path.join(tmp, "c.json")
+            with open(path, "w") as fh:
+                json.dump({"api_key": "k", "smtp_user": "s@example.com", "smtp_app_password": "p",
+                           "mail_to": FRANCO, "api_url": "http://127.0.0.1:9/api/activity",
+                           "redirect_all_to": FRANCO, "deliver": "dir:" + os.path.join(tmp, "out")}, fh)
+            import contextlib
+            import io
+            with contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(SystemExit) as cm:
+                    gn.main(["--once", "--from-start", "--config", path])
+            self.assertNotIn(cm.exception.code, (0, None))
+            with open(os.path.join(tmp, ".notify-state-v2.json")) as fh:
+                self.assertIsNone(json.load(fh)["cursor"])
+        finally:
+            shutil.rmtree(tmp)
+
     def test_more_pages_are_drained_in_one_poll(self):
         cfg = base_cfg()
         calls = []

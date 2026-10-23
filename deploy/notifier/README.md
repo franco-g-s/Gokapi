@@ -124,6 +124,10 @@ On the mini it runs as the launchd agent `com.franco.gokapi-notify`
    This reads the table from row 1, so nothing between the image swap and
    the start is lost. It writes the new state file, `.notify-state-v2.json`.
    The old `.notify-state.json` is not read.
+   **Check that the run exits 0 and `.notify-state-v2.json` has a non-null
+   `cursor`** before going on. With `--once`, a feed that could not be read
+   exits non-zero. Loading the agent with no cursor would start from now and
+   skip everything since the swap.
 5. `launchctl load` the agent. It runs without `--from-start`. That flag only
    matters while there is no cursor, but keeping it out of the plist means a
    deleted state file starts from now instead of re-reading 30 days.

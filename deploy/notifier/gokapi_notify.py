@@ -733,7 +733,11 @@ def main(argv=None):
         return datetime.now(timezone.utc)
 
     if "--once" in argv:
-        poll_once(state, cfg, now(), fetch, log=log, from_start=from_start, persist=persist)
+        state = poll_once(state, cfg, now(), fetch, log=log, from_start=from_start, persist=persist)
+        if state["failing"].get("feed") is not None or state.get("cursor") is None:
+            # A cutover run (--once --from-start) that read nothing must not look
+            # like success: loading the agent afterwards would "start from now".
+            sys.exit("feed not read; cursor is %r - not done" % state.get("cursor"))
         return
 
     log("gokapi-notify started (feed=%s, poll=%ss, quiet=%smin, cap=%smin, digest=%s %s%s)" % (

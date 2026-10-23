@@ -38,6 +38,8 @@
 		/* The user menu (R2, V3) */
 		.fgs-usermenu-btn { background: none; border: 0; padding: 0; color: inherit; line-height: 1; }
 		#fgs-usermenu .badge { cursor: pointer; }
+		/* Part 4 fix F3: on a phone the pill is just the icon (the name is the first line of its menu), so it never reaches the site title */
+		@media (max-width: 575.98px) { #fgs-usermenu .fgs-usermenu-label { display: none; } }
 		#fgs-usermenu .dropdown-menu { text-align: start; max-width: min(22rem, 90vw); }
 		#fgs-usermenu .fgs-usermenu-name { overflow-wrap: break-word; color: #fff; }
 		#fgs-usermenu .fgs-usermenu-name small { display: block; }
@@ -79,7 +81,7 @@
      branding styles; viewas.js moves #fgs-usermenu below its banner. -->
 <div id="fgs-usermenu" class="dropdown" style="position:fixed;top:0.5rem;right:0.75rem;z-index:9999;">
   <button type="button" class="fgs-usermenu-btn" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Account menu">
-    <span class="badge bg-secondary opacity-75"><i class="bi bi-person-fill"></i>{{ if .IsUserTabAvailable }} {{.ActiveUserShownName}}{{ end }}</span>
+    <span class="badge bg-secondary opacity-75"><i class="bi bi-person-fill"></i>{{ if .IsUserTabAvailable }}<span class="fgs-usermenu-label"> {{.ActiveUserShownName}}</span>{{ end }}</span>
   </button>
   {{/* Part 4, S2: the shown name, the email under it, Settings, Logout */}}
   <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">

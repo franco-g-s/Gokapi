@@ -75,6 +75,11 @@
 .fgs-selecting .fgs-tile .fgs-tick{display:none!important}
 .fgs-row-tick{display:none;color:#198754}
 [data-group-tools=true] tr[data-downloaded=true] .fgs-row-tick{display:inline}
+/* Part 4 fix F2: the badge and the play mark sit on the thumbnail's bottom edge, measured from the thumbnail (a square as wide as the tile, 100cqw), not from the caption, whose height varies with a wrapped meta line */
+@supports (width:1cqw){
+.fgs-grid:not(.fgs-board-mode) .fgs-tile{container-type:inline-size}
+.fgs-grid:not(.fgs-board-mode) .fgs-tile .fgs-initials,.fgs-grid:not(.fgs-board-mode) .fgs-tile .fgs-play{bottom:auto;top:calc(100cqw - 2rem)}
+}
 .fgs-initials{position:absolute;left:.4rem;bottom:2.6rem;min-width:1.6rem;height:1.6rem;padding:0 .3rem;display:flex;align-items:center;justify-content:center;border-radius:.8rem;background:rgba(0,0,0,.6);color:#f2f1ee;font-size:.7rem;font-weight:600;pointer-events:none}
 .fgs-initials:empty{display:none}
 .fgs-board-mode .fgs-initials{bottom:.4rem}

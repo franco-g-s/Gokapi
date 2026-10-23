@@ -23,7 +23,7 @@
       <label for="settingsDisplayName" class="form-label">Display name</label>
       <input type="text" id="settingsDisplayName" class="form-control" maxlength="40" autocomplete="nickname"
              value="{{ .DisplayName }}" placeholder="{{ .DefaultName }}"{{ if .ReadOnly }} disabled{{ end }}>
-      <div class="form-text">Shown to the people you share with. Leave empty to use your Google name.</div>
+      <div class="form-text text-muted">Shown to the people you share with. Leave empty to use your Google name.</div>
       <div id="settingsNameError" class="text-danger mt-2" role="alert"></div>
     </section>
 
@@ -44,7 +44,7 @@
         <input class="form-check-input" type="checkbox" role="switch" id="settingsEmailDownloads"{{ if .EmailDownloads }} checked{{ end }}{{ if or .ReadOnly (not .HasEmail) }} disabled{{ end }}>
         <label class="form-check-label" for="settingsEmailDownloads">Email me when my files are downloaded</label>
       </div>
-      <div class="form-text">At most one email a day, at 19:00, and only if someone downloaded something.</div>
+      <div class="form-text text-muted">At most one email a day, at 19:00, and only if someone downloaded something.</div>
       {{ if not .HasEmail }}<div class="form-text text-warning">Your account has no email address, so it cannot get emails.</div>{{ end }}
     </section>
 

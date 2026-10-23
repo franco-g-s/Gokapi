@@ -1185,7 +1185,8 @@ Rules `step` implements:
 Summary format:
 - Subject: `[FGS] Activity: <sections>`.
 - Body: one paragraph per section.
-- A **group** section reads `**Iceland trip** — Anna uploaded 143 photos, 6 videos (2.1 GB) · Ben downloaded 87 · Carla joined`:
+- Emails are **plain text** with no markdown, since the spec's bold would show as literal `**` on a phone. Each section is its name on its own line, the clauses on the next line, and a blank line between sections.
+- A **group** section reads `Iceland trip` then `Anna uploaded 143 photos, 6 videos (2.1 GB) · Ben downloaded 87 · Carla joined`:
   - per person, in first-activity order;
   - uploads counted by `file.kind` (photos/videos/files), with the size total in SI units with one decimal (`helper.ByteCountSI` style: `2.1 GB`);
   - downloads are distinct files per person;
@@ -1194,7 +1195,7 @@ Summary format:
   - The people are distinct shown names in first-seen order, with `someone` for actor 0.
   - The via labels are `via link` for `file` and `collection`, `via zip` for `zip`, `via API` for `api`.
   - Uploads outside a group get one line per person: `Anna uploaded 4 files (12.3 MB)`.
-- `signin_blocked` gets a last section `**Blocked sign-ins** — x@spam.example (2 attempts)`.
+- `signin_blocked` gets a last section, `Blocked sign-ins` then `x@spam.example (2 attempts)`.
 - People are named with the feed's `users[].name`. An unknown actor id is `someone (#<id>)`.
 
 Friend email:
@@ -1217,6 +1218,7 @@ Friend email:
 - `--from-start` sends `since: 0` on the first call when the state has no cursor. Without it, no cursor means no `since` header ("start from now").
 
 **The fixture** `fixtures/busy_evening.json` is synthetic (R-c): `{"users": [...], "pages": [{"at_poll": "<ISO UTC>", "events": [...]}]}`. One poll per minute from 18:30 to 01:30 Zürich time on an invented date, with ~600 events:
+- **Two invariants the expected times depend on:** no held event of any kind before 18:40 (the pre-19:00 friend downloads fall in 18:40–18:59), and every held event after 21:40 falls at or before 22:44, apart from admin activity, which is never held.
 - 18:40–21:55 continuous group uploads, no gap ≥ 60 min — the **3-hour cap** must fire at 21:40 (first held 18:40);
 - 22:00 a `group_created` by a non-admin — immediate;
 - 22:02–22:44 bursts of downloads by two friends, modelled on 2026-10-18 22:02–22:44 in `notify.log`;
@@ -1250,9 +1252,10 @@ class ReplayBusyEvening(unittest.TestCase):
 
     def test_summary_body_groups_by_group_and_person(self):
         body = self.summary_bodies()[1]
-        self.assertIn("**Iceland trip** — ", body)
+        self.assertIn("Iceland trip\nAnna uploaded ", body)
         self.assertIn("Ben downloaded 87", body)
-        self.assertIn("**Your files** — \"CV.pdf\" downloaded 3 times (someone, via link)", body)
+        self.assertIn("Your files\n\"CV.pdf\" downloaded 3 times (someone, via link)", body)
+        self.assertNotIn("**", body)
 
     def test_admin_activity_never_summarised(self): ...
     def test_restart_mid_replay_no_resend_no_skip(self):
@@ -1296,6 +1299,8 @@ class Feed(unittest.TestCase):
 **Files (all S2-owned):**
 - Go: `FileBrowser.go` (`browserItem` gets `UploaderPhoto string`; `Initials` from `people.Initials`), `GroupPage.go` (members get `PhotoUrl`), `Users.go` (row gets `ShownName`), `html_header.tmpl` data (`ActiveUserShownName`, `ActiveUserEmail` in `AdminView`).
 - Templates: `html_header.tmpl` (user menu), `html_file_browser.tmpl` (`.fgs-initials` → `<img>` when there is a photo), `html_group.tmpl` (avatar stack and members list), `html_users.tmpl` (shown name + email), `html_admin.tmpl` (Upload switch).
+- **Your own name on the client:** `media.js:2187-2190` builds your own name by stripping "@" from `data-user-name` (`html_file_browser.tmpl:17`). Feed it the shown name and your photo URL (`data-user-photo`) instead, so a freshly uploaded tile already shows `Anna Muster`, not `anna.m`.
+- **Other raw-name spots, each checked:** `html_files.tmpl:5` (PersonName), `html_collection.tmpl:8/:29` (OwnerName), `html_collections_admin.tmpl:41/:108`, `html_api.tmpl:112`, `html_uploadrequest.tmpl:96`. Each either goes through `people.Name` or stays raw on purpose (for example an admin-only page showing the account). Record which in the rulings.
 - JS/CSS: `media.js` (`initialsOf` and the live-add badge, which use `UploaderPhoto`), `admin_ui_group.js:316`, `admin_ui_groupupload.js:337`, `admin_ui_groupactions.js:75`, `admin_ui_users.js:334`, `admin_ui_upload.js` (switch), `viewas.js` (decode `+`), `media.css` and `group.css` (round 100% `object-fit: cover` images at the badge sizes).
 
 **Interfaces:**
@@ -1396,9 +1401,16 @@ class Feed(unittest.TestCase):
 6. **Deploy, only after Franco's yes:**
    1. `launchctl unload ~/Library/LaunchAgents/com.franco.gokapi-notify.plist` (stop the old notifier first, so it doesn't email the restart).
    2. Back up `docker-compose.yml`, `gokapi-notify.py`, `notify.config.json`, `.notify-state.json` and any branding file changed as `.bak.2026-10-<dd>`.
-   3. Stop gokapi; run the sidecar `sqlite3 .backup` into `~/apps/gokapi/backups/backup-pre-part4-<date>.sqlite`; check `PRAGMA integrity_check`, the schema version (17) and the file count.
-   4. Swap the image to `gokapi-fgs:part4-<date>` and `docker compose up -d`.
-   5. Create the notifier's admin API key with `ManageLogs` on live, and write `api_key`, `api_url` and `site_url` into `notify.config.json`. The old keys are kept and ignored.
+   3. Run `docker --context colima builder prune -a -f`, so the disk watcher's first check doesn't warn about the build cache. Stop gokapi; run the sidecar `sqlite3 .backup` into `~/apps/gokapi/backups/backup-pre-part4-<date>.sqlite`; check `PRAGMA integrity_check`, the schema version (17) and the file count.
+   4. **The notifier's API key, created without the secret ever reaching a chat or a log.** Live is Google sign-in only, so nobody can sign in through a script to create the key.
+      - While gokapi is still stopped, one Python script on the mini generates the key with `secrets` and the sidecar `INSERT`s it into `ApiKeys`:
+        - `Id` = the key;
+        - `FriendlyName` `Notifier (Part 4)`;
+        - `Permissions` = the `ApiPermManageLogs` bit (read its value from `models/ApiKey.go`);
+        - `Expiry` 0, `IsSystemKey` 0, `UserId` = Franco's admin id, a random `PublicId`, `UploadRequestId` `''`.
+      - The same script writes `api_key`, `api_url` and `site_url` into `notify.config.json` (mode 600). It prints only `ok` and the PublicId, never the key.
+      - **Fallback** if Franco prefers the UI: he creates the key in the API tab with Manage Logs on. He then pastes it into a `read -s` one-liner on the mini that updates the config, never into chat.
+   5. Swap the image to `gokapi-fgs:part4-<date>` and `docker compose up -d`.
    6. Install `deploy/notifier/gokapi_notify.py` as `~/apps/gokapi/gokapi-notify.py`. Run `--once --from-start` by hand, then load the plist.
    7. Read-only smoke tests on the public URL: login page, `/settings` redirects to login, `/avatar` without a session redirects. Then `curl` the feed with the key from the mini. Check `log.txt` for `[warning]`.
    8. Open and link the PR `feature/part4 → feature/collections`.

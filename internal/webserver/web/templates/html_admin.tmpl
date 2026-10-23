@@ -38,6 +38,17 @@
 		    Combine each upload into one link
 		  </label>
 		</div>
+		{{- /* Part 4, S2: the Settings page's download emails switch, saved at once */}}
+		{{ if .ShowEmailSwitch }}
+		<div class="form-check form-switch d-inline-flex align-items-center gap-2 mb-0 fgs-email-option">
+		  <input class="form-check-input" type="checkbox" role="switch"
+		         id="fgs-email-downloads" onchange="saveEmailDownloads(this)"{{ if .EmailDownloads }} checked{{ end }}
+		         aria-label="Email me when my files are downloaded">
+		  <label class="form-check-label small text-muted" for="fgs-email-downloads">
+		    Email me when my files are downloaded
+		  </label>
+		</div>
+		{{ end }}
 		</div>
 		<p id="fgs-upload-target-note" class="small text-muted mt-2 mb-0" hidden>Files uploaded to a group stay until the group closes and can be downloaded by its members.</p>
 		<div id="autoCollectionResult"></div>

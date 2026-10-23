@@ -14,7 +14,7 @@
      data-default-view="{{ .DefaultView }}" data-current-view="{{ .DefaultView }}"
      data-legacy-ids="{{ .LegacyIds }}" data-zip-url="{{ .ZipUrl }}" data-zip-all-url="{{ .ZipAllUrl }}" data-info-url="{{ .InfoUrl }}" data-collection-id="{{ .CollectionId }}"
      data-count-label="{{ if eq .Context "upload" }}Uploaded now: {{ else }}Files: {{ end }}"
-     data-user-id="{{ .ActiveUser.Id }}" data-user-name="{{ .ActiveUser.Name }}"
+     data-user-id="{{ .ActiveUser.Id }}" data-user-name="{{ .UserName }}" data-user-photo="{{ .UserPhoto }}"
      data-perm-edit-others="{{ .Perm "edit-others" }}" data-perm-delete-others="{{ .Perm "delete-others" }}"
      data-perm-replace="{{ .Perm "replace" }}" data-perm-replace-others="{{ .Perm "replace-others" }}"
      data-group-id="{{ .GroupId }}" data-download-base="{{ .DownloadBase }}"
@@ -190,7 +190,12 @@
   <input type="checkbox" class="form-check-input fgs-tile-check" aria-label="Select {{ $f.Name }}">
   <span class="fgs-tick" aria-label="Downloaded" title="Downloaded"><i class="bi bi-check-circle-fill"></i></span>
   {{- if .B.GroupTools }}
-  <span class="fgs-initials" aria-hidden="true">{{ $it.Initials }}</span>{{ end }}
+  {{- /* The uploader's photo, or their initials (Part 4, S2). media.js swaps a
+       photo that fails to load back to data-initials. */}}
+  {{- if $it.UploaderPhoto }}
+  <span class="fgs-initials fgs-has-photo" aria-hidden="true" data-initials="{{ $it.Initials }}"><img class="fgs-avatar-img" src="{{ $it.UploaderPhoto }}" alt="" loading="lazy" referrerpolicy="no-referrer" width="26" height="26"></span>
+  {{- else }}
+  <span class="fgs-initials" aria-hidden="true">{{ $it.Initials }}</span>{{ end }}{{ end }}
   {{ template "file_browser_menu" . }}
   {{- /* Select mode only (R3, V8): opens the viewer, the selection unchanged */}}
   <button type="button" class="fgs-tile-expand" aria-label="Open {{ $f.Name }}" title="Open"><i class="bi bi-arrows-angle-expand"></i></button>

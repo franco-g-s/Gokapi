@@ -298,7 +298,7 @@
             });
         }
 
-        // The members button shows the first five initials, "+N" for the rest
+        // The members button shows the first five photos or initials, "+N" for the rest
         // and the count; after a removal it is rebuilt from the panel's list
         var STACK_SIZE = 5;
         var membersButton = document.getElementById("groupMembersButton");
@@ -312,8 +312,10 @@
                 Array.prototype.slice.call(rows, 0, STACK_SIZE).forEach(function (row) {
                     var circle = document.createElement("span");
                     circle.className = "fgs-avatar";
+                    circle.setAttribute("aria-hidden", "true");
                     circle.style.backgroundColor = "hsl(" + (parseInt(row.getAttribute("data-hue"), 10) || 0) + ", 45%, 45%)";
-                    circle.textContent = row.getAttribute("data-initials") || "";
+                    // Their photo, or their initials (Part 4, S2)
+                    FGS.fillAvatar(circle, row.getAttribute("data-initials") || "", row.getAttribute("data-photo") || "", 32);
                     stack.appendChild(circle);
                 });
                 if (n > STACK_SIZE) {

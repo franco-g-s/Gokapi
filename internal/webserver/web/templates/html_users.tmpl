@@ -34,7 +34,7 @@
                         <tbody id="usertable">
 {{ range .Users }}
                             <tr id="row-{{ .User.Id }}">
-                                <td class="fgs-user-name">{{ .User.Name }}{{ if and $.ActiveUser.IsAdmin (ne $.ActiveUser.Id 0) (not .User.IsAdmin) (ne .User.Id $.ActiveUser.Id) }} <button type="button" class="btn btn-outline-light btn-sm fgs-viewas-btn" data-fgs-viewas-user="{{ .User.Id }}">View as…</button>{{ end }}</td>
+                                <td class="fgs-user-name"><span class="fgs-user-shown">{{ .ShownName }}</span>{{ if and $.ActiveUser.IsAdmin (ne $.ActiveUser.Id 0) (not .User.IsAdmin) (ne .User.Id $.ActiveUser.Id) }} <button type="button" class="btn btn-outline-light btn-sm fgs-viewas-btn" data-fgs-viewas-user="{{ .User.Id }}">View as…</button>{{ end }}{{ if ne .ShownName .User.Name }}<small class="text-muted d-block fgs-user-email">{{ .User.Name }}</small>{{ end }}</td>
                                 <td id="userlevel_{{ .User.Id }}">{{ .User.GetReadableUserLevel }}</td>
                                 <td><span id="cell-lastonline-{{ .User.Id }}"></span></td>
                                 <script>insertLastOnlineDate({{ .User.LastOnline }}, "cell-lastonline-{{ .User.Id }}");</script>

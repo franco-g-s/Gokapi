@@ -97,6 +97,9 @@ type browserItem struct {
 	Downloaded bool   // a Downloads row exists for the viewer (G4); the caller fills it in
 	CanRemove  bool   // may take it out of this group (D4); the caller fills it in
 	Initials   string // of Uploader, for the tile's badge
+	// UploaderPhoto is the uploader's photo for the badge, "" for initials
+	// (Part 4, S2). Only group items have one: fillUploaderPhotos sets it.
+	UploaderPhoto string
 	// GroupLock is the name of the live group whose terms the file follows
 	// (storage.GroupLock), on every page with the edit dialog: its expiry,
 	// download limit and password cannot be edited there (D4)
@@ -217,6 +220,19 @@ func newFileBrowser(id, context string, items []browserItem, user models.User) f
 		b.ZipUrl = "./files/zip?ids="
 	}
 	return b
+}
+
+// UserName is the viewer's shown name, which a live add of their own upload
+// shows as its uploader (Part 4, S2)
+func (b fileBrowser) UserName() string { return people.Name(b.ActiveUser) }
+
+// UserPhoto is the viewer's photo for the badge of their own live adds, ""
+// for initials
+func (b fileBrowser) UserPhoto() string {
+	if b.ActiveUser.Id == 0 {
+		return ""
+	}
+	return people.PhotoUrl(b.ActiveUser)
 }
 
 // HasMenu reports whether the "⋯" menu offers this action
@@ -383,6 +399,26 @@ func browserItemFromFile(r *http.Request, f models.File, user models.User, conte
 	item.Preview = previewUrls(r, f, previewCollection, item.DownloadUrl)
 	item.TakenAt = item.Preview.TakenAt
 	return item
+}
+
+// fillUploaderPhotos sets UploaderPhoto on the group items (UploaderId set)
+// whose uploader is known, with one lookup per person rather than per item.
+// Only group items show a badge, and /avatar shows a photo to group-mates
+// and the admin, so no other item gets one.
+func fillUploaderPhotos(items []browserItem) {
+	photos := make(map[int]string)
+	for i := range items {
+		id := items[i].UploaderId
+		if id == 0 || items[i].Uploader == "" {
+			continue
+		}
+		photo, done := photos[id]
+		if !done {
+			photo = people.PhotoUrl(models.User{Id: id})
+			photos[id] = photo
+		}
+		items[i].UploaderPhoto = photo
+	}
 }
 
 // initialsOf is the avatar badge of a name: the first letters of its first

@@ -353,7 +353,7 @@ func showCollectionsAdmin(w http.ResponseWriter, r *http.Request) {
 	users := database.GetAllUsers()
 	userNames := make(map[int]string, len(users))
 	for _, u := range users {
-		userNames[u.Id] = u.Name
+		userNames[u.Id] = displayName(u) // Part 4, S2: shown names
 	}
 
 	seeAll := user.HasPermission(models.UserPermListOtherUploads)

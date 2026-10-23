@@ -34,6 +34,7 @@ import (
 	"github.com/forceu/gokapi/internal/logging"
 	"github.com/forceu/gokapi/internal/logging/serverstats"
 	"github.com/forceu/gokapi/internal/models"
+	"github.com/forceu/gokapi/internal/people"
 	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/storage/filerequest"
 	"github.com/forceu/gokapi/internal/storage/presign"
@@ -767,6 +768,10 @@ func showAdminMenu(w http.ResponseWriter, r *http.Request) {
 	// admin_ui_upload.js. Stored files are on the Files tab.
 	view.Browser = newFileBrowser("fgs-upload", ctxUpload, []browserItem{}, user)
 	view.Browser.UploadSink = true
+	// Part 4, S2: "Email me when my files are downloaded", for accounts
+	// with an email address; not during "View as…", which refuses the save
+	view.ShowEmailSwitch = people.HasEmail(user) && database.SupportsGroups() && !viewasActive(r)
+	view.EmailDownloads = people.WantsDownloadEmails(user.Id)
 
 	err = templateFolder.ExecuteTemplate(w, "admin", &view)
 	helper.CheckIgnoreTimeout(err)
@@ -776,7 +781,9 @@ func showAdminMenu(w http.ResponseWriter, r *http.Request) {
 // the files uploaded now
 type UploadView struct {
 	AdminView
-	Browser fileBrowser
+	Browser         fileBrowser
+	ShowEmailSwitch bool // Part 4, S2
+	EmailDownloads  bool
 }
 
 // Handling of /logs
@@ -850,6 +857,8 @@ type AdminView struct {
 	Collections           []collectionInfo
 	SharedWithMe          []sharedCollectionInfo
 	ActiveUser            models.User
+	ActiveUserShownName   string // the user menu (Part 4, S2): people.Name
+	ActiveUserEmail       string // and the account's email, "" when it is none
 	UserMap               map[int]*models.User
 	ServerUrl             string
 	PublicName            string
@@ -926,6 +935,10 @@ func (u *AdminView) convertGlobalConfig(view int, user models.User) *AdminView {
 	config := configuration.Get()
 	u.IsInternalAuth = config.Authentication.Method == models.AuthenticationInternal
 	u.ActiveUser = user
+	u.ActiveUserShownName = people.Name(user)
+	if people.HasEmail(user) {
+		u.ActiveUserEmail = user.Name
+	}
 	u.UserMap = getUserMap()
 	u.CustomContent = customStaticInfo
 	switch view {
@@ -972,6 +985,7 @@ func (u *AdminView) convertGlobalConfig(view int, user models.User) *AdminView {
 				UploadCount: fileStats[userEntry.Id].Count,
 				TotalSize:   helper.ByteCountSI(fileStats[userEntry.Id].Bytes),
 				Groups:      userGroupNames(userEntry.Id),
+				ShownName:   people.Name(userEntry),
 				User:        userEntry,
 			}
 			// Otherwise the user is not shown as online, if /users is opened as first page
@@ -1067,6 +1081,7 @@ type userInfo struct {
 	UploadCount int      // files the Files tab lists for this person; Size covers the same files
 	TotalSize   string   // their size, human-readable
 	Groups      []string // names of the live groups they belong to
+	ShownName   string   // people.Name, shown above the account (Part 4, S2)
 	User        models.User
 }
 

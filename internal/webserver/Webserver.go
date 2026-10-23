@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/NYTimes/gziphandler"
+	"github.com/forceu/gokapi/internal/activity"
 	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/encryption"
@@ -96,6 +97,7 @@ var srv http.Server
 // Start the webserver on the port set in the config
 func Start() {
 	wireSignIn()
+	activity.StartWatchers(configuration.Get().DataDir) // Part 4, A: disk warning and pruning
 	initTemplates(templateFolderEmbedded)
 	webserverDir, _ := fs.Sub(staticFolderEmbedded, "web/static")
 	var err error

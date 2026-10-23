@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/forceu/gokapi/internal/activity"
 	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/helper"
@@ -192,6 +193,7 @@ func CreateGroup(name string, days int, creator models.User) (models.Group, erro
 	})
 	database.SaveGroup(g)
 	database.SaveGroupMember(models.GroupMember{GroupId: g.Id, UserId: creator.Id, Joined: now, Role: models.GroupRoleCreator})
+	activity.GroupCreated(g, creator)
 	return g, nil
 }
 
@@ -305,6 +307,7 @@ func join(g models.Group, found bool, user models.User) (models.Group, error) {
 	if !IsGroupMember(g, user.Id) {
 		database.SaveGroupMember(models.GroupMember{GroupId: g.Id, UserId: user.Id,
 			Joined: time.Now().Unix(), Role: models.GroupRoleMember})
+		activity.GroupJoined(g, user)
 	}
 	return g, nil
 }

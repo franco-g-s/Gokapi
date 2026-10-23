@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/forceu/gokapi/internal/activity"
 	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/encryption"
@@ -196,6 +197,9 @@ func process(f models.File) {
 	database.SavePreview(models.Preview{Sha1: f.SHA1, Status: models.PreviewPending, Kind: kind, Attempts: attempts, Updated: time.Now().Unix()})
 	fail := func() {
 		database.SavePreview(models.Preview{Sha1: f.SHA1, Status: models.PreviewFailed, Kind: kind, Attempts: attempts, Updated: time.Now().Unix()})
+		if attempts >= maxAttempts {
+			activity.PreviewFailed(f) // the final attempt only (Part 4, Q3)
+		}
 	}
 	defer func() {
 		if r := recover(); r != nil {

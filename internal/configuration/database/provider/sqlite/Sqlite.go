@@ -213,7 +213,14 @@ func (p DatabaseProvider) init(dbConfig models.DbConnection) (DatabaseProvider, 
 		if err = p.ensureGroupTables(); err != nil {
 			return p, err
 		}
-		return p, p.ensureViewAsTable()
+		if err = p.ensureViewAsTable(); err != nil {
+			return p, err
+		}
+		// Part 4, A: activity feed
+		if err = p.ensureActivityTable(); err != nil {
+			return p, err
+		}
+		return p, nil
 	}
 	return p, nil
 }

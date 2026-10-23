@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/forceu/gokapi/internal/activity"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/models"
 	"github.com/forceu/gokapi/internal/storage/downloadlog"
@@ -19,4 +20,5 @@ func recordDownload(file models.File, r *http.Request) {
 		return
 	}
 	database.SaveDownload(models.Download{FileId: file.Id, UserId: src.UserId, At: time.Now().Unix(), Via: src.Via})
+	activity.Download(file, src.UserId, src.Via)
 }

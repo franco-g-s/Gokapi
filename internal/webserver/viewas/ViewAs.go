@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/forceu/gokapi/internal/activity"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/logging"
 	"github.com/forceu/gokapi/internal/models"
@@ -97,6 +98,7 @@ func Start(admin models.User, targetId int) error {
 	// After the row is saved, so no token can be issued in between
 	deleteSystemKeys(admin.Id)
 	logging.LogViewAsStart(admin, target)
+	activity.ViewAs(models.ActivityViewAsStart, admin, target, "")
 	return nil
 }
 
@@ -122,7 +124,9 @@ func endLocked(adminId int, reason string) {
 		return
 	}
 	database.DeleteViewAs(adminId)
-	logging.LogViewAsEnd(userOrUnknown(adminId), userOrUnknown(row.TargetId), reason)
+	admin, target := userOrUnknown(adminId), userOrUnknown(row.TargetId)
+	logging.LogViewAsEnd(admin, target, reason)
+	activity.ViewAs(models.ActivityViewAsEnd, admin, target, reason)
 }
 
 func userOrUnknown(id int) models.User {

@@ -504,6 +504,22 @@ func SaveViewAs(v models.ViewAs) { db.SaveViewAs(v) }
 // DeleteViewAs ends the admin's "View as…"
 func DeleteViewAs(adminId int) { db.DeleteViewAs(adminId) }
 
+// Part 4, A: activity feed
+
+// SaveActivity appends one event; its Id is assigned by the database
+func SaveActivity(a models.Activity) { db.SaveActivity(a) }
+
+// GetActivitySince returns up to limit events with an Id above since, oldest first
+func GetActivitySince(since int64, limit int) []models.Activity {
+	return db.GetActivitySince(since, limit)
+}
+
+// ActivityBounds returns the oldest retained id (0 when empty) and the newest id ever assigned
+func ActivityBounds() (oldest, newest int64) { return db.ActivityBounds() }
+
+// PruneActivity deletes every event that happened before the timestamp
+func PruneActivity(before int64) { db.PruneActivity(before) }
+
 // Statistics
 
 // GetStatTraffic returns the total traffic from statistics

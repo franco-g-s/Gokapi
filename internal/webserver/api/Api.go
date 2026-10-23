@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/forceu/gokapi/internal/blocklist"
 	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/encryption"
@@ -1349,6 +1350,10 @@ func isValidApiKey(key string, modifyTime bool, requiredPermissionApiKey models.
 		}
 		user, ok := database.GetUser(savedKey.UserId)
 		if !ok {
+			return models.User{}, models.ApiKey{}, false
+		}
+		// Part 4, K: a blocked person's keys stop working
+		if blocklist.Matches(user.Name) {
 			return models.User{}, models.ApiKey{}, false
 		}
 		return user, savedKey, true

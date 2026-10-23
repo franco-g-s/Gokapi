@@ -199,6 +199,16 @@ type Database interface {
 	// DeleteViewAs ends the admin's "View as…"
 	DeleteViewAs(adminId int)
 
+	// Part 4, K: blocklist
+	// SaveBlock adds a blocklist entry (an email or "@domain"); an existing one is kept
+	SaveBlock(b models.BlockEntry)
+	// DeleteBlock removes a blocklist entry
+	DeleteBlock(entry string)
+	// IsBlocked returns true if the exact entry is on the blocklist
+	IsBlocked(entry string) bool
+	// GetAllBlocks returns every blocklist entry
+	GetAllBlocks() []models.BlockEntry
+
 	// GetStatTraffic returns the total traffic from statistics
 	GetStatTraffic() uint64
 	// SaveStatTraffic stores the total traffic

@@ -504,6 +504,20 @@ func SaveViewAs(v models.ViewAs) { db.SaveViewAs(v) }
 // DeleteViewAs ends the admin's "View as…"
 func DeleteViewAs(adminId int) { db.DeleteViewAs(adminId) }
 
+// Part 4, K: blocklist
+
+// SaveBlock adds a blocklist entry (an email or "@domain"); an existing one is kept
+func SaveBlock(b models.BlockEntry) { db.SaveBlock(b) }
+
+// DeleteBlock removes a blocklist entry
+func DeleteBlock(entry string) { db.DeleteBlock(entry) }
+
+// IsBlocked returns true if the exact entry is on the blocklist
+func IsBlocked(entry string) bool { return db.IsBlocked(entry) }
+
+// GetAllBlocks returns every blocklist entry
+func GetAllBlocks() []models.BlockEntry { return db.GetAllBlocks() }
+
 // Statistics
 
 // GetStatTraffic returns the total traffic from statistics

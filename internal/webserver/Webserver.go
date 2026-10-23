@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/NYTimes/gziphandler"
+	"github.com/forceu/gokapi/internal/blocklist"
 	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/encryption"
@@ -154,6 +155,9 @@ func Start() {
 	// Part 3, V1: view as
 	mux.HandleFunc("/viewas/start", requireLogin(viewAsStart, false, false))
 	mux.HandleFunc("/viewas/end", requireLogin(viewAsEnd, false, false))
+	// Part 4, K: blocklist
+	mux.HandleFunc("/users/block", requireLogin(blockEntry, false, false))
+	mux.HandleFunc("/users/unblock", requireLogin(unblockEntry, false, false))
 	// Part 2, F2: the group creator's "Check for duplicates"
 	mux.HandleFunc("/groups/neardupes", requireLogin(nearCopyCheck, false, false))
 	// Part 2, R4: a collection turned into a group, its old link's modes and stopping it
@@ -834,6 +838,7 @@ type AdminView struct {
 	Items                 []models.FileApiOutput
 	ApiKeys               []models.ApiKey
 	Users                 []userInfo
+	Blocked               []models.BlockEntry
 	FileRequests          []models.FileRequest
 	Collections           []collectionInfo
 	SharedWithMe          []sharedCollectionInfo
@@ -952,6 +957,7 @@ func (u *AdminView) convertGlobalConfig(view int, user models.User) *AdminView {
 		_, u.DiskUsage, u.DiskTotal, u.DiskUsagePercent = serverstats.GetDiskInfo()
 		u.CpuLoad = serverstats.GetCpuUsage()
 	case ViewUsers:
+		u.Blocked = blocklist.List() // Part 4, K
 		fileStats := userFileStats()
 		u.Users = make([]userInfo, 0)
 		for _, userEntry := range database.GetAllUsers() {

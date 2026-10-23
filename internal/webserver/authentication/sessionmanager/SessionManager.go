@@ -17,6 +17,11 @@ import (
 const cookieLifeAdmin = 30 * 24 * time.Hour
 const lengthSessionId = 60
 
+// SessionRefused, when set (webserver.wireSignIn does, for the blocklist), is
+// asked about the owner of every session; true ends that session. Set from
+// outside to avoid an import cycle.
+var SessionRefused func(models.User) bool
+
 // IsValidSession checks if the user is submitting a valid session token
 // If a valid session is found, useSession will be called
 // Returns true if authenticated, otherwise false
@@ -30,6 +35,10 @@ func IsValidSession(w http.ResponseWriter, r *http.Request, isOauth bool, OAuthR
 				user, userExists := database.GetUser(session.UserId)
 				if !userExists {
 					return user, false
+				}
+				if SessionRefused != nil && SessionRefused(user) {
+					database.DeleteSession(sessionString)
+					return models.User{}, false
 				}
 				return user, useSession(w, sessionString, session, isOauth, OAuthRecheckInterval)
 			}

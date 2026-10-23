@@ -1,6 +1,9 @@
 package sqlite
 
 import (
+	"database/sql"
+	"errors"
+
 	"github.com/forceu/gokapi/internal/helper"
 	"github.com/forceu/gokapi/internal/models"
 )
@@ -31,7 +34,12 @@ func (p DatabaseProvider) DeleteBlock(entry string) {
 func (p DatabaseProvider) IsBlocked(entry string) bool {
 	var found int
 	err := p.sqliteDb.QueryRow(`SELECT 1 FROM "Blocklist" WHERE Entry = ?`, entry).Scan(&found)
-	return err == nil
+	if errors.Is(err, sql.ErrNoRows) {
+		return false
+	}
+	// any other error panics: a blocklist that cannot be read must not say "not blocked"
+	helper.Check(err)
+	return true
 }
 
 // GetAllBlocks returns every blocklist entry, oldest first

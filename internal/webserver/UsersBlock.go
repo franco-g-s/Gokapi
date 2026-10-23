@@ -53,6 +53,10 @@ func blockEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	err := blocklist.Block(entry, admin)
 	if err != nil {
+		if errors.Is(err, blocklist.ErrUnsupported) {
+			writeJsonError(w, http.StatusNotImplemented, err)
+			return
+		}
 		if errors.Is(err, blocklist.ErrAdmin) || errors.Is(err, blocklist.ErrEntry) {
 			writeJsonError(w, http.StatusBadRequest, err)
 			return

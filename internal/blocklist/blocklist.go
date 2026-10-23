@@ -15,6 +15,9 @@ import (
 // ErrAdmin is returned when an entry would block an admin
 var ErrAdmin = errors.New("You cannot block an admin.")
 
+// ErrUnsupported is returned on a database without the Blocklist table (Redis)
+var ErrUnsupported = errors.New("Blocking needs the SQLite database.")
+
 // ErrEntry is returned for something that is neither an email nor an "@domain"
 var ErrEntry = errors.New("Enter an email like name@example.com or a domain like @example.com.")
 
@@ -59,6 +62,9 @@ func Matches(email string) bool {
 // Block adds an entry and signs out everybody it covers. It refuses an entry
 // that covers an admin.
 func Block(entry string, by models.User) error {
+	if !database.SupportsGroups() {
+		return ErrUnsupported
+	}
 	e, err := normalise(entry)
 	if err != nil {
 		return err
@@ -87,6 +93,10 @@ func Unblock(entry string) {
 func List() []models.BlockEntry {
 	return database.GetAllBlocks()
 }
+
+// SessionRefused is the session check: a session whose owner is blocked ends,
+// even if Block's one-time sign-out raced with a sign-in or a renewal
+func SessionRefused(u models.User) bool { return Matches(u.Name) }
 
 // Guard is the sign-in guard: it refuses a blocked email
 func Guard(email string) error {

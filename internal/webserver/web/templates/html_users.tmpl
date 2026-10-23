@@ -67,7 +67,7 @@
                                     {{ else }}
                                     <li><button id="changeRank_{{ .User.Id }}" type="button" class="dropdown-item" onclick="changeRank({{ .User.Id }}, 'USER', 'changeRank_{{ .User.Id }}')" {{if or (.User.IsSuperAdmin) (eq .User.Id $.ActiveUser.Id)}}disabled{{end}}><i class="bi bi-chevron-double-down"></i> Change user type to User</button></li>
                                     {{ end }}
-                                    {{if and (not .User.IsAdmin) (ne .User.Id $.ActiveUser.Id)}}
+                                    {{if and $.ActiveUser.IsAdmin (not .User.IsAdmin) (ne .User.Id $.ActiveUser.Id)}}
                                     <li><button type="button" class="dropdown-item text-danger fgs-block-user" data-fgs-block-user="{{ .User.Name }}"><i class="bi bi-slash-circle"></i> Block this person</button></li>
                                     {{end}}
                                     <li><hr class="dropdown-divider"></li>
@@ -80,6 +80,7 @@
                         </tbody>
                     </table>
                 </div>
+                {{if $.ActiveUser.IsAdmin}}
                 <div id="blocked-card" class="mt-4 text-start">
                     <h5>Blocked</h5>
                     <form id="blocked-form" class="d-flex gap-2 mb-3" onsubmit="addBlockedEntry(); return false;">
@@ -97,6 +98,7 @@
 {{ end }}
                     </ul>
                 </div>
+                {{end}}
             </div>
         </div>
 	<div id="toastnotification" class="toastnotification" data-default="Invalid notification">Toast Text</div>

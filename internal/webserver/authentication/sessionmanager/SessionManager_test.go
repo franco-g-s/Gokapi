@@ -118,3 +118,17 @@ func TestLogoutSession(t *testing.T) {
 	}))
 	test.IsEqualBool(t, ok, false)
 }
+
+func TestIsValidSessionRefusedEndsSession(t *testing.T) {
+	database.SaveSession("refusedsession", models.Session{RenewAt: 2147483645, ValidUntil: 2147483646, UserId: 5})
+	cookies := []test.Cookie{{Name: "session_token", Value: "refusedsession"}}
+	SessionRefused = func(models.User) bool { return false }
+	defer func() { SessionRefused = nil }()
+	_, ok := IsValidSession(getRecorder(cookies))
+	test.IsEqualBool(t, ok, true)
+	SessionRefused = func(u models.User) bool { return u.Id == 5 }
+	_, ok = IsValidSession(getRecorder(cookies))
+	test.IsEqualBool(t, ok, false)
+	_, found := database.GetSession("refusedsession")
+	test.IsEqualBool(t, found, false)
+}

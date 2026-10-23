@@ -52,7 +52,8 @@ type CollectionLink struct {
 // its link lives on in the chosen mode. A collection becomes a group once.
 // The collection's owner is the group's creator, also when the admin turns
 // it into one: hiding it from their list must not cut them off, and the
-// admin sees and manages every group without being a member.
+// admin sees and manages every group without being a member. The
+// group_created activity names the person converting as its actor (M7).
 func GroupFromCollection(collectionId string, days int, opts FromCollectionOptions, actor models.User) (models.Group, FromCollectionResult, error) {
 	if !database.SupportsGroups() {
 		return models.Group{}, FromCollectionResult{}, ErrGroupsUnsupported
@@ -97,7 +98,7 @@ func GroupFromCollection(collectionId string, days int, opts FromCollectionOptio
 		database.DeleteGroup(g.Id)
 		return models.Group{}, result, ErrGroupNothingAdded
 	}
-	activity.GroupCreated(g, creator)
+	activity.GroupCreated(g, actor) // the person converting, not the owner (M7)
 	if opts.AddViewers {
 		shown := make(map[int]bool, len(opts.ViewerIds))
 		for _, id := range opts.ViewerIds {

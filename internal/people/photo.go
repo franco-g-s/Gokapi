@@ -47,6 +47,13 @@ var fetchPhotoSync = false
 var ErrPhoto = errors.New("a photo must be a JPEG, PNG or WebP image of at most 512 KB")
 
 func fetchPhoto(userId int, raw string) {
+	// It runs in its own goroutine: a panic here (a DB error in StorePhoto
+	// panics through helper.Check) would otherwise take the server down
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("people: photo fetch for user", userId, "failed:", r)
+		}
+	}()
 	u, err := url.Parse(raw)
 	if err != nil || !photoHostOk(u) {
 		return

@@ -85,6 +85,30 @@ func TestSessionOfLaterBlockedPersonIsRefusedThroughWiring(t *testing.T) {
 	test.IsEqualBool(t, found, false)
 }
 
+// M5: the peek-based paths (previews, video, tagged downloads, GroupLink,
+// SaveCollectionSeen) refuse a session that survived the block, too
+func TestPeekSessionOfLaterBlockedPersonIsRefusedThroughWiring(t *testing.T) {
+	authentication.ResetSignInForTest()
+	wireSignIn()
+	person := models.User{Id: 9304, Name: "peek@peek.wiring.example", UserLevel: models.UserLevelUser}
+	database.SaveUser(person, false)
+	defer database.DeleteUser(person.Id)
+	database.SaveSession("peek-wiring-session", models.Session{RenewAt: 2147483645, ValidUntil: 2147483646, UserId: person.Id})
+	defer database.DeleteSession("peek-wiring-session")
+	peek := func() bool {
+		r := httptest.NewRequest("GET", "/x", nil)
+		r.AddCookie(&http.Cookie{Name: "session_token", Value: "peek-wiring-session"})
+		_, ok := sessionmanager.PeekSession(r)
+		return ok
+	}
+	test.IsEqualBool(t, peek(), true)
+	database.SaveBlock(models.BlockEntry{Entry: "@peek.wiring.example", Added: 1}) // no DeleteAllSessionsByUser
+	defer database.DeleteBlock("@peek.wiring.example")
+	test.IsEqualBool(t, peek(), false)
+	_, found := database.GetSession("peek-wiring-session")
+	test.IsEqualBool(t, found, false)
+}
+
 func TestBlockEndpoints(t *testing.T) {
 	t.Parallel()
 	fx := newViewAsFixture(t, 9310)

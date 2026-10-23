@@ -5,10 +5,13 @@ package people
 import (
 	"bytes"
 	"crypto/tls"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -215,4 +218,32 @@ func TestStorePhotoValidates(t *testing.T) {
 	_, ct, _, ok := PhotoOf(506)
 	test.IsEqualBool(t, ok, true)
 	test.IsEqualString(t, ct, "image/jpeg")
+}
+
+type panickingTransport struct{}
+
+func (panickingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	panic("database is locked")
+}
+
+// M6: a panic inside the background photo fetch (a DB error in StorePhoto
+// panics through helper.Check) is recovered with one line, not a crash
+func TestPhotoFetchPanicIsRecovered(t *testing.T) {
+	oldTransport := photoClient.Transport
+	photoClient.Transport = panickingTransport{}
+	defer func() { photoClient.Transport = oldTransport }()
+	r, w, err := os.Pipe()
+	test.IsNil(t, err)
+	oldStdout := os.Stdout
+	os.Stdout = w
+	func() {
+		defer func() { os.Stdout = oldStdout }()
+		fetchPhoto(9312, "https://lh3.googleusercontent.com/a/photo")
+	}()
+	w.Close()
+	out, _ := io.ReadAll(r)
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	test.IsEqualInt(t, len(lines), 1)
+	test.IsEqualBool(t, strings.Contains(lines[0], "people: photo fetch for user 9312 failed") &&
+		strings.Contains(lines[0], "database is locked"), true)
 }

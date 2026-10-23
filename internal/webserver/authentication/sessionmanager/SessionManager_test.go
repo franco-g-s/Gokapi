@@ -132,3 +132,23 @@ func TestIsValidSessionRefusedEndsSession(t *testing.T) {
 	_, found := database.GetSession("refusedsession")
 	test.IsEqualBool(t, found, false)
 }
+
+// M5: PeekSession applies the same block check as IsValidSession: a blocked
+// person's surviving session is refused and deleted
+func TestPeekSessionRefusedEndsSession(t *testing.T) {
+	database.SaveSession("peekrefused", models.Session{RenewAt: 2147483645, ValidUntil: 2147483646, UserId: 5})
+	defer database.DeleteSession("peekrefused")
+	peek := func() bool {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.AddCookie(&http.Cookie{Name: "session_token", Value: "peekrefused"})
+		_, ok := PeekSession(r)
+		return ok
+	}
+	SessionRefused = func(models.User) bool { return false }
+	defer func() { SessionRefused = nil }()
+	test.IsEqualBool(t, peek(), true)
+	SessionRefused = func(u models.User) bool { return u.Id == 5 }
+	test.IsEqualBool(t, peek(), false)
+	_, found := database.GetSession("peekrefused")
+	test.IsEqualBool(t, found, false)
+}

@@ -102,6 +102,24 @@ func TestGroupFromCollectionActivity(t *testing.T) {
 	test.IsEqualBool(t, rows[0].GroupId == g.Id && rows[0].ActorId == 7, true)
 }
 
+// M7: the admin converting someone else's collection is the actor of
+// group_created, so they get no "New group ... by <owner>" email for a group
+// they made themselves; the group itself still belongs to the owner
+func TestGroupFromOthersCollectionRecordsTheConverter(t *testing.T) {
+	owner, _, _, admin, _ := cgUsers()
+	collection, files := cgCollection("actcolother", owner.Id)
+	defer dropGroupFiles(files...)
+	defer database.DeleteCollection(collection.Id)
+	g, _, err := GroupFromCollection(collection.Id, 60, FromCollectionOptions{}, admin)
+	test.IsNil(t, err)
+	defer database.DeleteCollectionGroup(collection.Id)
+	defer database.DeleteGroup(g.Id)
+	test.IsEqualInt(t, g.CreatorId, owner.Id)
+	rows := activityRows(func(a models.Activity) bool { return a.Kind == models.ActivityGroupCreated && a.GroupId == g.Id })
+	test.IsEqualInt(t, len(rows), 1)
+	test.IsEqualInt(t, rows[0].ActorId, admin.Id)
+}
+
 // A zip renames clashing entries to "X (1).ext"; the activity row keeps the
 // file's real name
 func TestZipDownloadRecordsRealName(t *testing.T) {

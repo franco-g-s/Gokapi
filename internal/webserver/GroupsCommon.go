@@ -13,6 +13,7 @@ import (
 	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/models"
+	"github.com/forceu/gokapi/internal/people"
 	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/webserver/authentication"
 )
@@ -23,12 +24,7 @@ const groupJsonBodyLimit = 1 << 20
 // displayName is what members see of a person (D5): User.Name is the
 // lowercased Google email, so only the part before "@" is shown. A name
 // without one is shown whole. Real display names come in Part 4.
-func displayName(u models.User) string {
-	if before, _, found := strings.Cut(u.Name, "@"); found && before != "" {
-		return before
-	}
-	return u.Name
-}
+func displayName(u models.User) string { return people.Name(u) }
 
 // memberNames maps user ids to display names, for the members of a group and
 // the owners of its files. People who no longer exist are left out.

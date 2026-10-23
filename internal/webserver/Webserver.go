@@ -95,6 +95,7 @@ var srv http.Server
 
 // Start the webserver on the port set in the config
 func Start() {
+	wireSignIn()
 	initTemplates(templateFolderEmbedded)
 	webserverDir, _ := fs.Sub(staticFolderEmbedded, "web/static")
 	var err error

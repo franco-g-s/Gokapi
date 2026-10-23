@@ -4,12 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
-	"strings"
-	"unicode"
 
 	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/helper"
 	"github.com/forceu/gokapi/internal/models"
+	"github.com/forceu/gokapi/internal/people"
 	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/webserver/access"
 	"github.com/forceu/gokapi/internal/webserver/authentication"
@@ -389,18 +388,7 @@ func browserItemFromFile(r *http.Request, f models.File, user models.User, conte
 // initialsOf is the avatar badge of a name: the first letters of its first
 // and last parts, upper case ("anna.mueller" -> "AM", "ben" -> "B").
 // media.js (initialsOf) holds the same rule for files added live.
-func initialsOf(name string) string {
-	parts := strings.FieldsFunc(name, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
-	if len(parts) == 0 {
-		return ""
-	}
-	first := []rune(parts[0])[:1]
-	if len(parts) == 1 {
-		return strings.ToUpper(string(first))
-	}
-	last := []rune(parts[len(parts)-1])[:1]
-	return strings.ToUpper(string(first) + string(last))
-}
+func initialsOf(name string) string { return people.InitialsOfName(name) }
 
 // writePreviewInfo answers a tile polling for its preview. Never cached, so
 // a "pending" cannot stick; never counted, since nothing is downloaded.

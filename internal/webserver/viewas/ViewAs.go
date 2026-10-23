@@ -11,13 +11,13 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/logging"
 	"github.com/forceu/gokapi/internal/models"
+	"github.com/forceu/gokapi/internal/people"
 )
 
 // Idle is how long "View as…" survives without a request
@@ -224,9 +224,4 @@ func RealUser(r *http.Request) (models.User, bool) {
 
 // displayName is webserver's displayName (D5), copied: this package cannot
 // import webserver. Only the part of the name before "@" is shown.
-func displayName(u models.User) string {
-	if before, _, found := strings.Cut(u.Name, "@"); found && before != "" {
-		return before
-	}
-	return u.Name
-}
+func displayName(u models.User) string { return people.Name(u) }

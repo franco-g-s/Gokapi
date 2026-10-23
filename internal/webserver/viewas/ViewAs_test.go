@@ -36,9 +36,9 @@ func TestMain(m *testing.M) {
 	os.Exit(exitVal)
 }
 
-// people saves a fresh admin and two fresh non-admins with ids from base,
+// makePeople saves a fresh admin and two fresh non-admins with ids from base,
 // and ends any "View as…" of the admin when the test is over
-func people(t *testing.T, base int, prefix string) (admin, a, b models.User) {
+func makePeople(t *testing.T, base int, prefix string) (admin, a, b models.User) {
 	t.Helper()
 	admin = models.User{Id: base, Name: prefix + "-admin@example.com", UserLevel: models.UserLevelAdmin, Permissions: models.UserPermissionAll}
 	a = models.User{Id: base + 1, Name: prefix + "-a@example.com", UserLevel: models.UserLevelUser}
@@ -95,7 +95,7 @@ func TestIsRealAdmin(t *testing.T) {
 }
 
 func TestStartRules(t *testing.T) {
-	admin, a, _ := people(t, 8100, "rules")
+	admin, a, _ := makePeople(t, 8100, "rules")
 	otherAdmin := models.User{Id: 8110, Name: "rules-admin2", UserLevel: models.UserLevelAdmin}
 	database.SaveUser(otherAdmin, false)
 	defer database.DeleteUser(otherAdmin.Id)
@@ -116,7 +116,7 @@ func TestStartRules(t *testing.T) {
 }
 
 func TestStartDeletesSystemKeys(t *testing.T) {
-	admin, a, _ := people(t, 8120, "keys")
+	admin, a, _ := makePeople(t, 8120, "keys")
 	expiry := time.Now().Add(5 * time.Minute).Unix()
 	database.SaveApiKey(models.ApiKey{Id: "viewassystemkey000001", PublicId: "viewassystempub000001", IsSystemKey: true, UserId: admin.Id, Expiry: expiry})
 	database.SaveApiKey(models.ApiKey{Id: "viewasrealkey00000001", PublicId: "viewasrealpub00000001", IsSystemKey: false, UserId: admin.Id})
@@ -134,7 +134,7 @@ func TestStartDeletesSystemKeys(t *testing.T) {
 }
 
 func TestTargetIdle(t *testing.T) {
-	admin, a, _ := people(t, 8130, "idle")
+	admin, a, _ := makePeople(t, 8130, "idle")
 	test.IsNil(t, Start(admin, a.Id))
 	row, ok := database.GetViewAs(admin.Id)
 	test.IsEqualBool(t, ok, true)
@@ -148,7 +148,7 @@ func TestTargetIdle(t *testing.T) {
 }
 
 func TestTouch(t *testing.T) {
-	admin, a, _ := people(t, 8135, "touch")
+	admin, a, _ := makePeople(t, 8135, "touch")
 	test.IsNil(t, Start(admin, a.Id))
 	row, _ := database.GetViewAs(admin.Id)
 	row.LastSeen = time.Now().Add(-30 * time.Second).Unix()
@@ -165,7 +165,7 @@ func TestTouch(t *testing.T) {
 }
 
 func TestTickerEndsIdle(t *testing.T) {
-	admin, a, _ := people(t, 8140, "ticker")
+	admin, a, _ := makePeople(t, 8140, "ticker")
 	test.IsNil(t, Start(admin, a.Id))
 	row, _ := database.GetViewAs(admin.Id)
 	row.LastSeen = time.Now().Add(-61 * time.Minute).Unix()
@@ -179,7 +179,7 @@ func TestTickerEndsIdle(t *testing.T) {
 }
 
 func TestTickerEndsDemoted(t *testing.T) {
-	admin, a, _ := people(t, 8190, "tickdemoted")
+	admin, a, _ := makePeople(t, 8190, "tickdemoted")
 	test.IsNil(t, Start(admin, a.Id))
 	demoted := admin
 	demoted.UserLevel = models.UserLevelUser
@@ -191,7 +191,7 @@ func TestTickerEndsDemoted(t *testing.T) {
 }
 
 func TestTickerKeepsFresh(t *testing.T) {
-	admin, a, _ := people(t, 8145, "fresh")
+	admin, a, _ := makePeople(t, 8145, "fresh")
 	test.IsNil(t, Start(admin, a.Id))
 	endIdle()
 	_, ok := database.GetViewAs(admin.Id)
@@ -199,8 +199,8 @@ func TestTickerKeepsFresh(t *testing.T) {
 }
 
 func TestSweepAtStartup(t *testing.T) {
-	admin1, a, _ := people(t, 8150, "sweep1")
-	admin2, _, b := people(t, 8160, "sweep2")
+	admin1, a, _ := makePeople(t, 8150, "sweep1")
+	admin2, _, b := makePeople(t, 8160, "sweep2")
 	test.IsNil(t, Start(admin1, a.Id))
 	test.IsNil(t, Start(admin2, b.Id))
 
@@ -213,7 +213,7 @@ func TestSweepAtStartup(t *testing.T) {
 }
 
 func TestSwitchLogsEnd(t *testing.T) {
-	admin, a, b := people(t, 8170, "switch")
+	admin, a, b := makePeople(t, 8170, "switch")
 	test.IsNil(t, Start(admin, a.Id))
 	test.IsNil(t, Start(admin, b.Id))
 	lines := logLines(t, admin)
@@ -227,7 +227,7 @@ func TestSwitchLogsEnd(t *testing.T) {
 }
 
 func TestEndLogsOnce(t *testing.T) {
-	admin, a, _ := people(t, 8180, "once")
+	admin, a, _ := makePeople(t, 8180, "once")
 	End(admin.Id, "exit") // nothing active: silent
 	test.IsEqualInt(t, len(logLines(t, admin)), 0)
 	test.IsNil(t, Start(admin, a.Id))

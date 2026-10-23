@@ -67,6 +67,9 @@
                                     {{ else }}
                                     <li><button id="changeRank_{{ .User.Id }}" type="button" class="dropdown-item" onclick="changeRank({{ .User.Id }}, 'USER', 'changeRank_{{ .User.Id }}')" {{if or (.User.IsSuperAdmin) (eq .User.Id $.ActiveUser.Id)}}disabled{{end}}><i class="bi bi-chevron-double-down"></i> Change user type to User</button></li>
                                     {{ end }}
+                                    {{if and (not .User.IsAdmin) (ne .User.Id $.ActiveUser.Id)}}
+                                    <li><button type="button" class="dropdown-item text-danger fgs-block-user" data-fgs-block-user="{{ .User.Name }}"><i class="bi bi-slash-circle"></i> Block this person</button></li>
+                                    {{end}}
                                     <li><hr class="dropdown-divider"></li>
                                     <li><button id="delete-{{ .User.Id }}" type="button" class="dropdown-item text-danger" {{if or (.User.IsSuperAdmin) (eq .User.Id $.ActiveUser.Id)}}disabled{{end}} onclick="showDeleteUserModal('{{ .User.Id }}', '{{ .User.Name }}')"><i class="bi bi-trash3"></i> Delete</button></li>
                                   </ul>
@@ -76,6 +79,23 @@
 {{ end }}
                         </tbody>
                     </table>
+                </div>
+                <div id="blocked-card" class="mt-4 text-start">
+                    <h5>Blocked</h5>
+                    <form id="blocked-form" class="d-flex gap-2 mb-3" onsubmit="addBlockedEntry(); return false;">
+                        <input type="text" id="blocked-input" class="form-control" placeholder="name@example.com or @example.com" autocomplete="off" required>
+                        <button type="submit" class="btn btn-outline-light">Block</button>
+                    </form>
+                    <ul id="blocked-list" class="list-group list-group-flush">
+{{ range .Blocked }}
+                        <li class="list-group-item bg-transparent text-light d-flex justify-content-between align-items-center" data-fgs-blocked="{{ .Entry }}">
+                            <span class="fgs-blocked-entry">{{ .Entry }}</span>
+                            <button type="button" class="btn btn-outline-light btn-sm fgs-unblock" data-fgs-unblock="{{ .Entry }}">Unblock</button>
+                        </li>
+{{ else }}
+                        <li class="list-group-item bg-transparent text-muted fgs-blocked-none">Nobody is blocked.</li>
+{{ end }}
+                    </ul>
                 </div>
             </div>
         </div>

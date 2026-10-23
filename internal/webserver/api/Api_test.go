@@ -1870,3 +1870,22 @@ func TestChunkCompleteSanitisationUnit(t *testing.T) {
 	test.IsEqualBool(t, strings.Contains(p.FileHeader.Filename, "\r"), false)
 	test.IsEqualBool(t, strings.Contains(p.FileHeader.Filename, "\n"), false)
 }
+
+// Part 4, K: a blocked person's API key stops working, and works again when unblocked
+func TestIsValidApiKeyBlockedOwner(t *testing.T) {
+	owner := models.User{Id: 4101, Name: "keyowner@blockedkeys.example", UserLevel: models.UserLevelUser}
+	database.SaveUser(owner, false)
+	defer database.DeleteUser(owner.Id)
+	key := generateNewKey(false, owner.Id, "", "")
+	defer database.DeleteApiKey(key.Id)
+	_, _, isValid := isValidApiKey(key.Id, false, models.ApiPermNone)
+	test.IsEqualBool(t, isValid, true)
+
+	database.SaveBlock(models.BlockEntry{Entry: "@blockedkeys.example", Added: 1})
+	_, _, isValid = isValidApiKey(key.Id, false, models.ApiPermNone)
+	test.IsEqualBool(t, isValid, false)
+
+	database.DeleteBlock("@blockedkeys.example")
+	_, _, isValid = isValidApiKey(key.Id, false, models.ApiPermNone)
+	test.IsEqualBool(t, isValid, true)
+}

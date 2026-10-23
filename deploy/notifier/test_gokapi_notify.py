@@ -409,9 +409,10 @@ class ReplayBusyEvening(unittest.TestCase):
         sent = self.replay(smtp_fail=("2026-03-14T22:00:00+01:00", "2026-03-14T22:40:00+01:00"))
         self.assertEqual(sorted(s for _, _, s, _ in sent), sorted(s for _, _, s, _ in self.replay()))
         self.assertFalse(any("notifier" in s.lower() or "error" in s.lower() for _, _, s, _ in sent))
-        # Backoff 1, 5, 15, 60 min from the 22:00 failure: 22:01, 22:06, 22:21 fail, 23:21 sends.
+        # An immediate email is waiting, so the 1, 5, 15, 60 min backoff is capped at 5 (M4):
+        # 22:01, 22:06, 22:11 ... 22:36 fail, 22:41 sends (the outage ends at 22:40).
         late = [at for at, _, s, _ in sent if s == "[FGS] New group: Ski weekend by Carla"]
-        self.assertEqual(late, ["2026-03-14T23:21:00+01:00"])
+        self.assertEqual(late, ["2026-03-14T22:41:00+01:00"])
 
     def test_friend_digest_once_a_day_across_midnight(self):
         friend = [(at, to) for at, to, subj, _ in self.replay() if subj == "Your files were downloaded"]
@@ -493,7 +494,7 @@ class FixRound1(unittest.TestCase):
         self.assertTrue(any("dropped undeliverable email to anna@example.com" in m for m in logs), logs)
         self.assertIsNone(state["next_send_at"])
 
-    def test_5xx_for_friend_is_poison_but_auth_and_5xx_for_admin_back_off(self):
+    def test_message_refusal_poison_for_friend_and_after_3_attempts_for_admin(self):
         cfg = base_cfg()
         friend = {"to": "anna@example.com", "subject": "s", "body": "x", "kind": "friend"}
         admin = {"to": FRANCO, "subject": "t", "body": "x", "kind": "summary"}
@@ -501,10 +502,13 @@ class FixRound1(unittest.TestCase):
         auth_err = smtplib.SMTPAuthenticationError(535, b"bad login")
         self.assertTrue(gn._is_poison(data_err, friend, cfg))
         self.assertFalse(gn._is_poison(data_err, admin, cfg))
+        self.assertTrue(gn._is_poison(data_err, dict(admin, attempts=3), cfg))
         self.assertFalse(gn._is_poison(auth_err, friend, cfg))
         self.assertFalse(gn._is_poison(smtplib.SMTPServerDisconnected("gone"), friend, cfg))
         self.assertFalse(gn._is_poison(OSError("network down"), friend, cfg))
-        self.assertTrue(gn._is_poison(smtplib.SMTPRecipientsRefused({FRANCO: (550, b"no")}), admin, cfg))
+        refused = smtplib.SMTPRecipientsRefused({FRANCO: (550, b"no")})
+        self.assertFalse(gn._is_poison(refused, dict(admin, attempts=2), cfg))
+        self.assertTrue(gn._is_poison(refused, dict(admin, attempts=3), cfg))
         self.assertTrue(gn._is_poison(KeyError("to"), friend, cfg))
         with self.assertRaises(gn.UnsafeConfig):
             gn.flush_outbox({"outbox": [friend], "failing": {"feed": None, "smtp": None}},
@@ -897,6 +901,147 @@ class Formatting(unittest.TestCase):
         self.assertEqual(emails[0]["subject"],
                          "[FGS] View as…: Franco viewing as Anna; Warning: 1 issue(s); "
                          "New person: Elif (elif@example.com)")
+
+
+class FinalFixes(unittest.TestCase):
+    """Whole-branch review final wave: I1 refused mail to mail_to, M2 builder throws, M4 alarm backoff."""
+
+    def viewas(self, i, at):
+        return {"id": i, "at": at, "kind": "viewas_start", "actor": 1, "owner": 0, "file": None,
+                "group": None, "via": "", "detail": "target=3"}
+
+    def test_refused_immediate_to_admin_does_not_block_later_viewas_alarm(self):
+        cfg = base_cfg()
+        t0 = L(10, 0)
+        state = gn.new_state()
+        state["outbox"] = [{"to": FRANCO, "subject": "[FGS] New person: Elif (elif@example.com)",
+                            "body": "x", "kind": "immediate"}]
+        sent, logs = [], []
+
+        def transport(msg, f, rcpts):
+            if "New person" in str(msg["Subject"]):
+                raise smtplib.SMTPDataError(550, "5.7.0 blocked")
+            sent.append((str(msg["Subject"])))
+
+        alarm_at = None
+        for minute in range(0, 10):
+            now = t0 + timedelta(minutes=minute)
+            events = []
+            if minute == 3:
+                events = [self.viewas(1, int(now.timestamp()))]
+            state, _ = gn.step(state, {"events": events, "next": 1, "users": USERS}, now, cfg)
+            gn.flush_outbox(state, now, cfg, transport=transport, log=logs.append)
+            if alarm_at is None and any("View as" in s for s in sent):
+                alarm_at = minute
+        self.assertEqual(alarm_at, 3, (sent, logs))
+        self.assertEqual(state["outbox"], [])               # refused one dropped after 3 attempts
+        self.assertEqual(state["outbox_poisoned"], 1)
+        self.assertIsNone(state["failing"]["smtp"])
+
+    def test_refused_summary_does_not_block_later_summaries_or_digests(self):
+        cfg = base_cfg()
+        state = gn.new_state()
+        state["outbox"] = [
+            {"to": FRANCO, "subject": "[FGS] Activity: bad", "body": "x", "kind": "summary"},
+            {"to": FRANCO, "subject": "[FGS] Activity: good", "body": "x", "kind": "summary"},
+            {"to": "anna@example.com", "subject": "Your files were downloaded", "body": "x",
+             "kind": "friend"},
+        ]
+        sent = []
+
+        def transport(msg, f, rcpts):
+            if str(msg["Subject"]).endswith("bad"):
+                raise smtplib.SMTPDataError(554, b"5.7.1 message content rejected")
+            sent.append(str(msg["Subject"]))
+
+        gn.flush_outbox(state, L(10, 0), cfg, transport=transport, log=lambda m: None)
+        self.assertEqual(sent, ["[FGS] Activity: good", "Your files were downloaded"])
+        self.assertEqual([m["subject"] for m in state["outbox"]], ["[FGS] Activity: bad"])
+        self.assertEqual(state["outbox"][0]["attempts"], 1)
+        self.assertIsNone(state["next_send_at"])
+        for minute in (1, 2):
+            gn.flush_outbox(state, L(10, minute), cfg, transport=transport, log=lambda m: None)
+        self.assertEqual(state["outbox"], [])
+        self.assertEqual(state.get("outbox_poisoned"), 1)
+
+    def test_connect_5xx_keeps_friend_digest_and_backs_off(self):
+        cfg = base_cfg()
+        friend = {"to": "anna@example.com", "subject": "Your files were downloaded", "body": "x",
+                  "kind": "friend"}
+        state = gn.new_state()
+        state["outbox"] = [dict(friend)]
+
+        def transport(msg, f, rcpts):
+            raise smtplib.SMTPConnectError(554, b"5.7.0 too many connections")
+
+        gn.flush_outbox(state, L(10, 0), cfg, transport=transport, log=lambda m: None)
+        self.assertEqual(len(state["outbox"]), 1)
+        self.assertEqual(state.get("outbox_poisoned", 0), 0)
+        self.assertEqual(state["next_send_at"], int(L(10, 1).timestamp()))
+        for e in (smtplib.SMTPConnectError(554, b"x"), smtplib.SMTPHeloError(501, b"x"),
+                  smtplib.SMTPServerDisconnected("gone"), smtplib.SMTPSenderRefused(553, b"x", "me"),
+                  smtplib.SMTPAuthenticationError(535, b"x"), OSError("down")):
+            self.assertFalse(gn._is_poison(e, friend, cfg), e)
+        self.assertTrue(gn._is_poison(smtplib.SMTPDataError(550, b"x"), friend, cfg))
+
+    def test_builder_that_throws_once_keeps_the_alarm(self):
+        cfg = base_cfg()
+        now = L(10, 0)
+        real = gn._immediate_email
+        calls = []
+
+        def flaky(*a, **k):
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("boom")
+            return real(*a, **k)
+
+        gn._immediate_email = flaky
+        try:
+            logs = []
+            state = gn.new_state()
+            try:
+                state, emails = gn.step(state, {"events": [self.viewas(1, int(now.timestamp()))],
+                                                "next": 1, "users": USERS}, now, cfg, log=logs.append)
+            except RuntimeError:
+                emails = []
+            self.assertEqual([e for e in emails if e["kind"] == "immediate"], [])
+            state, emails = gn.step(state, {"events": [], "next": 1, "users": USERS},
+                                    now + timedelta(minutes=1), cfg)
+        finally:
+            gn._immediate_email = real
+        self.assertEqual([e["subject"] for e in emails if e["kind"] == "immediate"],
+                         ["[FGS] View as\u2026: Franco viewing as Ben"])
+        self.assertEqual(state["pending_immediate"], [])
+
+    def test_backoff_capped_at_5_minutes_while_alarm_waits(self):
+        cfg = base_cfg()
+        state = gn.new_state()
+        state["outbox"] = [{"to": FRANCO, "subject": "[FGS] View as\u2026: Franco viewing as Ben",
+                            "body": "x", "kind": "immediate"}]
+
+        def down(msg, f, rcpts):
+            raise smtplib.SMTPAuthenticationError(535, b"5.7.8 not accepted")
+
+        now = int(L(10, 0).timestamp())
+        gaps = []
+        for _ in range(6):
+            gn.flush_outbox(state, datetime.fromtimestamp(now, timezone.utc), cfg, transport=down,
+                            log=lambda m: None)
+            gaps.append((state["next_send_at"] - now) // 60)
+            now = state["next_send_at"]
+        self.assertEqual(gaps, [1, 5, 5, 5, 5, 5])
+        # Only summaries waiting: the full 1/5/15/60 backoff still applies.
+        state = gn.new_state()
+        state["outbox"] = [{"to": FRANCO, "subject": "[FGS] Activity: x", "body": "x", "kind": "summary"}]
+        now = int(L(10, 0).timestamp())
+        gaps = []
+        for _ in range(5):
+            gn.flush_outbox(state, datetime.fromtimestamp(now, timezone.utc), cfg, transport=down,
+                            log=lambda m: None)
+            gaps.append((state["next_send_at"] - now) // 60)
+            now = state["next_send_at"]
+        self.assertEqual(gaps, [1, 5, 15, 60, 60])
 
 
 def write_fixture():

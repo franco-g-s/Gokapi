@@ -45,13 +45,16 @@ The notifier never emails about itself:
 
 - **Feed failures** are logged once when they start and once when they
   recover.
-- **SMTP failures** keep the outbox and back off by 1, 5, 15, then 60
-  minutes. They are logged once per failure streak.
-- **Undeliverable emails are dropped, not retried.** That covers a refused
-  recipient, a 5xx for anyone other than `mail_to`, or a non-SMTP error
-  while building or sending one email. Each is logged with its subject and
-  recipient, and counted in `outbox_poisoned`. Login and transport failures
-  still back off.
+- **SMTP failures** (login, sender, connect, HELO, a dropped connection,
+  network errors) keep the outbox and back off by 1, 5, 15, then 60
+  minutes, capped at 5 while an immediate email is waiting. They are logged
+  once per failure streak and never drop an email.
+- **Undeliverable emails are dropped, not retried forever.** A message-level
+  refusal (`SMTPDataError`, `SMTPRecipientsRefused`) drops a friend's email
+  at once; one to `mail_to` is retried on the next 2 polls and dropped after
+  the third refusal, and never holds back the email behind it. A non-SMTP
+  error while building or sending one email drops it too. Each drop is
+  logged with its subject and recipient, and counted in `outbox_poisoned`.
 - **Immediate emails always leave the outbox first**, so an alarm never
   waits behind a digest.
 - **Friend addresses must be a plain `local@domain.tld`**, or no digest is

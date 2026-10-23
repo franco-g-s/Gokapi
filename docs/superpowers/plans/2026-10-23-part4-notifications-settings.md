@@ -1404,11 +1404,16 @@ class Feed(unittest.TestCase):
    3. Run `docker --context colima builder prune -a -f`, so the disk watcher's first check doesn't warn about the build cache. Stop gokapi; run the sidecar `sqlite3 .backup` into `~/apps/gokapi/backups/backup-pre-part4-<date>.sqlite`; check `PRAGMA integrity_check`, the schema version (17) and the file count.
    4. **The notifier's API key, created without the secret ever reaching a chat or a log.** Live is Google sign-in only, so nobody can sign in through a script to create the key.
       - While gokapi is still stopped, one Python script on the mini generates the key with `secrets` and the sidecar `INSERT`s it into `ApiKeys`:
-        - `Id` = the key;
+        - `Id` = the key: 30 characters (`LengthApiKey`), from `secrets`;
         - `FriendlyName` `Notifier (Part 4)`;
-        - `Permissions` = the `ApiPermManageLogs` bit (read its value from `models/ApiKey.go`);
-        - `Expiry` 0, `IsSystemKey` 0, `UserId` = Franco's admin id, a random `PublicId`, `UploadRequestId` `''`.
-      - The same script writes `api_key`, `api_url` and `site_url` into `notify.config.json` (mode 600). It prints only `ok` and the PublicId, never the key.
+        - `LastUsed` 0 (the column is `INTEGER NOT NULL` with no default);
+        - `Permissions` 128 (`ApiPermManageLogs` = 1<<7);
+        - `Expiry` 0;
+        - `IsSystemKey` **0**: "View as…" deletes system keys when it starts, and would take the notifier's key with them;
+        - `UserId` = Franco's admin id (the route is AdminOnly);
+        - `PublicId` = a random 35 characters (`LengthPublicId`);
+        - `UploadRequestId` `''`.
+      - The same script writes only `api_key` into `notify.config.json` (mode 600). It does **not** write `api_url` or `site_url`: their defaults are the exact live values, and the notifier refuses to send if `api_url` differs from `http://127.0.0.1:53842/api/activity` by a single character. It prints only `ok` and the PublicId, never the key.
       - **Fallback** if Franco prefers the UI: he creates the key in the API tab with Manage Logs on. He then pastes it into a `read -s` one-liner on the mini that updates the config, never into chat.
    5. Swap the image to `gokapi-fgs:part4-<date>` and `docker compose up -d`.
    6. Install `deploy/notifier/gokapi_notify.py` as `~/apps/gokapi/gokapi-notify.py`. Run `--once --from-start` by hand, then load the plist.
@@ -1416,7 +1421,12 @@ class Feed(unittest.TestCase):
    8. Open and link the PR `feature/part4 → feature/collections`.
    9. Remove the preview, its volumes, `tailscale serve` on 8443, and every scratch copy of the live DB and of `notify.config.json`.
    10. Update `~/atlas/memory/gokapi-share-redesign.md` and add the deploy record and rulings below.
-   - **Rollback:** restore `docker-compose.yml.bak.<date>` and `gokapi-notify.py.bak.<date>` (with `.notify-state.json`), `docker compose up -d`, and reload the plist. The new tables are ignored by the old image.
+   - **Rollback:**
+     1. Restore `docker-compose.yml.bak.<date>` and `gokapi-notify.py.bak.<date>`.
+     2. **Delete** `.notify-state.json` rather than restoring it. The old notifier then resyncs to the end of `log.txt` without emailing. A restored offset would re-send every line logged since the swap, one email each.
+     3. `docker compose up -d`, then reload the plist.
+     4. The new tables are ignored by the old image.
+   - **Known gap at cutover:** events between step 1 (old notifier unloaded) and the swap are not emailed. That is a few minutes, during which the site is already in its maintenance window.
 
 ---
 

@@ -1044,6 +1044,134 @@ class FinalFixes(unittest.TestCase):
         self.assertEqual(gaps, [1, 5, 15, 60, 60])
 
 
+class FinalFixes2(unittest.TestCase):
+    """Re-review: M4 clamp at the gate and on any queued alarm; a builder that never works."""
+
+    def viewas(self, i, at):
+        return {"id": i, "at": at, "kind": "viewas_start", "actor": 1, "owner": 0, "file": None,
+                "group": None, "via": "", "detail": "target=3"}
+
+    def test_alarm_enqueued_after_long_summary_backoff_waits_at_most_5_minutes(self):
+        # Scenario A: a summary failed until the backoff reached 60 min, SMTP recovers,
+        # then an alarm arrives: it must not wait out the 60 minutes.
+        cfg = base_cfg()
+        state = gn.new_state()
+        state["outbox"] = [{"to": FRANCO, "subject": "[FGS] Activity: x", "body": "x", "kind": "summary"}]
+        down = [True]
+        sent = []
+
+        def transport(msg, f, rcpts):
+            if down[0]:
+                raise smtplib.SMTPAuthenticationError(535, b"5.7.8 not accepted")
+            sent.append(str(msg["Subject"]))
+
+        now = int(L(10, 0).timestamp())
+        for _ in range(4):                                  # 1, 5, 15, 60
+            gn.flush_outbox(state, datetime.fromtimestamp(now, timezone.utc), cfg, transport=transport,
+                            log=lambda m: None)
+            now = state["next_send_at"]
+        last_fail = now - 3600
+        down[0] = False
+        enqueued_at = last_fail + 60
+        sent_at = None
+        for minute in range(1, 61):
+            t = last_fail + 60 * minute
+            dt = datetime.fromtimestamp(t, timezone.utc)
+            events = [self.viewas(1, t)] if t == enqueued_at else []
+            state, _ = gn.step(state, {"events": events, "next": 1, "users": USERS}, dt, cfg)
+            gn.flush_outbox(state, dt, cfg, transport=transport, log=lambda m: None)
+            if sent_at is None and any("View as" in x for x in sent):
+                sent_at = t
+        self.assertIsNotNone(sent_at)
+        self.assertLessEqual(sent_at - enqueued_at, 300)
+
+    def test_transport_error_behind_skipped_alarm_still_caps_backoff(self):
+        # Scenario C: the immediate email is refused and skipped, the summary behind it
+        # hits a transport error deep into a streak: the alarm is still queued.
+        cfg = base_cfg()
+        state = gn.new_state()
+        state["send_failures"] = 3                          # next backoff would be 60 min
+        state["outbox"] = [
+            {"to": FRANCO, "subject": "[FGS] View as\u2026: Franco viewing as Ben", "body": "x",
+             "kind": "immediate"},
+            {"to": FRANCO, "subject": "[FGS] Activity: x", "body": "x", "kind": "summary"},
+        ]
+
+        def transport(msg, f, rcpts):
+            if "View as" in str(msg["Subject"]):
+                raise smtplib.SMTPDataError(550, b"5.7.0 blocked")
+            raise smtplib.SMTPServerDisconnected("gone")
+
+        now = int(L(10, 0).timestamp())
+        gn.flush_outbox(state, datetime.fromtimestamp(now, timezone.utc), cfg, transport=transport,
+                        log=lambda m: None)
+        self.assertEqual(len(state["outbox"]), 2)
+        self.assertLessEqual(state["next_send_at"] - now, 300)
+
+    def test_builder_that_always_throws_falls_back_to_plain_alarms(self):
+        cfg = base_cfg()
+        real = gn._immediate_email
+
+        def broken(*a, **k):
+            raise RuntimeError("template broken")
+
+        gn._immediate_email = broken
+        logs, immediate = [], []
+        try:
+            state = gn.new_state()
+            t0 = L(10, 0)
+            for poll in range(3):
+                now = t0 + timedelta(minutes=poll)
+                events = [self.viewas(1, int(t0.timestamp()))] if poll == 0 else []
+                if poll == 1:
+                    events = [dict(self.viewas(2, int(now.timestamp())), kind="viewas_end",
+                                   detail="target=3 reason=exit")]
+                state, emails = gn.step(state, {"events": events, "next": poll + 1, "users": USERS},
+                                        now, cfg, log=logs.append)
+                immediate += [e for e in emails if e["kind"] == "immediate"]
+        finally:
+            gn._immediate_email = real
+        self.assertEqual(sorted(e["subject"] for e in immediate),
+                         ["[FGS] viewas_end", "[FGS] viewas_start"])
+        self.assertTrue(all(e["to"] == FRANCO for e in immediate))
+        self.assertIn("kind: viewas_start", [e for e in immediate if e["subject"] == "[FGS] viewas_start"][0]["body"])
+        self.assertEqual(state["pending_immediate"], [])
+        failing = [m for m in logs if "could not build immediate email" in m]
+        self.assertEqual(len(failing), 1, logs)
+        # The next poll is normal again: nothing more is emitted.
+        state, emails = gn.step(state, {"events": [], "next": 3, "users": USERS}, t0 + timedelta(minutes=3), cfg)
+        self.assertEqual(emails, [])
+
+    def test_fallback_that_fails_drops_only_that_event(self):
+        cfg = base_cfg()
+        real_build, real_fallback = gn._immediate_email, gn._fallback_alarm
+
+        def broken(*a, **k):
+            raise RuntimeError("template broken")
+
+        def picky(ev, cfg):
+            if ev.get("id") == 2:
+                raise ValueError("cannot render")
+            return real_fallback(ev, cfg)
+
+        gn._immediate_email, gn._fallback_alarm = broken, picky
+        try:
+            state = gn.new_state()
+            t0 = L(10, 0)
+            at = int(t0.timestamp())
+            out = []
+            for poll in range(3):
+                events = [self.viewas(1, at), self.viewas(2, at)] if poll == 0 else []
+                state, emails = gn.step(state, {"events": events, "next": 2, "users": USERS},
+                                        t0 + timedelta(minutes=poll), cfg)
+                out += emails
+        finally:
+            gn._immediate_email, gn._fallback_alarm = real_build, real_fallback
+        self.assertEqual([e["subject"] for e in out], ["[FGS] viewas_start"])
+        self.assertEqual(state["outbox_poisoned"], 1)
+        self.assertEqual(state["pending_immediate"], [])
+
+
 def write_fixture():
     with open(FIXTURE_PATH, "w") as fh:
         fx = build_fixture()

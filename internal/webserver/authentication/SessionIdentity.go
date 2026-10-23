@@ -17,7 +17,9 @@ import (
 //   - in Disabled mode it names the super admin for every anonymous request,
 //   - in Header mode it trusts a request header and may create users.
 //
-// Only the Internal and OAuth2 session cookie counts. It performs no writes.
+// Only the Internal and OAuth2 session cookie counts. It never renews a
+// session or sets a cookie; its one write is PeekSession deleting the
+// session of a person who has since been blocked (Part 4, M5).
 func SessionIdentity(r *http.Request) (models.User, bool) {
 	switch authSettings.Method {
 	case models.AuthenticationInternal, models.AuthenticationOAuth2:

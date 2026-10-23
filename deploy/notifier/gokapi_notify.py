@@ -301,19 +301,56 @@ def emit(state, now_utc, cfg, log=_nolog):
     emails = []
     pending = state.get("pending_immediate") or []
     if pending:
-        try:
-            emails.append(_immediate_email(pending, users, cfg))
-        except Exception as e:
-            # Keep the alarm: it is retried next poll instead of being lost.
-            log("could not build immediate email (%d event(s) kept): %r" % (len(pending), e))
-        else:
-            state["pending_immediate"] = []
+        emails.extend(_build_immediate(state, pending, users, cfg, log))
     summary = _summary_if_due(state, now, users, cfg)
     if summary:
         emails.append(summary)
     emails.extend(_friend_digests_if_due(state, now, users, cfg, log))
     enqueue(state, emails, log)
     return emails
+
+
+def _build_immediate(state, pending, users, cfg, log):
+    """The immediate email for the pending events, never losing an alarm to a bug.
+
+    A failed build keeps the events for the next poll. After
+    IMMEDIATE_BUILD_ATTEMPTS failures in a row for the pending set, each
+    event goes out as a plain fallback alarm instead; an event whose
+    fallback cannot be built either is dropped and counted in
+    outbox_poisoned. Logged once per failure streak.
+    """
+    try:
+        mail = _immediate_email(pending, users, cfg)
+    except Exception as e:
+        n = int(state.get("immediate_build_failures") or 0) + 1
+        state["immediate_build_failures"] = n
+        if n == 1:
+            log("could not build immediate email (%d event(s) kept): %r" % (len(pending), e))
+        if n < IMMEDIATE_BUILD_ATTEMPTS:
+            return []
+        out = []
+        for ev in pending:
+            try:
+                out.append(_fallback_alarm(ev, cfg))
+            except Exception as fe:
+                state["outbox_poisoned"] = state.get("outbox_poisoned", 0) + 1
+                log("dropped an alarm that cannot be built at all: %r" % (fe,))
+        log("sent %d plain fallback alarm(s) after %d failed build(s)" % (len(out), n))
+    else:
+        out = [mail]
+    state["pending_immediate"] = []
+    state["immediate_build_failures"] = 0
+    return out
+
+
+def _fallback_alarm(ev, cfg):
+    """A minimal alarm for one event: subject "[FGS] <kind>", body the raw fields."""
+    kind = _one_line(ev.get("kind") or "event") or "event"
+    lines = ["%s: %s" % (_one_line(k), _one_line(repr(ev[k]) if isinstance(ev[k], (dict, list)) else ev[k]))
+             for k in sorted(ev, key=str)]
+    body = ("The full alarm email could not be built, so here are the raw event fields.\n\n"
+            + "\n".join(lines) + "\n\n" + str(cfg.get("site_url") or "") + "\n")
+    return {"to": cfg["mail_to"], "subject": "[FGS] " + kind, "body": body, "kind": "immediate"}
 
 
 def normalise_event(ev):
@@ -713,7 +750,8 @@ TRANSPORT_ERRORS = (smtplib.SMTPAuthenticationError, smtplib.SMTPSenderRefused,
                     smtplib.SMTPConnectError, smtplib.SMTPHeloError,
                     smtplib.SMTPServerDisconnected, smtplib.SMTPException, OSError)
 ADMIN_MESSAGE_ATTEMPTS = 3      # a message-level refusal to mail_to is retried this often
-ALARM_BACKOFF_MINUTES = 5       # backoff cap while an immediate email heads the outbox
+ALARM_BACKOFF_MINUTES = 5       # backoff cap while any immediate email is queued
+IMMEDIATE_BUILD_ATTEMPTS = 3    # failed builds of one pending set before the plain fallback
 
 
 def _is_poison(e, mail, cfg):
@@ -731,6 +769,17 @@ def _is_poison(e, mail, cfg):
     if isinstance(e, TRANSPORT_ERRORS):
         return False
     return True
+
+
+def _has_alarm(outbox):
+    return any(isinstance(m, dict) and m.get("kind") == "immediate" for m in outbox)
+
+
+def _clamp_for_alarm(state, now):
+    """While an immediate email is queued, never wait more than 5 minutes to send."""
+    limit = now + 60 * ALARM_BACKOFF_MINUTES
+    if state.get("next_send_at") and state["next_send_at"] > limit and _has_alarm(state["outbox"]):
+        state["next_send_at"] = limit
 
 
 def _next_index(outbox, skip=()):
@@ -755,10 +804,13 @@ def flush_outbox(state, now_utc, cfg, transport=None, log=log):
     building or sending one email drops it. Dropped email is logged and
     counted in outbox_poisoned. A login, sender or connection failure keeps
     the outbox, logs once per failure streak and backs off next_send_at by
-    1, 5, 15, then 60 minutes -- capped at 5 while an immediate email is the
-    one waiting. Never emails about itself.
+    1, 5, 15, then 60 minutes. While any immediate email is queued -- one
+    that failed, one skipped as refused, or one enqueued during an existing
+    backoff -- the wait is capped at 5 minutes from now, here at the gate
+    and when the backoff is set. Never emails about itself.
     """
     now = _epoch(now_utc)
+    _clamp_for_alarm(state, now)
     if state.get("next_send_at") and now < state["next_send_at"]:
         return state
     outbox = state["outbox"]
@@ -793,9 +845,8 @@ def flush_outbox(state, now_utc, cfg, transport=None, log=log):
                 log("smtp failing since %s: %r (outbox %d)" % (_stamp(now), e, len(outbox)))
             state["send_failures"] = n + 1
             wait = BACKOFF_MINUTES[min(n, len(BACKOFF_MINUTES) - 1)]
-            if info.get("kind") == "immediate":
-                wait = min(wait, ALARM_BACKOFF_MINUTES)
             state["next_send_at"] = now + 60 * wait
+            _clamp_for_alarm(state, now)
             return state
         outbox.pop(i)
         log("sent: %s" % _one_line(mail["subject"]))

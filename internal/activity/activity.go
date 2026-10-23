@@ -274,14 +274,22 @@ type FeedResult struct {
 	Users  []FeedUser  `json:"users"`
 }
 
+// readActivitySince reads the feed's rows; a var for the tests
+var readActivitySince = database.GetActivitySince
+
 // Feed returns the events after the cursor. A nil since means "start from
 // now": no events, and next is the newest id. since 0 is "from the oldest
 // retained row". A cursor whose next row was pruned, or one above the newest
 // id (a restored database), answers reset with no events. limit is clamped
 // to 1..MaxLimit.
-func Feed(since *int64, limit int) FeedResult {
+//
+// The users are listed last, after the rows are read (M3): a person whose
+// first_signin is on this page signed in before the read, so they are in
+// the list and are never announced as "someone (#N)".
+func Feed(since *int64, limit int) (result FeedResult) {
 	limit = max(1, min(limit, MaxLimit))
-	result := FeedResult{Result: "OK", Events: make([]FeedEvent, 0), Users: feedUsers()}
+	result = FeedResult{Result: "OK", Events: make([]FeedEvent, 0)}
+	defer func() { result.Users = feedUsers() }()
 	if !database.SupportsGroups() {
 		return result
 	}
@@ -298,7 +306,7 @@ func Feed(since *int64, limit int) FeedResult {
 		result.Reset = true
 		return result
 	}
-	rows := database.GetActivitySince(*since, limit+1)
+	rows := readActivitySince(*since, limit+1)
 	if len(rows) > limit {
 		rows = rows[:limit]
 		result.More = true

@@ -291,3 +291,34 @@ func TestRecordIsBestEffort(t *testing.T) {
 	test.IsEqualInt(t, len(allRows(t)), 0)
 	pruneOnce() // runs, and would not panic either
 }
+
+// M3: a person who signs in while the feed is being read is in the page's
+// users, so the notifier never announces them as "someone (#N)"
+func TestFeedUsersIncludeSignInDuringRead(t *testing.T) {
+	clearActivity(t)
+	start := int64(0)
+	orig := readActivitySince
+	defer func() { readActivitySince = orig }()
+	late := models.User{Id: 9311, Name: "late@example.com", UserLevel: models.UserLevelUser}
+	defer database.DeleteUser(late.Id)
+	readActivitySince = func(since int64, limit int) []models.Activity {
+		database.SaveUser(late, false) // signs in between the bounds and the read
+		FirstSignIn(late)
+		return orig(since, limit)
+	}
+	f := Feed(&start, 500)
+	sawEvent := false
+	for _, e := range f.Events {
+		if e.Kind == models.ActivityFirstSignIn && e.Actor == late.Id {
+			sawEvent = true
+		}
+	}
+	test.IsEqualBool(t, sawEvent, true)
+	sawUser := false
+	for _, u := range f.Users {
+		if u.Id == late.Id {
+			sawUser = true
+		}
+	}
+	test.IsEqualBool(t, sawUser, true)
+}

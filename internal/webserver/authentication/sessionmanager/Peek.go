@@ -12,7 +12,8 @@ import (
 // session that is due by deleting it and setting a new cookie on the response;
 // a caller with no response to write to (an access check inside an image
 // request) would log the user out. PeekSession never renews, deletes or touches
-// last-online.
+// last-online. It does apply the block check (SessionRefused) exactly like
+// IsValidSession: a blocked person's session is refused and deleted.
 func PeekSession(r *http.Request) (models.User, bool) {
 	cookie, err := r.Cookie("session_token")
 	if err != nil || cookie.Value == "" {
@@ -24,6 +25,10 @@ func PeekSession(r *http.Request) (models.User, bool) {
 	}
 	user, ok := database.GetUser(session.UserId)
 	if !ok {
+		return models.User{}, false
+	}
+	if SessionRefused != nil && SessionRefused(user) {
+		database.DeleteSession(cookie.Value)
 		return models.User{}, false
 	}
 	return user, true

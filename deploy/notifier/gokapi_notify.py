@@ -300,15 +300,57 @@ def emit(state, now_utc, cfg, log=_nolog):
     users = _users_by_id(state.get("users"))
     emails = []
     pending = state.get("pending_immediate") or []
-    state["pending_immediate"] = []
     if pending:
-        emails.append(_immediate_email(pending, users, cfg))
+        emails.extend(_build_immediate(state, pending, users, cfg, log))
     summary = _summary_if_due(state, now, users, cfg)
     if summary:
         emails.append(summary)
     emails.extend(_friend_digests_if_due(state, now, users, cfg, log))
     enqueue(state, emails, log)
     return emails
+
+
+def _build_immediate(state, pending, users, cfg, log):
+    """The immediate email for the pending events, never losing an alarm to a bug.
+
+    A failed build keeps the events for the next poll. After
+    IMMEDIATE_BUILD_ATTEMPTS failures in a row for the pending set, each
+    event goes out as a plain fallback alarm instead; an event whose
+    fallback cannot be built either is dropped and counted in
+    outbox_poisoned. Logged once per failure streak.
+    """
+    try:
+        mail = _immediate_email(pending, users, cfg)
+    except Exception as e:
+        n = int(state.get("immediate_build_failures") or 0) + 1
+        state["immediate_build_failures"] = n
+        if n == 1:
+            log("could not build immediate email (%d event(s) kept): %r" % (len(pending), e))
+        if n < IMMEDIATE_BUILD_ATTEMPTS:
+            return []
+        out = []
+        for ev in pending:
+            try:
+                out.append(_fallback_alarm(ev, cfg))
+            except Exception as fe:
+                state["outbox_poisoned"] = state.get("outbox_poisoned", 0) + 1
+                log("dropped an alarm that cannot be built at all: %r" % (fe,))
+        log("sent %d plain fallback alarm(s) after %d failed build(s)" % (len(out), n))
+    else:
+        out = [mail]
+    state["pending_immediate"] = []
+    state["immediate_build_failures"] = 0
+    return out
+
+
+def _fallback_alarm(ev, cfg):
+    """A minimal alarm for one event: subject "[FGS] <kind>", body the raw fields."""
+    kind = _one_line(ev.get("kind") or "event") or "event"
+    lines = ["%s: %s" % (_one_line(k), _one_line(repr(ev[k]) if isinstance(ev[k], (dict, list)) else ev[k]))
+             for k in sorted(ev, key=str)]
+    body = ("The full alarm email could not be built, so here are the raw event fields.\n\n"
+            + "\n".join(lines) + "\n\n" + str(cfg.get("site_url") or "") + "\n")
+    return {"to": cfg["mail_to"], "subject": "[FGS] " + kind, "body": body, "kind": "immediate"}
 
 
 def normalise_event(ev):
@@ -700,59 +742,111 @@ def deliver(cfg, mail, transport=None):
     transport(msg, cfg["smtp_user"], rcpts)
 
 
+# Refused by the server for this message (content, recipient): retrying the
+# same email is pointless, but the connection works and other email can go.
+MESSAGE_ERRORS = (smtplib.SMTPDataError, smtplib.SMTPRecipientsRefused)
+# Our login, sender or the connection: every email would fail. Keep and back off.
+TRANSPORT_ERRORS = (smtplib.SMTPAuthenticationError, smtplib.SMTPSenderRefused,
+                    smtplib.SMTPConnectError, smtplib.SMTPHeloError,
+                    smtplib.SMTPServerDisconnected, smtplib.SMTPException, OSError)
+ADMIN_MESSAGE_ATTEMPTS = 3      # a message-level refusal to mail_to is retried this often
+ALARM_BACKOFF_MINUTES = 5       # backoff cap while any immediate email is queued
+IMMEDIATE_BUILD_ATTEMPTS = 3    # failed builds of one pending set before the plain fallback
+
+
 def _is_poison(e, mail, cfg):
-    """True when retrying this one email can never succeed, so it must not block the rest."""
-    if isinstance(e, smtplib.SMTPRecipientsRefused):
-        return True
-    if isinstance(e, (smtplib.SMTPAuthenticationError, smtplib.SMTPSenderRefused)):
-        return False                     # our login or sender: every email would fail
-    if isinstance(e, smtplib.SMTPResponseException):
-        return 500 <= e.smtp_code < 600 and mail.get("to") != cfg.get("mail_to")
-    if isinstance(e, (smtplib.SMTPException, OSError)):
-        return False                     # transport trouble: keep and back off
-    return True                          # building or sending this email is broken
+    """True when this email must be dropped now so it does not block the rest.
+
+    Message-level refusals are poison at once for a friend, and for mail_to
+    once mail["attempts"] (counted by flush_outbox) reaches 3. Transport
+    errors are never poison. Anything else means building or sending this
+    one email is broken.
+    """
+    if isinstance(e, MESSAGE_ERRORS):
+        if mail.get("to") != cfg.get("mail_to"):
+            return True
+        return int(mail.get("attempts") or 0) >= ADMIN_MESSAGE_ATTEMPTS
+    if isinstance(e, TRANSPORT_ERRORS):
+        return False
+    return True
 
 
-def _next_index(outbox):
-    """Immediate email first (alarms must not queue behind digests), else oldest first."""
-    return min(range(len(outbox)),
+def _has_alarm(outbox):
+    return any(isinstance(m, dict) and m.get("kind") == "immediate" for m in outbox)
+
+
+def _clamp_for_alarm(state, now):
+    """While an immediate email is queued, never wait more than 5 minutes to send."""
+    limit = now + 60 * ALARM_BACKOFF_MINUTES
+    if state.get("next_send_at") and state["next_send_at"] > limit and _has_alarm(state["outbox"]):
+        state["next_send_at"] = limit
+
+
+def _next_index(outbox, skip=()):
+    """Immediate email first (alarms must not queue behind digests), else oldest first.
+
+    None when every email left was skipped in this flush.
+    """
+    candidates = [k for k in range(len(outbox)) if id(outbox[k]) not in skip]
+    if not candidates:
+        return None
+    return min(candidates,
                key=lambda k: (SEND_ORDER.get(outbox[k].get("kind") if isinstance(outbox[k], dict) else None, 1), k))
 
 
 def flush_outbox(state, now_utc, cfg, transport=None, log=log):
     """Send from the outbox; remove each email only after it was sent.
 
-    Immediate email goes first. An email that can never be delivered (refused
-    recipient, a 5xx for anyone but mail_to, or a non-SMTP error building or
-    sending it) is dropped, logged and counted in outbox_poisoned. A login or
-    transport failure keeps the outbox, logs once per failure streak and backs
-    off next_send_at by 1, 5, 15, then 60 minutes. Never emails about itself.
+    Immediate email goes first. A message-level refusal (SMTPDataError,
+    SMTPRecipientsRefused) drops a friend's email at once; one to mail_to is
+    kept for 3 attempts (counted in the email's "attempts") and skipped for
+    the rest of this flush, so it never blocks later email. A non-SMTP error
+    building or sending one email drops it. Dropped email is logged and
+    counted in outbox_poisoned. A login, sender or connection failure keeps
+    the outbox, logs once per failure streak and backs off next_send_at by
+    1, 5, 15, then 60 minutes. While any immediate email is queued -- one
+    that failed, one skipped as refused, or one enqueued during an existing
+    backoff -- the wait is capped at 5 minutes from now, here at the gate
+    and when the backoff is set. Never emails about itself.
     """
     now = _epoch(now_utc)
+    _clamp_for_alarm(state, now)
     if state.get("next_send_at") and now < state["next_send_at"]:
         return state
     outbox = state["outbox"]
+    skipped = set()
     while outbox:
-        i = _next_index(outbox)
+        i = _next_index(outbox, skipped)
+        if i is None:
+            break
         mail = outbox[i]
         try:
             deliver(cfg, mail, transport=transport)
         except UnsafeConfig:
             raise
         except Exception as e:
-            if _is_poison(e, mail if isinstance(mail, dict) else {}, cfg):
+            info = mail if isinstance(mail, dict) else {}
+            if isinstance(e, MESSAGE_ERRORS) and info:
+                info["attempts"] = int(info.get("attempts") or 0) + 1
+            if _is_poison(e, info, cfg):
                 outbox.pop(i)
                 state["outbox_poisoned"] = state.get("outbox_poisoned", 0) + 1
-                to = mail.get("to") if isinstance(mail, dict) else None
-                subj = mail.get("subject") if isinstance(mail, dict) else None
-                log("dropped undeliverable email to %s: %s (%r)" % (_one_line(to), _one_line(subj), e))
+                log("dropped undeliverable email to %s: %s (%r)"
+                    % (_one_line(info.get("to")), _one_line(info.get("subject")), e))
+                continue
+            if isinstance(e, MESSAGE_ERRORS):
+                skipped.add(id(mail))
+                log("refused, will retry (%d/%d): %s (%r)"
+                    % (info["attempts"], ADMIN_MESSAGE_ATTEMPTS, _one_line(info.get("subject")), e))
                 continue
             n = state.get("send_failures", 0)
             if state["failing"].get("smtp") is None:
                 state["failing"]["smtp"] = now
                 log("smtp failing since %s: %r (outbox %d)" % (_stamp(now), e, len(outbox)))
             state["send_failures"] = n + 1
-            state["next_send_at"] = now + 60 * BACKOFF_MINUTES[min(n, len(BACKOFF_MINUTES) - 1)]
+            wait = BACKOFF_MINUTES[min(n, len(BACKOFF_MINUTES) - 1)]
+            state["next_send_at"] = now + 60 * wait
+            _clamp_for_alarm(state, now)
             return state
         outbox.pop(i)
         log("sent: %s" % _one_line(mail["subject"]))

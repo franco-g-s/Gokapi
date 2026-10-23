@@ -53,6 +53,13 @@ func TestApiActivity(t *testing.T) {
 	code, _ = activityCall(t, admin, []test.Header{{Name: "limit", Value: "x"}})
 	test.IsEqualInt(t, code, http.StatusBadRequest)
 
+	// The cursor is a header only: the router matches the whole URL, so a
+	// query string does not route at all (plan ruling R-b)
+	w, r := getRecorder("/api/activity?since=1", admin, nil)
+	Process(w, r)
+	test.IsEqualInt(t, w.Code, http.StatusBadRequest)
+	test.ResponseBodyContains(t, w, "Invalid request")
+
 	activity.Upload(models.File{Id: "act1", Name: "IMG_0001.HEIC", SizeBytes: 2345678, UserId: idUser}, models.User{Id: idUser})
 	activity.Download(models.File{Id: "act1", Name: "IMG_0001.HEIC", SizeBytes: 2345678, UserId: idUser}, 0, models.DownloadViaFile)
 

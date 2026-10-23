@@ -55,8 +55,9 @@ func Of(userId int) models.Profile {
 	return p
 }
 
-// update applies change to the stored profile (or a new one) under the lock
-func update(userId int, change func(p *models.Profile)) {
+// update applies change to the stored profile (or a new one) under the
+// lock, and saves it unless change returns false
+func update(userId int, change func(p *models.Profile) bool) {
 	if !database.SupportsGroups() {
 		return
 	}
@@ -66,19 +67,32 @@ func update(userId int, change func(p *models.Profile)) {
 	if !ok {
 		p = models.Profile{UserId: userId}
 	}
-	change(&p)
-	database.SaveProfile(p)
+	if change(&p) {
+		database.SaveProfile(p)
+	}
 }
 
+// cleanDisplayName trims s and checks it: at most 40 characters, no control
+// (Cc) or format (Cf) characters, so no bidi overrides and no zero-width
+// characters, and, unless empty, at least one visible character (a letter,
+// mark, number, punctuation or symbol). Controller ruling, fix round 1: it
+// is stricter than the brief's validator.
 func cleanDisplayName(s string) (string, error) {
 	s = strings.TrimSpace(s)
 	if utf8.RuneCountInString(s) > 40 {
 		return "", ErrDisplayName
 	}
+	visible := false
 	for _, r := range s {
-		if unicode.IsControl(r) {
+		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
 			return "", ErrDisplayName
 		}
+		if unicode.In(r, unicode.L, unicode.M, unicode.N, unicode.P, unicode.S) {
+			visible = true
+		}
+	}
+	if s != "" && !visible {
+		return "", ErrDisplayName
 	}
 	return s, nil
 }
@@ -90,7 +104,7 @@ func SetDisplayName(userId int, name string) error {
 	if err != nil {
 		return err
 	}
-	update(userId, func(p *models.Profile) { p.DisplayName = clean })
+	update(userId, func(p *models.Profile) bool { p.DisplayName = clean; return true })
 	return nil
 }
 
@@ -99,34 +113,47 @@ func SetPreferences(userId int, emailDownloads, useInitials *bool) {
 	if emailDownloads == nil && useInitials == nil {
 		return
 	}
-	update(userId, func(p *models.Profile) {
+	update(userId, func(p *models.Profile) bool {
 		if emailDownloads != nil {
 			p.EmailDownloads = *emailDownloads
 		}
 		if useInitials != nil {
 			p.UseInitials = *useInitials
 		}
+		return true
 	})
 }
 
-// OnSignIn is the sign-in hook: it keeps Google's name claim, and fetches the
-// picture claim when the stored photo is over a day old (in a goroutine,
-// unless fetchPhotoSync is set by a test)
+// OnSignIn is the sign-in hook: it keeps Google's name claim (an invalid one
+// is dropped), and fetches the picture claim when the last attempt, failed
+// or not, is over a day old. The check and the marking happen under one
+// lock, so concurrent sign-ins start one fetch. The fetch runs in a
+// goroutine, unless fetchPhotoSync is set by a test.
 func OnSignIn(user models.User, claims map[string]any, _ bool) {
 	if !database.SupportsGroups() {
 		return
 	}
+	googleName := ""
 	if raw, ok := claims["name"].(string); ok {
-		if name, err := cleanDisplayName(raw); err == nil && name != "" {
-			update(user.Id, func(p *models.Profile) { p.GoogleName = name })
+		if name, err := cleanDisplayName(raw); err == nil {
+			googleName = name
 		}
 	}
-	picture, ok := claims["picture"].(string)
-	if !ok || picture == "" {
-		return
-	}
-	p, _ := profileOf(user.Id)
-	if time.Now().Unix()-p.PhotoUpdated <= 86400 {
+	picture, _ := claims["picture"].(string)
+	fetch := false
+	update(user.Id, func(p *models.Profile) bool {
+		changed := false
+		if googleName != "" && p.GoogleName != googleName {
+			p.GoogleName = googleName
+			changed = true
+		}
+		if now := time.Now().Unix(); picture != "" && now-p.PhotoTried > 86400 {
+			p.PhotoTried = now
+			fetch, changed = true, true
+		}
+		return changed
+	})
+	if !fetch {
 		return
 	}
 	if fetchPhotoSync {

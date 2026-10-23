@@ -19,12 +19,13 @@ func (p DatabaseProvider) ensureProfilesTable() error {
 			"Photo"	BLOB,
 			"PhotoType"	TEXT NOT NULL DEFAULT '',
 			"PhotoUpdated"	INTEGER NOT NULL DEFAULT 0,
+			"PhotoTried"	INTEGER NOT NULL DEFAULT 0,
 			"UseInitials"	INTEGER NOT NULL DEFAULT 0,
 			"EmailDownloads"	INTEGER NOT NULL DEFAULT 0
 		);`)
 }
 
-const profileColumns = `UserId, DisplayName, GoogleName, Photo, PhotoType, PhotoUpdated, UseInitials, EmailDownloads`
+const profileColumns = `UserId, DisplayName, GoogleName, Photo, PhotoType, PhotoUpdated, PhotoTried, UseInitials, EmailDownloads`
 
 // GetProfile returns the user's profile, or false if none is stored
 func (p DatabaseProvider) GetProfile(userId int) (models.Profile, bool) {
@@ -32,7 +33,7 @@ func (p DatabaseProvider) GetProfile(userId int) (models.Profile, bool) {
 	var useInitials, emailDownloads int
 	err := p.sqliteDb.QueryRow(`SELECT `+profileColumns+` FROM "Profiles" WHERE UserId = ?`, userId).
 		Scan(&result.UserId, &result.DisplayName, &result.GoogleName, &result.Photo, &result.PhotoType,
-			&result.PhotoUpdated, &useInitials, &emailDownloads)
+			&result.PhotoUpdated, &result.PhotoTried, &useInitials, &emailDownloads)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			helper.Check(err)
@@ -50,9 +51,9 @@ func (p DatabaseProvider) GetProfileWithoutPhoto(userId int) (models.Profile, bo
 	var result models.Profile
 	var useInitials, emailDownloads, photoSize int
 	err := p.sqliteDb.QueryRow(`SELECT UserId, DisplayName, GoogleName, IFNULL(LENGTH(Photo), 0), PhotoType,
-		PhotoUpdated, UseInitials, EmailDownloads FROM "Profiles" WHERE UserId = ?`, userId).
+		PhotoUpdated, PhotoTried, UseInitials, EmailDownloads FROM "Profiles" WHERE UserId = ?`, userId).
 		Scan(&result.UserId, &result.DisplayName, &result.GoogleName, &photoSize, &result.PhotoType,
-			&result.PhotoUpdated, &useInitials, &emailDownloads)
+			&result.PhotoUpdated, &result.PhotoTried, &useInitials, &emailDownloads)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			helper.Check(err)
@@ -76,9 +77,9 @@ func (p DatabaseProvider) SaveProfile(profile models.Profile) {
 	if profile.EmailDownloads {
 		emailDownloads = 1
 	}
-	_, err := p.sqliteDb.Exec(`INSERT OR REPLACE INTO "Profiles" (`+profileColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err := p.sqliteDb.Exec(`INSERT OR REPLACE INTO "Profiles" (`+profileColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		profile.UserId, profile.DisplayName, profile.GoogleName, profile.Photo, profile.PhotoType,
-		profile.PhotoUpdated, useInitials, emailDownloads)
+		profile.PhotoUpdated, profile.PhotoTried, useInitials, emailDownloads)
 	helper.Check(err)
 }
 

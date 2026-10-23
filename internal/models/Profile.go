@@ -10,6 +10,9 @@ type Profile struct {
 	Photo          []byte
 	PhotoType      string
 	PhotoUpdated   int64
+	// PhotoTried is the last fetch attempt, successful or not: a picture
+	// that keeps failing is still fetched at most once a day
+	PhotoTried     int64
 	UseInitials    bool
 	EmailDownloads bool
 }

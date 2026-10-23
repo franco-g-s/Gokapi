@@ -61,6 +61,9 @@ func TestSettingsPage(t *testing.T) {
 		}
 	}
 	test.IsEqualBool(t, strings.Contains(body, "Anna <Muster>"), false) // escaped
+	// Fix round 1: the placeholder is what an empty field falls back to,
+	// here the email prefix, even with a display name set and no Google name
+	test.IsEqualBool(t, strings.Contains(body, `placeholder="anna.s1"`), true)
 	test.IsEqualBool(t, strings.Contains(body, "Your account has no email address"), false)
 	test.IsEqualBool(t, checkedSwitch(body, "settingsEmailDownloads"), true)
 	test.IsEqualBool(t, checkedSwitch(body, "settingsUseInitials"), false)

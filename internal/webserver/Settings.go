@@ -42,18 +42,11 @@ func showSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := people.Of(user.Id)
-	defaultName := p.GoogleName
-	if defaultName == "" {
-		defaultName = people.Name(user)
-		if p.DisplayName != "" {
-			defaultName = ""
-		}
-	}
 	view := SettingsView{
 		AdminView:      *(&AdminView{}).convertGlobalConfig(ViewSettings, user),
 		Name:           people.Name(user),
 		DisplayName:    p.DisplayName,
-		DefaultName:    defaultName,
+		DefaultName:    people.DefaultName(user),
 		Initials:       people.Initials(user),
 		HasEmail:       people.HasEmail(user),
 		EmailDownloads: p.EmailDownloads,

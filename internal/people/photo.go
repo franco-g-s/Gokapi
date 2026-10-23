@@ -90,11 +90,12 @@ func StorePhoto(userId int, data []byte) error {
 		return errors.New("photos need the SQLite database")
 	}
 	now := time.Now().Unix()
-	update(userId, func(p *models.Profile) {
+	update(userId, func(p *models.Profile) bool {
 		if now <= p.PhotoUpdated {
 			now = p.PhotoUpdated + 1 // a new photo always gets a new URL
 		}
 		p.Photo, p.PhotoType, p.PhotoUpdated = data, ct, now
+		return true
 	})
 	return nil
 }

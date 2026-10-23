@@ -21,7 +21,7 @@ func TestProfilesRoundTrip(t *testing.T) {
 	test.IsEqualBool(t, ok, false)
 
 	p := models.Profile{UserId: 501, DisplayName: "Annie", GoogleName: "Anna Muster",
-		Photo: []byte{0xff, 0xd8, 0xff, 1, 2}, PhotoType: "image/jpeg", PhotoUpdated: 1792345678,
+		Photo: []byte{0xff, 0xd8, 0xff, 1, 2}, PhotoType: "image/jpeg", PhotoUpdated: 1792345678, PhotoTried: 1792345679,
 		UseInitials: true, EmailDownloads: true}
 	instance.SaveProfile(p)
 	got, ok := instance.GetProfile(501)
@@ -33,6 +33,7 @@ func TestProfilesRoundTrip(t *testing.T) {
 	test.IsEqualBool(t, light.Photo == nil, true)
 	test.IsEqualString(t, light.PhotoType, "image/jpeg")
 	test.IsEqualInt64(t, light.PhotoUpdated, 1792345678)
+	test.IsEqualInt64(t, light.PhotoTried, 1792345679)
 	test.IsEqualString(t, light.DisplayName, "Annie")
 	test.IsEqualBool(t, light.UseInitials && light.EmailDownloads, true)
 

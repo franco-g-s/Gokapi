@@ -13,13 +13,23 @@ import (
 // Name is the name shown for u: their display name, else their Google name,
 // else the part of the account name before "@" (Part 2's displayName).
 func Name(u models.User) string {
-	if p, ok := profileOf(u.Id); ok {
-		if p.DisplayName != "" {
-			return p.DisplayName
-		}
-		if p.GoogleName != "" {
-			return p.GoogleName
-		}
+	p, ok := profileOf(u.Id)
+	if ok && p.DisplayName != "" {
+		return p.DisplayName
+	}
+	return defaultName(u, p)
+}
+
+// DefaultName is what an empty display name falls back to: the Google name,
+// else the part of the account name before "@"
+func DefaultName(u models.User) string {
+	p, _ := profileOf(u.Id)
+	return defaultName(u, p)
+}
+
+func defaultName(u models.User, p models.Profile) string {
+	if p.GoogleName != "" {
+		return p.GoogleName
 	}
 	return emailPrefix(u.Name)
 }

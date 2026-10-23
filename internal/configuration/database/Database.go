@@ -295,9 +295,10 @@ func UpdateUserLastOnline(id int) {
 	}
 }
 
-// DeleteUser deletes a user with the given ID
+// DeleteUser deletes a user with the given ID, and their profile (Part 4, S1)
 func DeleteUser(id int) {
 	db.DeleteUser(id)
+	db.DeleteProfile(id)
 }
 
 // GetSuperAdmin returns the models.User data for the super admin
@@ -503,6 +504,18 @@ func SaveViewAs(v models.ViewAs) { db.SaveViewAs(v) }
 
 // DeleteViewAs ends the admin's "View as…"
 func DeleteViewAs(adminId int) { db.DeleteViewAs(adminId) }
+
+// Part 4, S1: profiles
+
+// GetProfile returns the user's profile, or false if none is stored
+func GetProfile(userId int) (models.Profile, bool) { return db.GetProfile(userId) }
+
+// GetProfileWithoutPhoto is GetProfile without the photo's bytes, for names
+// and photo URLs
+func GetProfileWithoutPhoto(userId int) (models.Profile, bool) { return db.GetProfileWithoutPhoto(userId) }
+
+// SaveProfile inserts or replaces the user's profile
+func SaveProfile(p models.Profile) { db.SaveProfile(p) }
 
 // Statistics
 

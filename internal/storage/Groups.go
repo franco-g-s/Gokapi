@@ -705,6 +705,27 @@ func UserSharesGroupWithFile(userId int, fileId string) bool {
 	return false
 }
 
+// UsersShareGroup reports whether a and b are both members of one live
+// group (Part 4, S1: who may see whose photo)
+func UsersShareGroup(a, b int) bool {
+	if a == 0 || b == 0 {
+		return false
+	}
+	groupsOfA := map[string]bool{}
+	for _, m := range database.GetMembershipsOfUser(a) {
+		groupsOfA[m.GroupId] = true
+	}
+	for _, m := range database.GetMembershipsOfUser(b) {
+		if !groupsOfA[m.GroupId] {
+			continue
+		}
+		if _, live := GetGroup(m.GroupId); live {
+			return true
+		}
+	}
+	return false
+}
+
 // GroupLock reports whether a file is in a live group, and the name of the
 // latest-closing one: its expiry, download limit and password then follow the
 // group and cannot be edited (D4)

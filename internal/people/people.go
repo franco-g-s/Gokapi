@@ -57,10 +57,3 @@ func PhotoUrl(u models.User) string { return photoUrlOf(u.Id) }
 
 // WantsDownloadEmails is the "Email me when my files are downloaded" setting
 func WantsDownloadEmails(userId int) bool { return wantsDownloadEmails(userId) }
-
-// W0 stubs; S1 replaces them in profiles.go
-type profile struct{ DisplayName, GoogleName string }
-
-func profileOf(int) (profile, bool) { return profile{}, false }
-func photoUrlOf(int) string         { return "" }
-func wantsDownloadEmails(int) bool  { return false }

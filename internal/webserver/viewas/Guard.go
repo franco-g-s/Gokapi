@@ -30,6 +30,8 @@ var allowedPaths = map[string]bool{
 	"/p/poster": true, "/p/video": true, "/p/info": true, "/join": true, "/g/join": true,
 	"/users": true, "/logs": true, "/apiKeys": true, "/uploadStatus": true, "/index": true,
 	"/error": true,
+	// Part 4, S1
+	"/settings": true, "/avatar": true,
 }
 
 // allowedPrefixes may be read below these prefixes: static assets only

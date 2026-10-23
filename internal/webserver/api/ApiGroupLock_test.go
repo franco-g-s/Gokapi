@@ -3,11 +3,14 @@
 package api
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/models"
 	"github.com/forceu/gokapi/internal/storage"
@@ -18,6 +21,15 @@ import (
 // password follow the group. Renaming still works.
 func TestEditFileInGroupLocked(t *testing.T) {
 	const id = "groupLockedFile"
+	// The file needs its blob on disk. Without it, any CleanUp pass sees a
+	// row whose content is missing and deletes it, group link included, and
+	// an earlier test leaves one running: TestChunkCompleteRecordsUpload's
+	// duplicate upload calls DeleteFile(id, true), which starts CleanUp in a
+	// goroutine. If that pass lands mid-test the file silently leaves the
+	// group and every refused edit goes through.
+	blob := filepath.Join(configuration.Get().DataDir, "grouplocksha")
+	test.IsNil(t, os.WriteFile(blob, []byte("group lock"), 0600))
+	defer os.Remove(blob)
 	database.SaveMetaData(models.File{Id: id, Name: "photo.jpg", SHA1: "grouplocksha", UserId: idUser,
 		ExpireAt: time.Now().Add(24 * time.Hour).Unix(), DownloadsRemaining: 3})
 	defer database.DeleteMetaData(id)

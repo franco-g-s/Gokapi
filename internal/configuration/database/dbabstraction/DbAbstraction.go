@@ -208,6 +208,15 @@ type Database interface {
 	IsBlocked(entry string) bool
 	// GetAllBlocks returns every blocklist entry
 	GetAllBlocks() []models.BlockEntry
+	// Part 4, S1: profiles
+	// GetProfile returns the user's profile, or false if none is stored
+	GetProfile(userId int) (models.Profile, bool)
+	// GetProfileWithoutPhoto is GetProfile without the photo's bytes
+	GetProfileWithoutPhoto(userId int) (models.Profile, bool)
+	// SaveProfile inserts or replaces the user's profile
+	SaveProfile(profile models.Profile)
+	// DeleteProfile removes the user's profile
+	DeleteProfile(userId int)
 
 	// GetStatTraffic returns the total traffic from statistics
 	GetStatTraffic() uint64

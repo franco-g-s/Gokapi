@@ -1,0 +1,66 @@
+{{ define "settings_page" }}{{ template "header" . }}
+{{/* Part 4, S1. During "View as…" the page shows the target's settings
+     read-only: the server renders no Save button and disables every input,
+     and the style below hides the controls, keyed on the html.fgs-viewas
+     class viewas.js sets. The server refuses /settings/save regardless. */}}
+<style>
+  html.fgs-viewas [data-fgs-settings-control] { display: none !important; }
+  #settingsPage .fgs-settings-photo { width: 4rem; height: 4rem; border-radius: 50%; object-fit: cover; }
+  #settingsPage .fgs-settings-initials { width: 4rem; height: 4rem; border-radius: 50%; display: inline-flex;
+    align-items: center; justify-content: center; background: #2e2e2b; font-size: 1.4rem; font-weight: 600; }
+  #settingsPage section + section { border-top: 1px solid #2e2e2b; padding-top: 1.25rem; margin-top: 1.25rem; }
+</style>
+<div class="row"><div class="col"><div id="container" class="card" style="width:100%">
+<div class="card-body text-start" id="settingsPage" data-readonly="{{ if .ReadOnly }}true{{ else }}false{{ end }}">
+  <h3 class="card-title mb-3 text-center">Settings</h3>
+  {{ if not .Supported }}
+    <p class="text-muted my-4 text-center">Settings need the SQLite database.</p>
+  {{ else }}
+  <form id="settingsForm" novalidate style="max-width: 36rem; margin: 0 auto;">
+    <section>
+      <h5>Your name</h5>
+      <p class="mb-2"><span id="settingsShownName" class="fw-semibold">{{ .Name }}</span>{{ if .Email }}<br><small class="text-muted">{{ .Email }}</small>{{ end }}</p>
+      <label for="settingsDisplayName" class="form-label">Display name</label>
+      <input type="text" id="settingsDisplayName" class="form-control" maxlength="40" autocomplete="nickname"
+             value="{{ .DisplayName }}" placeholder="{{ .DefaultName }}"{{ if .ReadOnly }} disabled{{ end }}>
+      <div class="form-text">Shown to the people you share with. Leave empty to use your Google name.</div>
+      <div id="settingsNameError" class="text-danger mt-2" role="alert"></div>
+    </section>
+
+    <section>
+      <h5>Your photo</h5>
+      <div class="d-flex align-items-center gap-3 mb-2">
+        {{ if .HasPhoto }}<img src="{{ .PhotoUrl }}" alt="" class="fgs-settings-photo">{{ else }}<span class="fgs-settings-initials" aria-hidden="true">{{ .Initials }}</span>{{ end }}
+      </div>
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" role="switch" id="settingsUseInitials"{{ if .UseInitials }} checked{{ end }}{{ if .ReadOnly }} disabled{{ end }}>
+        <label class="form-check-label" for="settingsUseInitials">Use initials instead of my Google photo</label>
+      </div>
+    </section>
+
+    <section>
+      <h5>Emails</h5>
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" role="switch" id="settingsEmailDownloads"{{ if .EmailDownloads }} checked{{ end }}{{ if or .ReadOnly (not .HasEmail) }} disabled{{ end }}>
+        <label class="form-check-label" for="settingsEmailDownloads">Email me when my files are downloaded</label>
+      </div>
+      <div class="form-text">At most one email a day, at 19:00, and only if someone downloaded something.</div>
+      {{ if not .HasEmail }}<div class="form-text text-warning">Your account has no email address, so it cannot get emails.</div>{{ end }}
+    </section>
+
+    {{ if not .ReadOnly }}
+    <div class="text-center mt-4" data-fgs-settings-control>
+      <button type="submit" class="btn btn-light" id="settingsSave">Save</button>
+      <div id="settingsError" class="text-danger mt-3" role="alert"></div>
+    </div>
+    {{ end }}
+  </form>
+  {{ end }}
+</div></div></div></div>
+
+<div id="toastnotification" class="toastnotification" data-default="Saved">Toast Text</div>
+
+<script src="./js/min/admin.min.{{ template "js_admin_version"}}.js"></script>
+{{ template "pagename" "Settings"}}
+{{ template "customjs" .}}
+{{ template "footer" true}}{{ end }}

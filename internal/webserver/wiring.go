@@ -2,6 +2,7 @@ package webserver
 
 import (
 	"github.com/forceu/gokapi/internal/blocklist"
+	"github.com/forceu/gokapi/internal/people"
 	"github.com/forceu/gokapi/internal/webserver/authentication"
 	"github.com/forceu/gokapi/internal/webserver/authentication/sessionmanager"
 )
@@ -14,4 +15,5 @@ func wireSignIn() {
 	sessionmanager.SessionRefused = blocklist.SessionRefused
 	// Part 4, A: first sign-in activity
 	// Part 4, S1: profile capture
+	authentication.AddSignInHook(people.OnSignIn)
 }

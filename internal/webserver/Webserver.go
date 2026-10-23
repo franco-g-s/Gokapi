@@ -158,6 +158,11 @@ func Start() {
 	// Part 4, K: blocklist
 	mux.HandleFunc("/users/block", requireLogin(blockEntry, false, false))
 	mux.HandleFunc("/users/unblock", requireLogin(unblockEntry, false, false))
+	// Part 4, S1: settings and avatars
+	mux.HandleFunc("/settings", requireLogin(showSettings, true, false))
+	mux.HandleFunc("/settings/save", requireLogin(saveSettings, false, false))
+	mux.HandleFunc("/avatar", requireLogin(serveAvatar, true, false))
+	registerSeedRoutes(mux, seedRoutesEnabled())
 	// Part 2, F2: the group creator's "Check for duplicates"
 	mux.HandleFunc("/groups/neardupes", requireLogin(nearCopyCheck, false, false))
 	// Part 2, R4: a collection turned into a group, its old link's modes and stopping it

@@ -47,14 +47,27 @@ The notifier never emails about itself:
   recover.
 - **SMTP failures** keep the outbox and back off by 1, 5, 15, then 60
   minutes. They are logged once per failure streak.
+- **Undeliverable emails are dropped, not retried.** That covers a refused
+  recipient, a 5xx for anyone other than `mail_to`, or a non-SMTP error
+  while building or sending one email. Each is logged with its subject and
+  recipient, and counted in `outbox_poisoned`. Login and transport failures
+  still back off.
+- **Immediate emails always leave the outbox first**, so an alarm never
+  waits behind a digest.
+- **Friend addresses must be a plain `local@domain.tld`**, or no digest is
+  built for that person.
+- **Malformed feed events** are logged with their id and skipped. The cursor
+  still moves past them.
 
 ## Design
 
 `step(state, feed, now_utc, cfg) -> (state, emails)` is a pure function that
 folds one feed page into the state.
 
-- `poll_once` fetches every page (`more: true` is followed), runs `step`, and
-  **persists state before sending**.
+- `step` is `fold` followed by `emit`.
+- `poll_once` folds every page first (`more: true` is followed), then emits
+  once, so there is one immediate email and one timer check per poll.
+- It then **persists state before sending**.
 - It then sends from the outbox, removing each email only once it has been
   sent.
 - A crash therefore re-sends at most one step's emails and never loses

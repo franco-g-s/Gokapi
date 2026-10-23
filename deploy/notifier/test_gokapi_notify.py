@@ -282,13 +282,17 @@ def local_iso(ts):
 class FakeTransport(object):
     """Stands in for SMTP *under* deliver(), so redirect and safety checks still run."""
 
-    def __init__(self, clock, fail_window=None):
+    def __init__(self, clock, fail_window=None, refuse=()):
         self.clock = clock
         self.fail_window = fail_window
+        self.refuse = set(refuse)
         self.sent = []
 
     def __call__(self, msg, from_addr, rcpts):
         now = self.clock()
+        bad = [r for r in rcpts if r in self.refuse]
+        if bad:
+            raise smtplib.SMTPRecipientsRefused({r: (550, b"5.1.1 no such user") for r in bad})
         if self.fail_window and self.fail_window[0] <= now < self.fail_window[1]:
             raise smtplib.SMTPAuthenticationError(535, b"5.7.8 Username and Password not accepted")
         body = msg.get_content()
@@ -308,7 +312,7 @@ class ReplayBusyEvening(unittest.TestCase):
         with open(FIXTURE_PATH) as fh:
             cls.fixture = json.load(fh)
 
-    def replay(self, crash_at=None, smtp_fail=None, users_at=None):
+    def replay(self, crash_at=None, smtp_fail=None, users_at=None, refuse=()):
         """Drive step() over every fixture minute with a fake clock and a fake sender.
 
         crash_at: ISO time after which state is round-tripped through JSON (restart).
@@ -324,7 +328,7 @@ class ReplayBusyEvening(unittest.TestCase):
         fail = None
         if smtp_fail:
             fail = (ts(smtp_fail[0]), ts(smtp_fail[1]))
-        transport = FakeTransport(lambda: clock["now"], fail)
+        transport = FakeTransport(lambda: clock["now"], fail, refuse)
         crash = ts(crash_at) if crash_at else None
         state = gn.new_state()
         last_id = 0
@@ -349,7 +353,17 @@ class ReplayBusyEvening(unittest.TestCase):
             json.dumps(state)
             now += 60
         self.assertEqual(state["outbox"], [], "outbox must drain by the end")
+        self.last_state = state
         return transport.sent
+
+    def test_refused_recipient_is_dropped_and_alarms_still_arrive(self):
+        sent = self.replay(refuse={"anna@example.com"})
+        immediate = [(at, subj) for at, to, subj, _ in sent
+                     if not subj.startswith("[FGS] Activity") and to == FRANCO]
+        self.assertEqual(immediate, EXPECTED_IMMEDIATE)        # 21:00 and 21:07 on time
+        self.assertEqual([to for _, to, _, _ in sent if to != FRANCO], [])
+        self.assertEqual(self.last_state["outbox_poisoned"], 2)  # Anna's two digests
+        self.assertIsNone(self.last_state["failing"]["smtp"])
 
     def summary_bodies(self):
         return [b for _, _, s, b in self.replay() if s.startswith("[FGS] Activity")]
@@ -442,6 +456,213 @@ class ReplayBusyEvening(unittest.TestCase):
         friend = [e for e in emails if e["kind"] == "friend"][0]
         self.assertTrue(friend["body"].startswith(
             "Someone and someone (#99) downloaded \"Recipe.pdf\" 2 times.\n"), friend["body"])
+
+
+class FixRound1(unittest.TestCase):
+    """Review fix round 1: poison mail, per-poll emit, crash window, poison events."""
+
+    def users(self):
+        return [dict(u) for u in USERS]
+
+    def upload(self, i, at, group=ICELAND):
+        return {"id": i, "at": at, "kind": "upload", "actor": 2, "owner": 2,
+                "file": {"id": "f%d" % i, "name": "IMG_%d.HEIC" % i, "size": PHOTO, "kind": "image"},
+                "group": group, "via": "", "detail": ""}
+
+    def test_non_smtp_error_on_one_email_is_dropped_not_blocking(self):
+        cfg = base_cfg()
+        state = gn.new_state()
+        state["outbox"] = [
+            {"to": "anna@example.com", "subject": "Your files were downloaded", "body": "x", "kind": "friend"},
+            {"to": FRANCO, "subject": "[FGS] View as\u2026: Franco viewing as Ben", "body": "x",
+             "kind": "immediate"},
+            {"to": FRANCO, "subject": "[FGS] Activity: x", "body": "x", "kind": "summary"},
+        ]
+        order, logs = [], []
+
+        def transport(msg, f, rcpts):
+            order.append(str(msg["Subject"]))
+            if rcpts == ["anna@example.com"]:
+                raise ValueError("cannot encode this message")
+
+        gn.flush_outbox(state, L(10, 0), cfg, transport=transport, log=logs.append)
+        self.assertEqual(order, ["[FGS] View as\u2026: Franco viewing as Ben", "[FGS] Activity: x",
+                                 "Your files were downloaded"])     # immediate first
+        self.assertEqual(state["outbox"], [])
+        self.assertEqual(state["outbox_poisoned"], 1)
+        self.assertTrue(any("dropped undeliverable email to anna@example.com" in m for m in logs), logs)
+        self.assertIsNone(state["next_send_at"])
+
+    def test_5xx_for_friend_is_poison_but_auth_and_5xx_for_admin_back_off(self):
+        cfg = base_cfg()
+        friend = {"to": "anna@example.com", "subject": "s", "body": "x", "kind": "friend"}
+        admin = {"to": FRANCO, "subject": "t", "body": "x", "kind": "summary"}
+        data_err = smtplib.SMTPDataError(554, b"5.7.1 rejected")
+        auth_err = smtplib.SMTPAuthenticationError(535, b"bad login")
+        self.assertTrue(gn._is_poison(data_err, friend, cfg))
+        self.assertFalse(gn._is_poison(data_err, admin, cfg))
+        self.assertFalse(gn._is_poison(auth_err, friend, cfg))
+        self.assertFalse(gn._is_poison(smtplib.SMTPServerDisconnected("gone"), friend, cfg))
+        self.assertFalse(gn._is_poison(OSError("network down"), friend, cfg))
+        self.assertTrue(gn._is_poison(smtplib.SMTPRecipientsRefused({FRANCO: (550, b"no")}), admin, cfg))
+        self.assertTrue(gn._is_poison(KeyError("to"), friend, cfg))
+        with self.assertRaises(gn.UnsafeConfig):
+            gn.flush_outbox({"outbox": [friend], "failing": {"feed": None, "smtp": None}},
+                            L(10, 0), base_cfg(api_url="http://x/api/activity"),
+                            transport=lambda *a: None, log=lambda m: None)
+
+    def test_invalid_friend_address_never_enqueued(self):
+        cfg = base_cfg()
+        users = self.users()
+        users[1] = dict(users[1], email="anna@localhost")          # no dot in the domain
+        users[5] = dict(users[5], email="Femi <femi@example.com>")  # not a bare address
+        at = int(L(10, 0).timestamp())
+        f = {"id": "x", "name": "x.pdf", "size": 1, "kind": "file"}
+        events = [{"id": 1, "at": at, "kind": "download", "actor": 3, "owner": 2, "file": f,
+                   "group": None, "via": "file", "detail": ""},
+                  {"id": 2, "at": at, "kind": "download", "actor": 3, "owner": 6, "file": f,
+                   "group": None, "via": "file", "detail": ""}]
+        state, _ = gn.step(gn.new_state(), {"events": events, "next": 2, "users": users}, L(10, 0), cfg)
+        self.assertEqual(state["friends"], {})
+        self.assertTrue(gn.valid_address("anna@example.com"))
+        for bad in ("anna@localhost", "a b@example.com", "a@b@example.com", "<a@example.com>", "", None):
+            self.assertFalse(gn.valid_address(bad), bad)
+
+    def test_backlog_over_two_pages_gives_one_summary_and_one_immediate(self):
+        cfg = base_cfg()
+        t0 = int(L(6, 0).timestamp())                     # outage from 06:00, back at 10:00
+        page1 = [self.upload(i, t0 + i) for i in range(1, 500)]
+        page1.append({"id": 500, "at": t0 + 500, "kind": "warning_preview", "actor": 0, "owner": 2,
+                      "file": page1[0]["file"], "group": ICELAND, "via": "", "detail": ""})
+        page2 = [self.upload(i, t0 + i) for i in range(501, 600)]
+        page2.append({"id": 600, "at": t0 + 600, "kind": "warning_disk", "actor": 0, "owner": 0,
+                      "file": None, "group": None, "via": "", "detail": "1000"})
+        page2.append({"id": 601, "at": t0 + 601, "kind": "first_signin", "actor": 5, "owner": 0,
+                      "file": None, "group": None, "via": "", "detail": ""})
+        answers = [
+            {"Result": "OK", "events": page1, "next": 500, "more": True, "users": self.users()},
+            {"Result": "OK", "events": page2, "next": 601, "more": False, "users": self.users()},
+        ]
+        calls, got = [], []
+
+        def fetch(since):
+            calls.append(since)
+            return answers[len(calls) - 1]
+
+        state = gn.new_state()
+        state["cursor"] = 0
+        state = gn.poll_once(state, cfg, L(10, 0), fetch,
+                             transport=lambda m, f, r: got.append(str(m["Subject"])),
+                             log=lambda m: None, persist=lambda s: None)
+        self.assertEqual(calls, [0, 500])
+        self.assertEqual(got, ["[FGS] Warning: 2 issue(s); New person: Elif (elif@example.com)",
+                               "[FGS] Activity: Iceland trip"])
+        self.assertEqual(state["cursor"], 601)
+
+    def test_state_is_persisted_before_each_send(self):
+        cfg = base_cfg()
+        at = int(L(10, 0).timestamp())
+        events = [{"id": 9, "at": at, "kind": "first_signin", "actor": 5, "owner": 0, "file": None,
+                   "group": None, "via": "", "detail": ""}]
+        snapshots = []
+
+        def persist(s):
+            snapshots.append(json.loads(json.dumps(s)))
+
+        seen = []      # recorded, not asserted here: flush_outbox would treat an exception as poison
+
+        def transport(msg, f, rcpts):
+            last = snapshots[-1] if snapshots else {"outbox": [], "cursor": None}
+            seen.append((str(msg["Subject"]) in [m["subject"] for m in last["outbox"]], last["cursor"]))
+
+        fetch = lambda since: {"Result": "OK", "events": events, "next": 9, "more": False,
+                               "users": self.users()}
+        state = gn.poll_once(gn.new_state(), cfg, L(10, 0), fetch, transport=transport,
+                             log=lambda m: None, persist=persist)
+        self.assertEqual([(len(s["outbox"]), s["cursor"]) for s in snapshots], [(1, 9), (0, 9)])
+        self.assertEqual(seen, [(True, 9)], "the email being sent was not in the persisted state")
+        self.assertEqual(state["outbox"], [])
+
+    def test_malformed_event_is_skipped_once_and_cursor_advances(self):
+        cfg = base_cfg()
+        at = int(L(10, 0).timestamp())
+        good1 = self.upload(1, at)
+        bad = {"id": 2, "at": at, "kind": "download", "actor": 3, "owner": "not-a-number",
+               "file": {"id": "x", "name": "x", "size": 1, "kind": "image"}, "group": ICELAND,
+               "via": "group", "detail": ""}
+        bad2 = {"id": 3, "at": None, "kind": "upload", "actor": 2, "owner": 2, "file": "oops",
+                "group": None, "via": "", "detail": ""}
+        good2 = {"id": 4, "at": at, "kind": "download", "actor": 3, "owner": 2,
+                 "file": good1["file"], "group": ICELAND, "via": "group", "detail": ""}
+        logs = []
+        state, _ = gn.step(gn.new_state(), {"events": [good1, bad, bad2, good2], "next": 4,
+                                            "users": self.users()}, L(10, 0), cfg, log=logs.append)
+        self.assertEqual([e["id"] for e in state["held"]], [1, 4])
+        self.assertEqual([e["id"] for e in state["friends"]["2"]], [4])
+        self.assertEqual(state["cursor"], 4)
+        self.assertEqual(len([m for m in logs if m.startswith("skipped malformed event")]), 2, logs)
+        self.assertTrue(any("id=2" in m for m in logs) and any("id=3" in m for m in logs), logs)
+        # The next poll does not fold them again.
+        state, _ = gn.step(state, {"events": [], "next": 4, "users": self.users()},
+                           L(10, 1), cfg, log=logs.append)
+        self.assertEqual([e["id"] for e in state["held"]], [1, 4])
+        json.dumps(state)
+
+    def test_fetch_maps_incomplete_read_to_feed_error(self):
+        import http.client
+        import unittest.mock as mock
+        with mock.patch("urllib.request.urlopen",
+                        side_effect=http.client.IncompleteRead(b"partial")):
+            with self.assertRaises(gn.FeedError):
+                gn.make_fetch(base_cfg())(5)
+
+    def test_once_logs_unsent_outbox(self):
+        tmp = tempfile.mkdtemp()
+        try:
+            path = os.path.join(tmp, "c.json")
+            with open(path, "w") as fh:
+                json.dump({"api_key": "k", "smtp_user": "s@example.com", "smtp_app_password": "p",
+                           "mail_to": FRANCO}, fh)
+            at = int(datetime.now(timezone.utc).timestamp())
+            feed = {"Result": "OK", "next": 1, "more": False, "users": self.users(),
+                    "events": [{"id": 1, "at": at, "kind": "first_signin", "actor": 5, "owner": 0,
+                                "file": None, "group": None, "via": "", "detail": ""}]}
+            import contextlib
+            import io
+            import unittest.mock as mock
+            out = io.StringIO()
+            refused = smtplib.SMTPAuthenticationError(535, b"bad login")
+            with mock.patch.object(gn, "make_fetch", return_value=lambda since: feed), \
+                    mock.patch.object(gn, "_smtp_transport",
+                                      return_value=mock.Mock(side_effect=refused)), \
+                    contextlib.redirect_stdout(out):
+                gn.main(["--once", "--config", path])             # returns: exit code 0
+            self.assertIn("outbox 1 unsent", out.getvalue())
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_held_times_are_event_times_not_poll_times(self):
+        cfg = base_cfg()
+        early, late = int(L(9, 0).timestamp()), int(L(9, 20).timestamp())
+        state = gn.fold(gn.new_state(), {"events": [self.upload(1, early), self.upload(2, late)],
+                                         "next": 2, "users": self.users()})
+        self.assertEqual((state["held_first_at"], state["held_last_at"]), (early, late))
+        # Arriving late at 12:00 after an outage: the 3-hour cap counts from 09:00, so it fires now.
+        emails = gn.emit(state, L(12, 0), cfg)
+        self.assertEqual([e["kind"] for e in emails], ["summary"])
+
+    def test_admin_owner_with_setting_on_gets_no_digest(self):
+        cfg = base_cfg()
+        users = self.users()
+        users[0] = dict(users[0], emailDownloads=True)            # Franco, admin
+        at = int(L(10, 0).timestamp())
+        events = [{"id": 1, "at": at, "kind": "download", "actor": 3, "owner": 1,
+                   "file": {"id": "c1", "name": "CV.pdf", "size": 1, "kind": "file"},
+                   "group": None, "via": "file", "detail": ""}]
+        state, _ = gn.step(gn.new_state(), {"events": events, "next": 1, "users": users}, L(10, 0), cfg)
+        self.assertEqual(state["friends"], {})
+        state, emails = gn.step(state, {"events": [], "next": 1, "users": users}, L(19, 0), cfg)
+        self.assertEqual([e for e in emails if e["kind"] == "friend"], [])
 
 
 class FriendCap(unittest.TestCase):

@@ -21,8 +21,10 @@ only main() touches the network, the clock and the disk.
 
 Python 3.9, standard library only.
 """
+import http.client
 import json
 import os
+import re
 import smtplib
 import socket
 import sys
@@ -31,7 +33,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from email.message import EmailMessage
-from email.utils import formatdate, make_msgid
+from email.utils import formatdate, make_msgid, parseaddr
 
 try:
     from zoneinfo import ZoneInfo
@@ -66,6 +68,8 @@ VIA_LABELS = {"file": "via link", "collection": "via link", "zip": "via zip",
               "api": "via API", "group": "via group"}
 NOUNS = {"image": ("photo", "photos"), "video": ("video", "videos"), "file": ("file", "files")}
 ELLIPSIS = "…"
+ADDRESS_RE = re.compile(r'^[^@\s<>,;:"()\[\]]+@[^@\s<>,;:"()\[\]]+\.[^@\s<>,;:"()\[\]]+$')
+SEND_ORDER = {"immediate": 0, "test": 0, "summary": 1, "friend": 2}
 FOOTER = ("You get this because \"Email me when my files are downloaded\" is on. "
           "Turn it off: %s/settings")
 
@@ -121,6 +125,8 @@ def new_state():
         "send_failures": 0,
         "next_send_at": None,
         "users": [],
+        "pending_immediate": [],
+        "outbox_poisoned": 0,
     }
 
 
@@ -186,7 +192,13 @@ def _one_line(s):
 
 
 def _users_by_id(users):
-    return {int(u.get("id", 0)): u for u in (users or [])}
+    out = {}
+    for u in users or []:
+        try:
+            out[int(u.get("id", 0))] = u
+        except (AttributeError, TypeError, ValueError):
+            continue
+    return out
 
 
 def _name(uid, users):
@@ -204,8 +216,18 @@ def _is_admin(uid, users):
     return bool(u and u.get("admin"))
 
 
+def valid_address(addr):
+    """A plain local@domain.tld address, nothing else (parseaddr must agree)."""
+    if not isinstance(addr, str):
+        return False
+    addr = addr.strip()
+    if not ADDRESS_RE.match(addr):
+        return False
+    return parseaddr(addr) == ("", addr)
+
+
 def _has_email(u):
-    return bool(u) and "@" in (u.get("email") or "")
+    return bool(u) and valid_address(u.get("email"))
 
 
 def _detail(ev):
@@ -234,58 +256,117 @@ def _epoch(now_utc):
 # ---------------------------------------------------------------- step
 
 def step(state, feed, now_utc, cfg, log=_nolog):
-    """Fold one feed page into state; return (state, emails).
+    """Fold one feed page into state, then emit; return (state, emails).
 
     state  -- dict, JSON-serialisable, persisted by the caller after every step
     feed   -- the parsed /api/activity answer (events, next, reset, users)
     emails -- list of dicts {to, subject, body, kind}; nothing is sent here.
               They are also appended to state["outbox"].
+
+    poll_once() calls fold() once per page and emit() once per poll, so a
+    multi-page poll still gives one immediate email (Q3) and one timer check.
     """
-    now = _epoch(now_utc)
+    fold(state, feed, log=log)
+    return state, emit(state, now_utc, cfg, log=log)
+
+
+def fold(state, feed, log=_nolog):
+    """Fold one feed page into state. No emails are built here."""
     if feed.get("users"):
         state["users"] = feed["users"]
     users = _users_by_id(state.get("users"))
-
-    immediate = []
     if feed.get("reset"):
         old = state.get("cursor")
         state["cursor"] = feed.get("next")
         log("feed reset: cursor %s -> %s" % (old, state["cursor"]))
-    else:
-        for ev in feed.get("events") or []:
-            _fold(state, ev, users, immediate)
-        if feed.get("next") is not None:
-            state["cursor"] = feed["next"]
+        return state
+    for ev in feed.get("events") or []:
+        try:
+            ev = normalise_event(ev)
+            actions = _classify(ev, users)
+        except Exception as e:
+            ev_id = ev.get("id") if isinstance(ev, dict) else None
+            log("skipped malformed event id=%r: %r" % (ev_id, e))
+            continue
+        _apply(state, ev, actions)
+    if feed.get("next") is not None:
+        state["cursor"] = feed["next"]
+    return state
 
+
+def emit(state, now_utc, cfg, log=_nolog):
+    """Build the immediate email, a due summary and due digests; enqueue them."""
+    now = _epoch(now_utc)
+    users = _users_by_id(state.get("users"))
     emails = []
-    if immediate:
-        emails.append(_immediate_email(immediate, users, cfg))
+    pending = state.get("pending_immediate") or []
+    state["pending_immediate"] = []
+    if pending:
+        emails.append(_immediate_email(pending, users, cfg))
     summary = _summary_if_due(state, now, users, cfg)
     if summary:
         emails.append(summary)
-    emails.extend(_friend_digests_if_due(state, now, users, cfg))
+    emails.extend(_friend_digests_if_due(state, now, users, cfg, log))
     enqueue(state, emails, log)
-    return state, emails
+    return emails
 
 
-def _fold(state, ev, users, immediate):
-    kind = ev.get("kind")
-    actor = int(ev.get("actor") or 0)
-    owner = int(ev.get("owner") or 0)
+def normalise_event(ev):
+    """A clean, typed copy of one feed event; raises on anything malformed."""
+    if not isinstance(ev, dict):
+        raise ValueError("event is not an object")
+
+    def text(v):
+        if v is None:
+            return ""
+        if not isinstance(v, (str, int, float)):
+            raise ValueError("expected text, got %r" % (v,))
+        return str(v)
+
+    out = {"id": int(ev["id"]), "at": int(ev["at"]), "kind": text(ev.get("kind")),
+           "actor": int(ev.get("actor") or 0), "owner": int(ev.get("owner") or 0),
+           "file": None, "group": None,
+           "via": text(ev.get("via")), "detail": text(ev.get("detail"))}
+    f = ev.get("file")
+    if f is not None:
+        if not isinstance(f, dict):
+            raise ValueError("file is not an object")
+        out["file"] = {"id": text(f.get("id")), "name": text(f.get("name")),
+                       "size": int(f.get("size") or 0), "kind": text(f.get("kind")) or "file"}
+    g = ev.get("group")
+    if g is not None:
+        if not isinstance(g, dict):
+            raise ValueError("group is not an object")
+        out["group"] = {"id": text(g.get("id")), "name": text(g.get("name"))}
+    return out
+
+
+def _classify(ev, users):
+    """Which lists this event goes to. Pure: state is not touched until _apply."""
+    kind, actor, owner = ev["kind"], ev["actor"], ev["owner"]
     actor_admin = _is_admin(actor, users)
-
+    actions = []
     if kind in IMMEDIATE_ALWAYS or (kind == "group_created" and not actor_admin):
-        immediate.append(ev)
+        actions.append("immediate")
     elif kind in HELD_KINDS and not actor_admin:
-        state["held"].append(ev)
-        if state.get("held_first_at") is None:
-            state["held_first_at"] = ev["at"]
-        state["held_last_at"] = ev["at"]
-
+        actions.append("held")
     if kind == "download" and owner and owner != actor:
         u = users.get(owner)
         if u and u.get("emailDownloads") and _has_email(u) and not u.get("admin"):
-            state["friends"].setdefault(str(owner), []).append(ev)
+            actions.append("friend")
+    return actions
+
+
+def _apply(state, ev, actions):
+    if "immediate" in actions:
+        state.setdefault("pending_immediate", []).append(ev)
+    if "held" in actions:
+        state["held"].append(ev)
+        if state.get("held_first_at") is None:
+            state["held_first_at"] = ev["at"]      # the event's time, not the poll's
+        state["held_last_at"] = ev["at"]
+    if "friend" in actions:
+        state["friends"].setdefault(str(ev["owner"]), []).append(ev)
 
 
 def enqueue(state, emails, log=_nolog):
@@ -490,7 +571,7 @@ def _uploads_phrase(p):
 
 # ---- friends' digests
 
-def _friend_digests_if_due(state, now, users, cfg):
+def _friend_digests_if_due(state, now, users, cfg, log=_nolog):
     tz = _tz(cfg)
     local = datetime.fromtimestamp(now, tz)
     today = local.strftime("%Y-%m-%d")
@@ -504,8 +585,11 @@ def _friend_digests_if_due(state, now, users, cfg):
         if not items:
             continue
         u = users.get(int(owner))
-        if not (u and u.get("emailDownloads") and _has_email(u) and not u.get("admin")):
+        if not (u and u.get("emailDownloads") and not u.get("admin")):
             continue                     # switched off (or gone): the items are dropped
+        if not _has_email(u):
+            log("no digest for user #%s: %r is not a valid address" % (owner, u.get("email")))
+            continue
         if len(emails) >= cap:
             keep[owner] = items          # over today's cap: wait for tomorrow
             continue
@@ -616,28 +700,61 @@ def deliver(cfg, mail, transport=None):
     transport(msg, cfg["smtp_user"], rcpts)
 
 
-def flush_outbox(state, now_utc, cfg, transport=None, log=log):
-    """Send from the outbox in order; remove each email only after it was sent.
+def _is_poison(e, mail, cfg):
+    """True when retrying this one email can never succeed, so it must not block the rest."""
+    if isinstance(e, smtplib.SMTPRecipientsRefused):
+        return True
+    if isinstance(e, (smtplib.SMTPAuthenticationError, smtplib.SMTPSenderRefused)):
+        return False                     # our login or sender: every email would fail
+    if isinstance(e, smtplib.SMTPResponseException):
+        return 500 <= e.smtp_code < 600 and mail.get("to") != cfg.get("mail_to")
+    if isinstance(e, (smtplib.SMTPException, OSError)):
+        return False                     # transport trouble: keep and back off
+    return True                          # building or sending this email is broken
 
-    On an SMTP failure keep the rest, log once per failure streak and back off
-    next_send_at by 1, 5, 15, then 60 minutes. Never emails about itself.
+
+def _next_index(outbox):
+    """Immediate email first (alarms must not queue behind digests), else oldest first."""
+    return min(range(len(outbox)),
+               key=lambda k: (SEND_ORDER.get(outbox[k].get("kind") if isinstance(outbox[k], dict) else None, 1), k))
+
+
+def flush_outbox(state, now_utc, cfg, transport=None, log=log):
+    """Send from the outbox; remove each email only after it was sent.
+
+    Immediate email goes first. An email that can never be delivered (refused
+    recipient, a 5xx for anyone but mail_to, or a non-SMTP error building or
+    sending it) is dropped, logged and counted in outbox_poisoned. A login or
+    transport failure keeps the outbox, logs once per failure streak and backs
+    off next_send_at by 1, 5, 15, then 60 minutes. Never emails about itself.
     """
     now = _epoch(now_utc)
     if state.get("next_send_at") and now < state["next_send_at"]:
         return state
-    while state["outbox"]:
-        mail = state["outbox"][0]
+    outbox = state["outbox"]
+    while outbox:
+        i = _next_index(outbox)
+        mail = outbox[i]
         try:
             deliver(cfg, mail, transport=transport)
-        except (smtplib.SMTPException, OSError) as e:
+        except UnsafeConfig:
+            raise
+        except Exception as e:
+            if _is_poison(e, mail if isinstance(mail, dict) else {}, cfg):
+                outbox.pop(i)
+                state["outbox_poisoned"] = state.get("outbox_poisoned", 0) + 1
+                to = mail.get("to") if isinstance(mail, dict) else None
+                subj = mail.get("subject") if isinstance(mail, dict) else None
+                log("dropped undeliverable email to %s: %s (%r)" % (_one_line(to), _one_line(subj), e))
+                continue
             n = state.get("send_failures", 0)
             if state["failing"].get("smtp") is None:
                 state["failing"]["smtp"] = now
-                log("smtp failing since %s: %r (outbox %d)" % (_stamp(now), e, len(state["outbox"])))
+                log("smtp failing since %s: %r (outbox %d)" % (_stamp(now), e, len(outbox)))
             state["send_failures"] = n + 1
             state["next_send_at"] = now + 60 * BACKOFF_MINUTES[min(n, len(BACKOFF_MINUTES) - 1)]
             return state
-        state["outbox"].pop(0)
+        outbox.pop(i)
         log("sent: %s" % _one_line(mail["subject"]))
         if state["failing"].get("smtp") is not None:
             log("smtp recovered after %d failed attempt(s)" % state.get("send_failures", 0))
@@ -664,7 +781,7 @@ def make_fetch(cfg, timeout=30):
                 if r.status != 200:
                     raise FeedError("HTTP %d" % r.status)
                 data = json.loads(r.read().decode("utf-8"))
-        except (urllib.error.URLError, socket.timeout, OSError, ValueError) as e:
+        except (urllib.error.URLError, http.client.HTTPException, socket.timeout, OSError, ValueError) as e:
             raise FeedError(e)
         if not isinstance(data, dict) or data.get("Result") != "OK":
             raise FeedError("unexpected answer: %.200r" % (data,))
@@ -673,9 +790,12 @@ def make_fetch(cfg, timeout=30):
 
 
 def poll_once(state, cfg, now_utc, fetch, transport=None, log=log, from_start=False, persist=None):
-    """One poll: read every feed page, fold it, persist, then send the outbox."""
+    """One poll: fold every feed page, emit once, persist, then send the outbox.
+
+    Emitting once per poll (not per page) keeps Q3 -- one immediate email per
+    poll -- and runs the summary and 19:00 timers once, after the whole backlog.
+    """
     now = _epoch(now_utc)
-    stepped = False
     for _ in range(MAX_PAGES_PER_POLL):
         since = state.get("cursor")
         if since is None and from_start:
@@ -690,13 +810,11 @@ def poll_once(state, cfg, now_utc, fetch, transport=None, log=log, from_start=Fa
         if state["failing"].get("feed") is not None:
             log("feed recovered (down since %s)" % _stamp(state["failing"]["feed"]))
             state["failing"]["feed"] = None
-        state, _ = step(state, feed, now_utc, cfg, log=log)
-        stepped = True
+        fold(state, feed, log=log)
         if not feed.get("more"):
             break
-    if not stepped:
-        # Timers (quiet hour, cap, 19:00) still run while the feed is down.
-        state, _ = step(state, {"events": [], "next": None, "users": None}, now_utc, cfg, log=log)
+    # Timers (quiet hour, cap, 19:00) run even while the feed is down.
+    emit(state, now_utc, cfg, log=log)
     if persist:
         persist(state)
     flush_outbox(state, now_utc, cfg, transport=transport, log=log)
@@ -734,6 +852,8 @@ def main(argv=None):
 
     if "--once" in argv:
         state = poll_once(state, cfg, now(), fetch, log=log, from_start=from_start, persist=persist)
+        if state["outbox"]:
+            log("outbox %d unsent" % len(state["outbox"]))
         if state["failing"].get("feed") is not None or state.get("cursor") is None:
             # A cutover run (--once --from-start) that read nothing must not look
             # like success: loading the agent afterwards would "start from now".

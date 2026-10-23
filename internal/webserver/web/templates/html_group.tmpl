@@ -18,7 +18,7 @@
     <button type="button" class="btn fgs-members-button" id="groupMembersButton" data-bs-toggle="dropdown"
             data-bs-auto-close="outside" aria-expanded="false" aria-haspopup="true" aria-label="Members: {{ len .People }}">
       <span class="fgs-avatar-stack" id="groupMembersStack" aria-hidden="true">
-        {{- range .Stack }}<span class="fgs-avatar" style="background-color: hsl({{ .Hue }}, 45%, 45%)">{{ .Initials }}</span>{{ end -}}
+        {{- range .Stack }}{{ template "group_avatar" . }}{{ end -}}
         {{- if gt .MoreMembers 0 }}<span class="fgs-avatar fgs-avatar-more">+{{ .MoreMembers }}</span>{{ end -}}
       </span>
       <span class="fgs-members-count" id="groupMembersCount">{{ len .People }} {{ if eq (len .People) 1 }}member{{ else }}members{{ end }}</span>
@@ -27,8 +27,8 @@
       <h6 class="dropdown-header px-1 pt-0">Members</h6>
       <ul class="fgs-group-people list-unstyled mb-0" id="groupPeople">
         {{ range .People }}
-        <li class="d-flex align-items-center gap-2 px-1 py-1" data-group-person="{{ .Id }}" data-hue="{{ .Hue }}" data-initials="{{ .Initials }}">
-          <span class="fgs-avatar" style="background-color: hsl({{ .Hue }}, 45%, 45%)" aria-hidden="true">{{ .Initials }}</span>
+        <li class="d-flex align-items-center gap-2 px-1 py-1" data-group-person="{{ .Id }}" data-hue="{{ .Hue }}" data-initials="{{ .Initials }}" data-photo="{{ .PhotoUrl }}">
+          {{ template "group_avatar" . }}
           <span class="fgs-group-person-name me-auto">{{ .Name }}</span>
           {{- if .IsCreator }} <span class="badge bg-secondary">Creator</span>{{ end }}
           {{- if .Removable }}
@@ -229,3 +229,12 @@ FGS.initGroupUploadArea({maxFileSize: {{ .MaxFileSize }}, chunkSize: {{ .ChunkSi
 {{ template "pagename" "Group"}}
 {{ template "customjs" .}}
 {{ template "footer" true}}{{ end }}
+
+{{/* One person's circle on the group page (Part 4, S2): their photo, or their
+     initials on their colour. media.js swaps a photo that fails to load back
+     to data-initials. Dot is a groupPagePerson. */}}
+{{ define "group_avatar" -}}
+<span class="fgs-avatar{{ if .PhotoUrl }} fgs-has-photo{{ end }}" style="background-color: hsl({{ .Hue }}, 45%, 45%)" aria-hidden="true" data-initials="{{ .Initials }}">
+{{- if .PhotoUrl }}<img class="fgs-avatar-img" src="{{ .PhotoUrl }}" alt="" loading="lazy" referrerpolicy="no-referrer" width="32" height="32">{{ else }}{{ .Initials }}{{ end -}}
+</span>
+{{- end }}

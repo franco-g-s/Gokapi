@@ -40,6 +40,7 @@
 		#fgs-usermenu .badge { cursor: pointer; }
 		#fgs-usermenu .dropdown-menu { text-align: start; max-width: min(22rem, 90vw); }
 		#fgs-usermenu .fgs-usermenu-name { overflow-wrap: anywhere; color: #fff; }
+		#fgs-usermenu .fgs-usermenu-name small { display: block; }
 	</style>
     {{ if .CustomContent.UseCustomCss }}
 	<link  href="./custom/custom.v{{.CustomContent.Version}}.css" rel="stylesheet">
@@ -78,10 +79,12 @@
      branding styles; viewas.js moves #fgs-usermenu below its banner. -->
 <div id="fgs-usermenu" class="dropdown" style="position:fixed;top:0.5rem;right:0.75rem;z-index:9999;">
   <button type="button" class="fgs-usermenu-btn" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Account menu">
-    <span class="badge bg-secondary opacity-75"><i class="bi bi-person-fill"></i>{{ if .IsUserTabAvailable }} {{.ActiveUser.Name}}{{ end }}</span>
+    <span class="badge bg-secondary opacity-75"><i class="bi bi-person-fill"></i>{{ if .IsUserTabAvailable }} {{.ActiveUserShownName}}{{ end }}</span>
   </button>
+  {{/* Part 4, S2: the shown name, the email under it, Settings, Logout */}}
   <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">
-    {{ if .IsUserTabAvailable }}<li><span class="dropdown-item-text fgs-usermenu-name">{{.ActiveUser.Name}}</span></li>{{ end }}
+    {{ if .IsUserTabAvailable }}<li><span class="dropdown-item-text fgs-usermenu-name">{{.ActiveUserShownName}}{{ if .ActiveUserEmail }}<small class="text-muted">{{.ActiveUserEmail}}</small>{{ end }}</span></li>
+    <li><a class="dropdown-item" href="./settings">Settings</a></li>{{ end }}
     {{ if and .IsUserTabAvailable .IsLogoutAvailable }}<li><hr class="dropdown-divider"></li>{{ end }}
     {{ if .IsLogoutAvailable }}<li><a class="dropdown-item" href="#" onclick="doLogout()">Logout</a></li>{{ end }}
   </ul>

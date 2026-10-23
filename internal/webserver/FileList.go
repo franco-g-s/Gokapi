@@ -332,18 +332,21 @@ type listItemJson struct {
 	// so a public collection never learns who uploaded what.
 	UploaderId   int
 	UploaderName string
-	Mine         bool
-	Downloaded   bool
-	CanEdit      bool
-	CanDelete    bool
-	CanReplace   bool
-	CanRemove    bool
-	Foreign      bool
-	GroupLock    string
-	Download     string // browserItem.DownloadUrl
-	Bytes        int64
-	TakenAt      int64
-	Preview      previewInfo
+	// UploaderPhoto is the uploader's photo on group items (Part 4, S2), ""
+	// for initials and everywhere else
+	UploaderPhoto string
+	Mine          bool
+	Downloaded    bool
+	CanEdit       bool
+	CanDelete     bool
+	CanReplace    bool
+	CanRemove     bool
+	Foreign       bool
+	GroupLock     string
+	Download      string // browserItem.DownloadUrl
+	Bytes         int64
+	TakenAt       int64
+	Preview       previewInfo
 }
 
 // listItemOf is the feed's form of an item
@@ -352,6 +355,7 @@ func listItemOf(item browserItem) listItemJson {
 		FileApiOutput: item.File,
 		UploaderId:    cmp.Or(item.UploaderId, item.File.UploaderId),
 		UploaderName:  item.Uploader,
+		UploaderPhoto: item.UploaderPhoto,
 		Mine:          item.Mine,
 		Downloaded:    item.Downloaded,
 		CanEdit:       item.CanEdit,
@@ -393,6 +397,7 @@ func (s listSource) batch(q listQuery) (listBatchOf, error) {
 	if err != nil {
 		return listBatchOf{}, err
 	}
+	fillUploaderPhotos(page) // only the batch is shown (Part 4, S2)
 	return listBatchOf{Items: page, Next: next, Total: len(matching), All: len(s.Items), New: s.newCount(q)}, nil
 }
 

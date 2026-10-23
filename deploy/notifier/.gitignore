@@ -1,0 +1,5 @@
+__pycache__/
+notify.config.json
+.notify-state*.json
+.notify-state*.json.tmp
+*.eml

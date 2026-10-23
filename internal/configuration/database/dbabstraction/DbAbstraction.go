@@ -217,6 +217,15 @@ type Database interface {
 	SaveProfile(profile models.Profile)
 	// DeleteProfile removes the user's profile
 	DeleteProfile(userId int)
+	// Part 4, A: activity feed
+	// SaveActivity appends one event; its Id is assigned by the database
+	SaveActivity(a models.Activity)
+	// GetActivitySince returns up to limit events with an Id above since, oldest first
+	GetActivitySince(since int64, limit int) []models.Activity
+	// ActivityBounds returns the oldest retained id (0 when empty) and the newest id ever assigned
+	ActivityBounds() (oldest, newest int64)
+	// PruneActivity deletes every event that happened before the timestamp
+	PruneActivity(before int64)
 
 	// GetStatTraffic returns the total traffic from statistics
 	GetStatTraffic() uint64

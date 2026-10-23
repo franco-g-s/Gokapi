@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/forceu/gokapi/internal/activity"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/models"
 	"github.com/forceu/gokapi/internal/webserver/authentication"
@@ -21,9 +22,9 @@ var ErrUnsupported = errors.New("Blocking needs the SQLite database.")
 // ErrEntry is returned for something that is neither an email nor an "@domain"
 var ErrEntry = errors.New("Enter an email like name@example.com or a domain like @example.com.")
 
-// onBlocked is told about every refused attempt. The controller replaces it
-// with activity.SignInBlocked when task A merges.
-var onBlocked = func(email string) {}
+// onBlocked records every refused attempt as a signin_blocked activity row;
+// a var so tests can watch it
+var onBlocked = activity.SignInBlocked
 
 // normalise lower-cases and checks an entry: an exact email or "@domain"
 func normalise(entry string) (string, error) {

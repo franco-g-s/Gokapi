@@ -220,6 +220,10 @@ func (p DatabaseProvider) init(dbConfig models.DbConnection) (DatabaseProvider, 
 		if err = p.ensureProfilesTable(); err != nil {
 			return p, err
 		}
+		// Part 4, A: activity feed
+		if err = p.ensureActivityTable(); err != nil {
+			return p, err
+		}
 		// Part 4, K: blocklist
 		return p, p.ensureBlocklistTable()
 	}

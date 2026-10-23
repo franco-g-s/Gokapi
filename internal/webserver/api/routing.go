@@ -262,6 +262,14 @@ var routes = []apiRoute{
 		RequestParser: &paramLogsGet{},
 	},
 	{
+		// Part 4, A: the admin's activity feed, read by the notifier
+		Url:           "/activity",
+		ApiPerm:       models.ApiPermManageLogs,
+		AdminOnly:     true,
+		execution:     apiActivityGet,
+		RequestParser: &paramActivityGet{},
+	},
+	{
 		Url:           "/e2e/get", // not published in API documentation
 		ApiPerm:       models.ApiPermUpload,
 		execution:     apiE2eGet,
@@ -647,6 +655,21 @@ type paramLogsGet struct {
 }
 
 func (p *paramLogsGet) ProcessParameter(_ *http.Request) error {
+	return nil
+}
+
+// paramActivityGet is GET /api/activity (Part 4, A). The cursor is a header,
+// because the router matches on the whole URL and a query string never routes.
+type paramActivityGet struct {
+	Since        int64 `header:"since"`
+	Limit        int   `header:"limit"`
+	foundHeaders map[string]bool
+}
+
+func (p *paramActivityGet) ProcessParameter(_ *http.Request) error {
+	if p.Since < 0 {
+		return errors.New("since must not be negative")
+	}
 	return nil
 }
 

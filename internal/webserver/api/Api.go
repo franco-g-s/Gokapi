@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/forceu/gokapi/internal/activity"
 	"github.com/forceu/gokapi/internal/blocklist"
 	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
@@ -538,6 +539,7 @@ func doBlockingPartCompleteChunk(w http.ResponseWriter, uuid string, fileHeader 
 	// Logged once it is known to stay: a duplicate deleted a moment later
 	// must not mail an upload notice (M6)
 	logging.LogUpload(file, user, fr)
+	activity.Upload(file, user)
 	preview.Enqueue(file)
 	outputFileJson(w, file)
 }

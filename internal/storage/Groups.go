@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/forceu/gokapi/internal/activity"
 	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/helper"
@@ -168,6 +169,16 @@ func liveGroup(g models.Group) (models.Group, error) {
 
 // CreateGroup creates a group with the creator as its first member
 func CreateGroup(name string, days int, creator models.User) (models.Group, error) {
+	g, err := createGroup(name, days, creator)
+	if err == nil {
+		activity.GroupCreated(g, creator)
+	}
+	return g, err
+}
+
+// createGroup is CreateGroup without the activity row, for callers that may
+// delete the group again straight away (GroupFromCollection, M4)
+func createGroup(name string, days int, creator models.User) (models.Group, error) {
 	if !database.SupportsGroups() {
 		return models.Group{}, ErrGroupsUnsupported
 	}
@@ -305,6 +316,7 @@ func join(g models.Group, found bool, user models.User) (models.Group, error) {
 	if !IsGroupMember(g, user.Id) {
 		database.SaveGroupMember(models.GroupMember{GroupId: g.Id, UserId: user.Id,
 			Joined: time.Now().Unix(), Role: models.GroupRoleMember})
+		activity.GroupJoined(g, user)
 	}
 	return g, nil
 }

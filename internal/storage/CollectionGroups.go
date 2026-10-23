@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/forceu/gokapi/internal/activity"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/models"
 )
@@ -76,7 +77,7 @@ func GroupFromCollection(collectionId string, days int, opts FromCollectionOptio
 			creator = owner
 		}
 	}
-	g, err := CreateGroup(collection.Name, days, creator)
+	g, err := createGroup(collection.Name, days, creator) // recorded once it survives
 	if err != nil {
 		return models.Group{}, FromCollectionResult{}, err
 	}
@@ -96,6 +97,7 @@ func GroupFromCollection(collectionId string, days int, opts FromCollectionOptio
 		database.DeleteGroup(g.Id)
 		return models.Group{}, result, ErrGroupNothingAdded
 	}
+	activity.GroupCreated(g, creator)
 	if opts.AddViewers {
 		shown := make(map[int]bool, len(opts.ViewerIds))
 		for _, id := range opts.ViewerIds {

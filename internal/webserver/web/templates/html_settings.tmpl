@@ -8,10 +8,34 @@
   #settingsPage .fgs-settings-photo { width: 4rem; height: 4rem; border-radius: 50%; object-fit: cover; }
   #settingsPage .fgs-settings-initials { width: 4rem; height: 4rem; border-radius: 50%; display: inline-flex;
     align-items: center; justify-content: center; background: #2e2e2b; font-size: 1.4rem; font-weight: 600; }
+  /* Part 4 polish: a disabled switch (View as…, or an account without email) keeps its on state readable.
+     The branding paints every disabled input dark with !important, which also hid the checked fill; this is its checked colour (--fgs-fg), or Bootstrap's. */
+  #settingsPage .form-check-input:disabled { opacity: 0.7; }
+  #settingsPage .form-check-input:disabled:checked { opacity: 0.85; background-color: var(--fgs-fg, #0d6efd) !important; border-color: var(--fgs-fg, #0d6efd) !important; }
+  #settingsPage .form-check-input:disabled ~ .form-check-label { opacity: 0.85; }
   #settingsPage section + section { border-top: 1px solid #2e2e2b; padding-top: 1.25rem; margin-top: 1.25rem; }
 </style>
-<div class="row"><div class="col"><div id="container" class="card" style="width:100%">
+{{/* Part 4 polish: one column at most 40rem wide, centred, as the join page */}}
+<div class="row"><div class="col"><div id="container" class="card" style="width:100%;max-width:40rem;margin:0 auto">
 <div class="card-body text-start" id="settingsPage" data-readonly="{{ if .ReadOnly }}true{{ else }}false{{ end }}">
+  {{/* Back: to the previous page of this site (FGS.initBackButton, as on the collection page), else to Upload.
+       Not a settings control, so View as… keeps it. */}}
+  <button type="button" class="btn btn-sm btn-outline-light mb-2" id="settingsBack" data-fgs-back>
+    <i class="bi bi-arrow-left"></i> Back
+  </button>
+  <script>
+  (function () {
+    var back = document.getElementById("settingsBack");
+    // initBackButton shows the button and wires it when there is a same-origin previous page;
+    // it leaves it as it is otherwise, so a button without a listener goes to Upload
+    back.classList.add("d-none");
+    FGS.initBackButton(back);
+    if (back.classList.contains("d-none")) {
+      back.classList.remove("d-none");
+      back.addEventListener("click", function () { window.location.href = "./admin"; });
+    }
+  })();
+  </script>
   <h3 class="card-title mb-3 text-center">Settings</h3>
   {{ if not .Supported }}
     <p class="text-muted my-4 text-center">Settings need the SQLite database.</p>

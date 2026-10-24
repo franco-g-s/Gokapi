@@ -144,6 +144,10 @@ func TestSettingsDuringViewAs(t *testing.T) {
 	test.IsEqualBool(t, regexp.MustCompile(`id="settingsDisplayName"[^>]*\sdisabled`).MatchString(body), true)
 	test.IsEqualBool(t, strings.Contains(body, `id="settingsSave"`), false)
 	test.IsEqualBool(t, strings.Contains(body, "html.fgs-viewas"), true)
+	// The Back button stays during View as: it is not a settings control
+	back := regexp.MustCompile(`<button[^>]*id="settingsBack"[^>]*>`).FindString(body)
+	test.IsEqualBool(t, back != "", true)
+	test.IsEqualBool(t, strings.Contains(back, "data-fgs-settings-control"), false)
 
 	code, _ := groupsTabPost(t, "/settings/save", fx.adminSession, map[string]any{"displayName": "Hacked"})
 	test.IsEqualInt(t, code, http.StatusForbidden)

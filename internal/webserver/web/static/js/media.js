@@ -1010,6 +1010,16 @@
   // <head>, before any photo can fail.
   function avatarFailed(e) {
     var img = e.target;
+    // The user menu's photo (Part 4 polish) becomes the person icon it replaced
+    if (img && img.tagName === "IMG" && img.classList && img.classList.contains("fgs-usermenu-photo")) {
+      var icon = document.createElement("i");
+      icon.className = "bi bi-person-fill";
+      if (img.parentNode) {
+        img.parentNode.classList.remove("fgs-usermenu-has-photo");
+        img.parentNode.replaceChild(icon, img);
+      }
+      return;
+    }
     if (!img || img.tagName !== "IMG" || !img.classList || !img.classList.contains("fgs-avatar-img")) return;
     var holder = img.parentNode;
     if (holder && holder.hasAttribute && holder.hasAttribute("data-initials")) {

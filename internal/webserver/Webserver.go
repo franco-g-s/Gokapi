@@ -859,6 +859,7 @@ type AdminView struct {
 	ActiveUser            models.User
 	ActiveUserShownName   string // the user menu (Part 4, S2): people.Name
 	ActiveUserEmail       string // and the account's email, "" when it is none
+	ActiveUserPhotoUrl    string // the pill's photo (Part 4 polish): people.PhotoUrl, "" for the icon
 	UserMap               map[int]*models.User
 	ServerUrl             string
 	PublicName            string
@@ -936,6 +937,7 @@ func (u *AdminView) convertGlobalConfig(view int, user models.User) *AdminView {
 	u.IsInternalAuth = config.Authentication.Method == models.AuthenticationInternal
 	u.ActiveUser = user
 	u.ActiveUserShownName = people.Name(user)
+	u.ActiveUserPhotoUrl = people.PhotoUrl(user)
 	if people.HasEmail(user) {
 		u.ActiveUserEmail = user.Name
 	}

@@ -249,6 +249,7 @@ This disables all of Gokapi's internal authentication except for API calls. The 
 - ``/admin``
 - ``/apiKeys``
 - ``/auth/token``
+- ``/avatar``
 - ``/changePassword``
 - ``/collections``
 - ``/collections/create``
@@ -289,9 +290,13 @@ This disables all of Gokapi's internal authentication except for API calls. The 
 - ``/groups/stoplink``
 - ``/gz``
 - ``/logs``
+- ``/settings``
+- ``/settings/save``
 - ``/uploadChunk``
 - ``/uploadStatus``
 - ``/users``
+- ``/users/block``
+- ``/users/unblock``
 - ``/viewas/end``
 - ``/viewas/start``
 

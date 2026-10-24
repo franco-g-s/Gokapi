@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"github.com/NYTimes/gziphandler"
+	"github.com/forceu/gokapi/internal/activity"
+	"github.com/forceu/gokapi/internal/blocklist"
 	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/encryption"
@@ -32,6 +34,7 @@ import (
 	"github.com/forceu/gokapi/internal/logging"
 	"github.com/forceu/gokapi/internal/logging/serverstats"
 	"github.com/forceu/gokapi/internal/models"
+	"github.com/forceu/gokapi/internal/people"
 	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/storage/filerequest"
 	"github.com/forceu/gokapi/internal/storage/presign"
@@ -95,6 +98,8 @@ var srv http.Server
 
 // Start the webserver on the port set in the config
 func Start() {
+	wireSignIn()
+	activity.StartWatchers(configuration.Get().DataDir) // Part 4, A: disk warning and pruning
 	initTemplates(templateFolderEmbedded)
 	webserverDir, _ := fs.Sub(staticFolderEmbedded, "web/static")
 	var err error
@@ -153,6 +158,14 @@ func Start() {
 	// Part 3, V1: view as
 	mux.HandleFunc("/viewas/start", requireLogin(viewAsStart, false, false))
 	mux.HandleFunc("/viewas/end", requireLogin(viewAsEnd, false, false))
+	// Part 4, K: blocklist
+	mux.HandleFunc("/users/block", requireLogin(blockEntry, false, false))
+	mux.HandleFunc("/users/unblock", requireLogin(unblockEntry, false, false))
+	// Part 4, S1: settings and avatars
+	mux.HandleFunc("/settings", requireLogin(showSettings, true, false))
+	mux.HandleFunc("/settings/save", requireLogin(saveSettings, false, false))
+	mux.HandleFunc("/avatar", requireLogin(serveAvatar, true, false))
+	registerSeedRoutes(mux, seedRoutesEnabled())
 	// Part 2, F2: the group creator's "Check for duplicates"
 	mux.HandleFunc("/groups/neardupes", requireLogin(nearCopyCheck, false, false))
 	// Part 2, R4: a collection turned into a group, its old link's modes and stopping it
@@ -755,6 +768,10 @@ func showAdminMenu(w http.ResponseWriter, r *http.Request) {
 	// admin_ui_upload.js. Stored files are on the Files tab.
 	view.Browser = newFileBrowser("fgs-upload", ctxUpload, []browserItem{}, user)
 	view.Browser.UploadSink = true
+	// Part 4, S2: "Email me when my files are downloaded", for accounts
+	// with an email address; not during "View as…", which refuses the save
+	view.ShowEmailSwitch = people.HasEmail(user) && database.SupportsGroups() && !viewasActive(r)
+	view.EmailDownloads = people.WantsDownloadEmails(user.Id)
 
 	err = templateFolder.ExecuteTemplate(w, "admin", &view)
 	helper.CheckIgnoreTimeout(err)
@@ -764,7 +781,9 @@ func showAdminMenu(w http.ResponseWriter, r *http.Request) {
 // the files uploaded now
 type UploadView struct {
 	AdminView
-	Browser fileBrowser
+	Browser         fileBrowser
+	ShowEmailSwitch bool // Part 4, S2
+	EmailDownloads  bool
 }
 
 // Handling of /logs
@@ -833,10 +852,14 @@ type AdminView struct {
 	Items                 []models.FileApiOutput
 	ApiKeys               []models.ApiKey
 	Users                 []userInfo
+	Blocked               []models.BlockEntry
 	FileRequests          []models.FileRequest
 	Collections           []collectionInfo
 	SharedWithMe          []sharedCollectionInfo
 	ActiveUser            models.User
+	ActiveUserShownName   string // the user menu (Part 4, S2): people.Name
+	ActiveUserEmail       string // and the account's email, "" when it is none
+	ActiveUserPhotoUrl    string // the pill's photo (Part 4 polish): people.PhotoUrl, "" for the icon
 	UserMap               map[int]*models.User
 	ServerUrl             string
 	PublicName            string
@@ -913,6 +936,11 @@ func (u *AdminView) convertGlobalConfig(view int, user models.User) *AdminView {
 	config := configuration.Get()
 	u.IsInternalAuth = config.Authentication.Method == models.AuthenticationInternal
 	u.ActiveUser = user
+	u.ActiveUserShownName = people.Name(user)
+	u.ActiveUserPhotoUrl = people.PhotoUrl(user)
+	if people.HasEmail(user) {
+		u.ActiveUserEmail = user.Name
+	}
 	u.UserMap = getUserMap()
 	u.CustomContent = customStaticInfo
 	switch view {
@@ -951,6 +979,7 @@ func (u *AdminView) convertGlobalConfig(view int, user models.User) *AdminView {
 		_, u.DiskUsage, u.DiskTotal, u.DiskUsagePercent = serverstats.GetDiskInfo()
 		u.CpuLoad = serverstats.GetCpuUsage()
 	case ViewUsers:
+		u.Blocked = blocklist.List() // Part 4, K
 		fileStats := userFileStats()
 		u.Users = make([]userInfo, 0)
 		for _, userEntry := range database.GetAllUsers() {
@@ -958,6 +987,7 @@ func (u *AdminView) convertGlobalConfig(view int, user models.User) *AdminView {
 				UploadCount: fileStats[userEntry.Id].Count,
 				TotalSize:   helper.ByteCountSI(fileStats[userEntry.Id].Bytes),
 				Groups:      userGroupNames(userEntry.Id),
+				ShownName:   people.Name(userEntry),
 				User:        userEntry,
 			}
 			// Otherwise the user is not shown as online, if /users is opened as first page
@@ -1053,6 +1083,7 @@ type userInfo struct {
 	UploadCount int      // files the Files tab lists for this person; Size covers the same files
 	TotalSize   string   // their size, human-readable
 	Groups      []string // names of the live groups they belong to
+	ShownName   string   // people.Name, shown above the account (Part 4, S2)
 	User        models.User
 }
 

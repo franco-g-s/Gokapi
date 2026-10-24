@@ -62,7 +62,7 @@ func cookieOf(w *httptest.ResponseRecorder, name string) (*http.Cookie, bool) {
 }
 
 func TestGuardPassesWhenInactive(t *testing.T) {
-	admin, _, _ := people(t, 8200, "inactive")
+	admin, _, _ := makePeople(t, 8200, "inactive")
 	session(t, "viewasguardinactive", admin)
 	for _, target := range []string{"/files", "/gd?id=x", "/api/files/list", "/uploadChunk"} {
 		for _, method := range []string{"GET", "POST"} {
@@ -82,7 +82,7 @@ func TestGuardFastPath(t *testing.T) {
 	}
 	defer func() { peek = original }()
 
-	admin, a, _ := people(t, 8210, "fastpath")
+	admin, a, _ := makePeople(t, 8210, "fastpath")
 	session(t, "viewasguardfastpath", admin)
 	w, rec := guarded("GET", "/gd", "viewasguardfastpath", &http.Cookie{Name: DisplayCookie, Value: "x"})
 	test.IsEqualBool(t, rec.reached, true)
@@ -99,7 +99,7 @@ func TestGuardFastPath(t *testing.T) {
 }
 
 func TestGuardAllowlist(t *testing.T) {
-	admin, a, _ := people(t, 8220, "allow")
+	admin, a, _ := makePeople(t, 8220, "allow")
 	session(t, "viewasguardallow", admin)
 	test.IsNil(t, Start(admin, a.Id))
 
@@ -148,7 +148,7 @@ func TestAllowed(t *testing.T) {
 }
 
 func TestGuardHtmlRefusal(t *testing.T) {
-	admin, a, _ := people(t, 8230, "html")
+	admin, a, _ := makePeople(t, 8230, "html")
 	session(t, "viewasguardhtml", admin)
 	test.IsNil(t, Start(admin, a.Id))
 	r := httptest.NewRequest("GET", "/gd?id=x", nil)
@@ -189,7 +189,7 @@ func TestBaseHref(t *testing.T) {
 
 // The guard decides once and hands its decision on; nothing else is swapped
 func TestGuardDecision(t *testing.T) {
-	admin, a, _ := people(t, 8260, "decision")
+	admin, a, _ := makePeople(t, 8260, "decision")
 	session(t, "viewasguarddecision", admin)
 	_, rec := guarded("GET", "/files", "viewasguarddecision")
 	_, _, ok := FromGuard(rec.request)
@@ -214,7 +214,7 @@ func TestGuardDecision(t *testing.T) {
 
 // A demoted admin's row is ended at their next request, which passes as theirs
 func TestGuardEndsDemoted(t *testing.T) {
-	admin, a, _ := people(t, 8270, "demoted")
+	admin, a, _ := makePeople(t, 8270, "demoted")
 	session(t, "viewasguarddemoted", admin)
 	test.IsNil(t, Start(admin, a.Id))
 	demoted := admin
@@ -232,7 +232,7 @@ func TestGuardEndsDemoted(t *testing.T) {
 }
 
 func TestGuardLogoutEnds(t *testing.T) {
-	admin, a, _ := people(t, 8240, "logout")
+	admin, a, _ := makePeople(t, 8240, "logout")
 	session(t, "viewasguardlogout", admin)
 	test.IsNil(t, Start(admin, a.Id))
 	w, rec := guarded("GET", "/logout", "viewasguardlogout", &http.Cookie{Name: DisplayCookie, Value: "x"})
@@ -246,7 +246,7 @@ func TestGuardLogoutEnds(t *testing.T) {
 }
 
 func TestGuardCookieSync(t *testing.T) {
-	admin, a, _ := people(t, 8250, "cookie")
+	admin, a, _ := makePeople(t, 8250, "cookie")
 	session(t, "viewasguardcookie", admin)
 	test.IsNil(t, Start(admin, a.Id))
 	want := url.QueryEscape("cookie-a")

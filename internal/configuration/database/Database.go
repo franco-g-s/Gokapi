@@ -295,9 +295,10 @@ func UpdateUserLastOnline(id int) {
 	}
 }
 
-// DeleteUser deletes a user with the given ID
+// DeleteUser deletes a user with the given ID, and their profile (Part 4, S1)
 func DeleteUser(id int) {
 	db.DeleteUser(id)
+	db.DeleteProfile(id)
 }
 
 // GetSuperAdmin returns the models.User data for the super admin
@@ -503,6 +504,48 @@ func SaveViewAs(v models.ViewAs) { db.SaveViewAs(v) }
 
 // DeleteViewAs ends the admin's "View as…"
 func DeleteViewAs(adminId int) { db.DeleteViewAs(adminId) }
+
+// Part 4, K: blocklist
+
+// SaveBlock adds a blocklist entry (an email or "@domain"); an existing one is kept
+func SaveBlock(b models.BlockEntry) { db.SaveBlock(b) }
+
+// DeleteBlock removes a blocklist entry
+func DeleteBlock(entry string) { db.DeleteBlock(entry) }
+
+// IsBlocked returns true if the exact entry is on the blocklist
+func IsBlocked(entry string) bool { return db.IsBlocked(entry) }
+
+// GetAllBlocks returns every blocklist entry
+func GetAllBlocks() []models.BlockEntry { return db.GetAllBlocks() }
+
+// Part 4, S1: profiles
+
+// GetProfile returns the user's profile, or false if none is stored
+func GetProfile(userId int) (models.Profile, bool) { return db.GetProfile(userId) }
+
+// GetProfileWithoutPhoto is GetProfile without the photo's bytes, for names
+// and photo URLs
+func GetProfileWithoutPhoto(userId int) (models.Profile, bool) { return db.GetProfileWithoutPhoto(userId) }
+
+// SaveProfile inserts or replaces the user's profile
+func SaveProfile(p models.Profile) { db.SaveProfile(p) }
+
+// Part 4, A: activity feed
+
+// SaveActivity appends one event; its Id is assigned by the database
+func SaveActivity(a models.Activity) { db.SaveActivity(a) }
+
+// GetActivitySince returns up to limit events with an Id above since, oldest first
+func GetActivitySince(since int64, limit int) []models.Activity {
+	return db.GetActivitySince(since, limit)
+}
+
+// ActivityBounds returns the oldest retained id (0 when empty) and the newest id ever assigned
+func ActivityBounds() (oldest, newest int64) { return db.ActivityBounds() }
+
+// PruneActivity deletes every event that happened before the timestamp
+func PruneActivity(before int64) { db.PruneActivity(before) }
 
 // Statistics
 

@@ -1097,6 +1097,33 @@ function saveAutoLinkDefault() {
     localStorage.setItem("defaultAutoCollection", isAutoLinkEnabled());
 }
 
+// Part 4, S2: "Email me when my files are downloaded" on the Upload page,
+// the same setting as on the Settings page, saved at once. The switch is
+// disabled while saving and goes back to where it was if the save fails.
+function saveEmailDownloads(toggle) {
+    const wanted = toggle.checked;
+    toggle.disabled = true;
+    fetch("./settings/save", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        credentials: "same-origin",
+        body: JSON.stringify({emailDownloads: wanted})
+    }).then(response => response.json().catch(() => ({Result: "error"})))
+        .then(data => {
+            if (data.Result !== "OK") {
+                throw new Error(data.ErrorMessage || "Could not save");
+            }
+            showToast(1500, "Saved");
+        })
+        .catch(() => {
+            toggle.checked = !wanted;
+            showToast(2500, "Could not save the setting");
+        })
+        .finally(() => {
+            toggle.disabled = false;
+        });
+}
+
 function setAutoLinkDefault() {
     let toggle = document.getElementById("enableAutoCollection");
     if (toggle === null) {

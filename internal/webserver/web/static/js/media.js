@@ -978,6 +978,55 @@
     if (parts.length === 1) return first.toUpperCase();
     return (first + Array.from(parts[parts.length - 1])[0]).toUpperCase();
   }
+  // A person's badge or circle (Part 4, S2): their photo when there is one,
+  // else their initials. The initials stay in data-initials, for when the
+  // photo fails to load. Built with setters only: a name is user input.
+  function fillAvatar(holder, initials, photo, size) {
+    if (!holder) return;
+    initials = initials || "";
+    holder.textContent = "";
+    holder.setAttribute("data-initials", initials);
+    if (!photo) {
+      holder.classList.remove("fgs-has-photo");
+      holder.textContent = initials;
+      return;
+    }
+    holder.classList.add("fgs-has-photo");
+    var img = document.createElement("img");
+    img.className = "fgs-avatar-img";
+    img.setAttribute("src", photo);
+    img.setAttribute("alt", "");
+    img.setAttribute("loading", "lazy");
+    img.setAttribute("referrerpolicy", "no-referrer");
+    img.setAttribute("width", String(size || 26));
+    img.setAttribute("height", String(size || 26));
+    holder.appendChild(img);
+  }
+  FGS.fillAvatar = fillAvatar;
+  FGS.initialsOf = initialsOf;
+  // A photo that does not load (its person left the group, or chose
+  // initials since the page was rendered) becomes the initials beside it.
+  // error does not bubble, so this listens in the capture phase, from
+  // <head>, before any photo can fail.
+  function avatarFailed(e) {
+    var img = e.target;
+    // The user menu's photo (Part 4 polish) becomes the person icon it replaced
+    if (img && img.tagName === "IMG" && img.classList && img.classList.contains("fgs-usermenu-photo")) {
+      var icon = document.createElement("i");
+      icon.className = "bi bi-person-fill";
+      if (img.parentNode) {
+        img.parentNode.classList.remove("fgs-usermenu-has-photo");
+        img.parentNode.replaceChild(icon, img);
+      }
+      return;
+    }
+    if (!img || img.tagName !== "IMG" || !img.classList || !img.classList.contains("fgs-avatar-img")) return;
+    var holder = img.parentNode;
+    if (holder && holder.hasAttribute && holder.hasAttribute("data-initials")) {
+      fillAvatar(holder, holder.getAttribute("data-initials"), "");
+    }
+  }
+  document.addEventListener("error", avatarFailed, true);
   // A cell's content as the template renders a time: <span data-ts>
   function setTimeCell(cell, ts) {
     cell.textContent = "";
@@ -2163,13 +2212,14 @@
       preview = (feed ? file.Preview : preview) || {};
       var id = String(file.Id);
       var userId = parseInt(root.getAttribute("data-user-id"), 10) || 0;
-      var mine, perms, foreign, download, uploader, uploaderId, bytes;
+      var mine, perms, foreign, download, uploader, uploaderId, bytes, photo;
       if (feed) {
         mine = file.Mine;
         foreign = !!file.Foreign;
         perms = { edit: !!file.CanEdit, del: !!file.CanDelete, replace: !!file.CanReplace, remove: !!file.CanRemove };
         download = file.Download || "";
         uploader = file.UploaderName || "";
+        photo = file.UploaderPhoto || "";
         // As rendered: the uploader's id on group pages and on files reached
         // through a group
         uploaderId = groupTools || foreign ? file.UploaderId || 0 : 0;
@@ -2184,11 +2234,12 @@
         foreign = context === "group" && !perms.edit;
         download = preview.Download || (downloadBase ? downloadBase + encodeURIComponent(id)
           : (manages && !file.IsEndToEndEncrypted ? "./files/download?id=" + encodeURIComponent(id) : ""));
+        // The viewer's own shown name and photo (people.Name, Part 4)
         var ownName = root.getAttribute("data-user-name") || "";
-        // Members see the part before "@" of the Google email (displayName, D5)
-        if (groupTools && ownName.indexOf("@") > 0) ownName = ownName.slice(0, ownName.indexOf("@"));
-        uploader = file.UploaderName !== undefined && file.UploaderName !== null ? String(file.UploaderName)
-          : (mine ? ownName : "");
+        var known = file.UploaderName !== undefined && file.UploaderName !== null;
+        uploader = known ? String(file.UploaderName) : (mine ? ownName : "");
+        photo = file.UploaderPhoto !== undefined && file.UploaderPhoto !== null ? String(file.UploaderPhoto)
+          : (!known && mine ? root.getAttribute("data-user-photo") || "" : "");
         // As rendered: only group pages carry the uploader's id
         uploaderId = !groupTools ? 0 : file.UploaderId !== undefined && file.UploaderId !== null ? file.UploaderId : (mine ? userId : 0);
         bytes = file.SizeBytes;
@@ -2209,7 +2260,7 @@
       setData(tile, "uploader-id", uploaderId);
       setData(tile, "downloaded", !!file.Downloaded);
       var initials = tile.querySelector(".fgs-initials");
-      if (initials) initials.textContent = initialsOf(uploader);
+      if (initials) fillAvatar(initials, initialsOf(uploader), photo);
       tile.querySelector(".fgs-tile-open").setAttribute("aria-label", "Open " + name);
       tile.querySelector(".fgs-tile-expand").setAttribute("aria-label", "Open " + name);
       tileCheck(tile).setAttribute("aria-label", "Select " + name);

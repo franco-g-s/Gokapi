@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/forceu/gokapi/internal/activity"
 	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/logging"
@@ -47,6 +48,7 @@ func ProcessCompleteFile(w http.ResponseWriter, r *http.Request, userId, maxMemo
 	}
 	user, _ := database.GetUser(userId)
 	logging.LogUpload(result, user, models.FileRequest{})
+	activity.Upload(result, user)
 	preview.Enqueue(result)
 	_, _ = io.WriteString(w, result.ToJsonResult(config.ExternalUrl, configuration.Get().IncludeFilename))
 	return nil

@@ -15,6 +15,7 @@ import (
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/helper"
 	"github.com/forceu/gokapi/internal/models"
+	"github.com/forceu/gokapi/internal/people"
 	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/webserver/authentication"
 )
@@ -26,7 +27,8 @@ type groupPagePerson struct {
 	Id        int
 	Name      string
 	Initials  string
-	Hue       int // of the initials circle, derived from the id (D9)
+	PhotoUrl  string // their photo, "" for initials (Part 4, S2)
+	Hue       int    // of the initials circle, derived from the id (D9)
 	IsCreator bool
 	Removable bool // the viewer may remove them: creator or admin, never the creator
 }
@@ -235,7 +237,7 @@ func showGroup(w http.ResponseWriter, r *http.Request) {
 	for _, f := range files {
 		hasItems[f.UserId] = true
 	}
-	people := make([]browserPerson, 0)
+	persons := make([]browserPerson, 0)
 	listed := make(map[int]bool)
 	for _, m := range database.GetGroupMembers(g.Id) {
 		name, known := names[m.UserId]
@@ -247,13 +249,14 @@ func showGroup(w http.ResponseWriter, r *http.Request) {
 			Id:        m.UserId,
 			Name:      name,
 			Initials:  initialsOf(name),
+			PhotoUrl:  people.PhotoUrl(models.User{Id: m.UserId}),
 			Hue:       avatarHue(m.UserId),
 			IsCreator: creator,
 			Removable: manager && !creator,
 		})
 		if hasItems[m.UserId] && !listed[m.UserId] {
 			listed[m.UserId] = true
-			people = append(people, browserPerson{Id: m.UserId, Name: name})
+			persons = append(persons, browserPerson{Id: m.UserId, Name: name})
 		}
 	}
 	view.Stack = view.People[:min(groupStackSize, len(view.People))]
@@ -264,7 +267,7 @@ func showGroup(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		listed[f.UserId] = true
-		people = append(people, browserPerson{Id: f.UserId, Name: name})
+		persons = append(persons, browserPerson{Id: f.UserId, Name: name})
 	}
 
 	itemById := make(map[string]browserItem, len(items))
@@ -279,7 +282,7 @@ func showGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	view.Browser = newFileBrowser("fgs-group", ctxGroup, nil, user)
-	view.Browser.WithGroup(g, people)
+	view.Browser.WithGroup(g, persons)
 	view.Browser.WithList(source, listUrl("./gl?id=", g.Id))
 	view.Browser.UploadSink = true
 	addNoCacheHeader(w)
@@ -336,11 +339,12 @@ func downloadGroupZip(w http.ResponseWriter, r *http.Request) {
 // reads (UploaderId among them), plus the group page's own
 type groupItemAnswer struct {
 	models.FileApiOutput
-	UploaderName string
-	Downloaded   bool
-	CanRemove    bool
-	GroupLock    string // the group whose terms the file follows (D4)
-	Preview      previewInfo
+	UploaderName  string
+	UploaderPhoto string // the badge's photo, "" for initials (Part 4, S2)
+	Downloaded    bool
+	CanRemove     bool
+	GroupLock     string // the group whose terms the file follows (D4)
+	Preview       previewInfo
 }
 
 // Handling of /groups/item
@@ -368,9 +372,13 @@ func groupItem(w http.ResponseWriter, r *http.Request) {
 	}
 	item := groupBrowserItem(r, g, file, user, names,
 		database.GetDownloadedFileIds(user.Id), storage.CanManageGroup(g, user))
+	one := []browserItem{item}
+	fillUploaderPhotos(one)
+	item = one[0]
 	writeJson(w, groupItemAnswer{
 		FileApiOutput: item.File,
 		UploaderName:  item.Uploader,
+		UploaderPhoto: item.UploaderPhoto,
 		Downloaded:    item.Downloaded,
 		CanRemove:     item.CanRemove,
 		GroupLock:     item.GroupLock,

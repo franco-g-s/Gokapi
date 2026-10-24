@@ -58,7 +58,7 @@ func filesTabSource(r *http.Request, user models.User) (listSource, filesTabMeta
 	meta.Person, meta.OnlyPerson = personFilter(r, user)
 	names := map[int]string{}
 	for _, u := range database.GetAllUsers() {
-		names[u.Id] = u.Name
+		names[u.Id] = displayName(u) // Part 4, S2: shown names
 	}
 	now := time.Now().Unix()
 	items := make([]browserItem, 0)
@@ -102,7 +102,7 @@ func filesListUrl(meta filesTabMeta) string {
 func fileRequestSource(r *http.Request, user models.User, request models.FileRequest) listSource {
 	names := map[int]string{}
 	for _, u := range database.GetAllUsers() {
-		names[u.Id] = u.Name
+		names[u.Id] = displayName(u) // Part 4, S2: shown names
 	}
 	items := make([]browserItem, 0, len(request.Files))
 	for _, f := range request.Files {

@@ -199,6 +199,34 @@ type Database interface {
 	// DeleteViewAs ends the admin's "View as…"
 	DeleteViewAs(adminId int)
 
+	// Part 4, K: blocklist
+	// SaveBlock adds a blocklist entry (an email or "@domain"); an existing one is kept
+	SaveBlock(b models.BlockEntry)
+	// DeleteBlock removes a blocklist entry
+	DeleteBlock(entry string)
+	// IsBlocked returns true if the exact entry is on the blocklist
+	IsBlocked(entry string) bool
+	// GetAllBlocks returns every blocklist entry
+	GetAllBlocks() []models.BlockEntry
+	// Part 4, S1: profiles
+	// GetProfile returns the user's profile, or false if none is stored
+	GetProfile(userId int) (models.Profile, bool)
+	// GetProfileWithoutPhoto is GetProfile without the photo's bytes
+	GetProfileWithoutPhoto(userId int) (models.Profile, bool)
+	// SaveProfile inserts or replaces the user's profile
+	SaveProfile(profile models.Profile)
+	// DeleteProfile removes the user's profile
+	DeleteProfile(userId int)
+	// Part 4, A: activity feed
+	// SaveActivity appends one event; its Id is assigned by the database
+	SaveActivity(a models.Activity)
+	// GetActivitySince returns up to limit events with an Id above since, oldest first
+	GetActivitySince(since int64, limit int) []models.Activity
+	// ActivityBounds returns the oldest retained id (0 when empty) and the newest id ever assigned
+	ActivityBounds() (oldest, newest int64)
+	// PruneActivity deletes every event that happened before the timestamp
+	PruneActivity(before int64)
+
 	// GetStatTraffic returns the total traffic from statistics
 	GetStatTraffic() uint64
 	// SaveStatTraffic stores the total traffic

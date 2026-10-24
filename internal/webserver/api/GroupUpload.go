@@ -67,8 +67,10 @@ func applyGroupExpiry(params *models.UploadParameters, g models.Group) {
 
 // attachToGroup puts a just-stored upload into its group. It reports false
 // when a byte-identical copy was already there: AttachUploadToGroup has then
-// deleted this one, and a blocking caller is told so. No metadata lock may
-// be held here (AttachUploadToGroup takes it).
+// deleted this one, and a blocking caller is told so. AttachUploadToGroup
+// takes no lock: its duplicate check and the attach are not atomic, so two
+// identical uploads arriving at the same moment can both be kept. That is
+// benign (one extra copy in the group) and tracked as a follow-up.
 func attachToGroup(w http.ResponseWriter, g models.Group, file models.File, user models.User) bool {
 	if g.Id == "" {
 		return true

@@ -332,7 +332,15 @@ function addRowUser(userid, name, permissions) {
     cells.forEach(cell => cell.classList.add("newUser"));
 
     cellName.className += " fgs-user-name";
-    cellName.textContent = name;
+    // Part 4, S2: the shown name, then the account under it. A new account
+    // has no profile yet, so its shown name is people.Name's fallback: the
+    // part before "@", or the whole name without one.
+    const at = name.indexOf("@");
+    const shownName = at > 0 ? name.slice(0, at) : name;
+    const shown = document.createElement("span");
+    shown.className = "fgs-user-shown";
+    shown.textContent = shownName;
+    cellName.appendChild(shown);
     // A new user is never an admin, nor yourself
     if (typeof canViewAs !== "undefined" && canViewAs) {
         const viewAs = document.createElement("button");
@@ -342,6 +350,12 @@ function addRowUser(userid, name, permissions) {
         viewAs.textContent = "View as…";
         cellName.appendChild(document.createTextNode(" "));
         cellName.appendChild(viewAs);
+    }
+    if (shownName !== name) {
+        const email = document.createElement("small");
+        email.className = "text-muted d-block fgs-user-email";
+        email.textContent = name;
+        cellName.appendChild(email);
     }
     cellType.id = "userlevel_" + userid;
     cellType.textContent = "User";
@@ -432,4 +446,94 @@ document.addEventListener("click", function (e) {
     if (!button) return;
     e.preventDefault();
     viewAsStart(parseInt(button.getAttribute("data-fgs-viewas-user"), 10), button);
+});
+
+
+// Part 4, K: the blocklist
+
+// postBlock sends one blocklist change as JSON and rejects with the server's message
+async function postBlock(path, entry) {
+    const response = await fetch(path, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({entry: entry})
+    });
+    let data = {};
+    try {
+        data = await response.json();
+    } catch (e) {
+        // not JSON: fall through to the status check
+    }
+    if (!response.ok) {
+        throw new Error(data.ErrorMessage || ('Error ' + response.status));
+    }
+}
+
+// reloadBlockedList replaces the Blocked list with the one the server renders
+// into /users now
+async function reloadBlockedList() {
+    const response = await fetch('users', {credentials: 'same-origin'});
+    if (!response.ok) {
+        location.reload();
+        return;
+    }
+    const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+    const fresh = doc.getElementById('blocked-list');
+    const current = document.getElementById('blocked-list');
+    if (!fresh || !current) {
+        location.reload();
+        return;
+    }
+    current.replaceChildren(...Array.from(fresh.children).map(child => document.importNode(child, true)));
+}
+
+function addBlockedEntry() {
+    const input = document.getElementById('blocked-input');
+    const entry = input.value.trim();
+    if (entry === '') {
+        return;
+    }
+    postBlock('users/block', entry)
+        .then(() => {
+            input.value = '';
+            showToast(1000, 'Blocked');
+            return reloadBlockedList();
+        })
+        .catch(error => {
+            alert(error.message);
+        });
+}
+
+function removeBlockedEntry(entry) {
+    postBlock('users/unblock', entry)
+        .then(() => reloadBlockedList())
+        .catch(error => {
+            alert(error.message);
+        });
+}
+
+function blockPerson(email) {
+    if (!confirm('Block ' + email + '? They are signed out now and cannot sign in again. Their files stay.')) {
+        return;
+    }
+    postBlock('users/block', email)
+        .then(() => {
+            showToast(1000, 'Blocked');
+            return reloadBlockedList();
+        })
+        .catch(error => {
+            alert(error.message);
+        });
+}
+
+document.addEventListener('click', function(event) {
+    const unblock = event.target.closest('[data-fgs-unblock]');
+    if (unblock) {
+        removeBlockedEntry(unblock.getAttribute('data-fgs-unblock'));
+        return;
+    }
+    const block = event.target.closest('[data-fgs-block-user]');
+    if (block) {
+        blockPerson(block.getAttribute('data-fgs-block-user'));
+    }
 });

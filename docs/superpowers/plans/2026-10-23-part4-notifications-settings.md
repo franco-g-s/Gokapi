@@ -1432,4 +1432,39 @@ class Feed(unittest.TestCase):
 
 ## Rulings during execution
 
-(none yet)
+Decisions the controller took while executing; the SDD ledger they came from is scratch and deleted after go-live, so this is the durable record.
+
+- W0 ran as an implementer task, reviewed like the others — cost: none.
+- Wave 1 (A, S1, K, N) ran in parallel worktrees, started from W0 before its review finished; merged in completion order (K, N, S1, A), with one asset regeneration after the last Go merge — cost: merge conflicts, resolved keeping both sides (ensure chain profiles → activity → blocklist).
+- A: `via` is whatever the existing download tag carries (group/collection/file/zip); API downloads appear as `file`/`zip`, never `api` — cost: the "via API" label never shows.
+- A: `?since=` in a query string answers 400 `InvalidUrl` (R-b), not "ignored" — the e2e asserts 400.
+- A: recording is best-effort (a recover in `record()` and the pruner), so a failed Activity write never breaks an upload or a zip — cost: a row can be missing, with one stdout line.
+- A: a collection→group conversion records `group_created` only once the group survives (M4), with the person converting as actor; viewers added by conversion get no `group_joined` — cost: summaries don't say "X was added".
+- A: a preview that kills the process on its final attempt is still warned about (backfill's pending-at-limit branch).
+- K: the blocklist fails closed on a DB error, re-checks every session (`IsValidSession` and `PeekSession`, via `sessionmanager.SessionRefused`), is admin-only in the UI, and errors on Redis — cost: two primary-key lookups per request.
+- K: header auth runs no sign-in guards (live uses OAuth) — known, documented.
+- S1: display names refuse control (Cc) and format (Cf) characters and need a visible rune; the same rule drops an invalid Google name — cost: a legitimate ZWJ emoji sequence is refused.
+- S1: a photo fetch is tried at most once a day per person, failed or not (`PhotoTried`), and only one fetch runs for concurrent sign-ins.
+- S1: with "Use initials" on, `/avatar` serves the photo only to its owner.
+- S2: shown names also replace raw names in the Files tab, file-request feeds and the collections-admin owner badge; `html_api.tmpl` and `html_uploadrequest.tmpl` stay raw (your own account).
+- Public collection pages now show the owner's shown name, e.g. the Google full name (Q9) — flagged to Franco.
+- N: undeliverable mail is classified by exception type — message errors (`SMTPDataError`, `SMTPRecipientsRefused`) are dropped for friends at once and for `mail_to` after 3 attempts; transport errors back off. While any alarm is queued the backoff is at most 5 minutes; a failing alarm builder falls back to plain `[FGS] <kind>` emails after 3 tries — cost: a 4xx `SMTPDataError` drops a friend digest at once.
+- F: the grid badge overlap was older than Part 4 (a caption-relative offset); it is now placed from the thumbnail inside `@supports (width:1cqw)`, so older Safari keeps the old placement.
+- Test fix: `TestEditFileInGroupLocked` was order-dependent (another test's async CleanUp dropped its blob-less file); the test now writes its blob. Not a product bug.
+- Not fixed, follow-up: two byte-identical files uploaded in one batch into a group can both be kept (`AttachUploadToGroup` check-then-act, no lock; pre-existing, benign, "Check for duplicates" removes it). The first `/groups/item` fetch after an upload 404s until the attach lands; the client retries (pre-existing).
+- Final review: one notifier must-fix (a refused email to `mail_to` blocked every later alarm) and the deploy key INSERT (missing `LastUsed`; `IsSystemKey` must be 0) were fixed before go-live; a second narrow notifier fix round followed (5-minute clamp, builder fallback).
+- Franco's preview requests (2026-10-24): photo in the user pill, a 40rem Settings card with Back, Unblock wraps at 390 px, a visible checked state on the disabled switch. "Can't manage anna's group under View as" is by design: as anna she can rename, extend and delete; View as is read-only.
+
+## Deployed
+
+Live since 2026-10-24 09:51 (about a minute of downtime) as `gokapi-fgs:part4-2026-10-24` from `5bf6135`. PR #4 into `feature/collections`.
+
+- The old notifier was unloaded first; the new one (`deploy/notifier/gokapi_notify.py` → `~/apps/gokapi/gokapi-notify.py`) ran `--once --from-start` (cursor 0, nothing pending) and was loaded under the same plist. State: `.notify-state-v2.json`.
+- The notifier's key ("Notifier (Part 4)", Permissions 128, not a system key, user 1) was inserted while gokapi was stopped and written only into `notify.config.json`; never printed. `api_url` and `site_url` stay at their defaults.
+- DB backup `~/apps/gokapi/backups/backup-pre-part4-2026-10-24.sqlite` (integrity ok, schema 17, 222 files). No branding change.
+- Smoke tests: `/` 200; `/login` → `/oauth-login`; `/settings`, `/avatar`, `/files` → `/login`; `/api/activity` 401 without a key and OK with it; no `[warning]` lines.
+
+**Rollback:**
+1. Restore `docker-compose.yml.bak.2026-10-24` (image `gokapi-fgs:part3-2026-10-22`) and `gokapi-notify.py.bak.2026-10-24`, and `notify.config.json.bak.2026-10-24` if wanted.
+2. **Delete** `.notify-state.json` so the old notifier resyncs to the end of `log.txt` instead of re-sending it.
+3. `docker compose up -d`, reload the plist. The new tables are ignored by the old image.

@@ -43,6 +43,10 @@
 		#fgs-usermenu .dropdown-menu { text-align: start; max-width: min(22rem, 90vw); }
 		#fgs-usermenu .fgs-usermenu-name { overflow-wrap: break-word; color: #fff; }
 		#fgs-usermenu .fgs-usermenu-name small { display: block; }
+		/* Part 4 polish: the photo in the pill. Sizes are rem, as the branding sets the badge's font-size to 0; the ID outranks its padding */
+		#fgs-usermenu .fgs-usermenu-photo { width: 1.5rem; height: 1.5rem; border-radius: 50%; object-fit: cover; display: inline-block; vertical-align: middle; flex: none; }
+		#fgs-usermenu .badge.fgs-usermenu-has-photo { padding: 0.2rem; opacity: 1 !important; }
+		#fgs-usermenu:hover .badge.fgs-usermenu-has-photo, #fgs-usermenu:focus-within .badge.fgs-usermenu-has-photo { padding: 0.2rem 0.75rem 0.2rem 0.2rem; }
 	</style>
     {{ if .CustomContent.UseCustomCss }}
 	<link  href="./custom/custom.v{{.CustomContent.Version}}.css" rel="stylesheet">
@@ -81,7 +85,8 @@
      branding styles; viewas.js moves #fgs-usermenu below its banner. -->
 <div id="fgs-usermenu" class="dropdown" style="position:fixed;top:0.5rem;right:0.75rem;z-index:9999;">
   <button type="button" class="fgs-usermenu-btn" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Account menu">
-    <span class="badge bg-secondary opacity-75"><i class="bi bi-person-fill"></i>{{ if .IsUserTabAvailable }}<span class="fgs-usermenu-label"> {{.ActiveUserShownName}}</span>{{ end }}</span>
+    {{/* Part 4 polish: the person's photo when they have one (during View as, the viewed person's); media.js turns a photo that fails to load back into the icon */}}
+    <span class="badge bg-secondary opacity-75{{ if .ActiveUserPhotoUrl }} fgs-usermenu-has-photo{{ end }}">{{ if .ActiveUserPhotoUrl }}<img class="fgs-usermenu-photo" src="{{ .ActiveUserPhotoUrl }}" alt="" referrerpolicy="no-referrer" width="24" height="24">{{ else }}<i class="bi bi-person-fill"></i>{{ end }}{{ if .IsUserTabAvailable }}<span class="fgs-usermenu-label"> {{.ActiveUserShownName}}</span>{{ end }}</span>
   </button>
   {{/* Part 4, S2: the shown name, the email under it, Settings, Logout */}}
   <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">

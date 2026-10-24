@@ -206,3 +206,45 @@ func TestUsersPageShowsShownNameAndEmail(t *testing.T) {
 	test.IsEqualBool(t, strings.Contains(row, `<span class="fgs-user-shown">anna.s2</span>`), true)
 	test.IsEqualBool(t, strings.Contains(row, `fgs-user-email">anna.s2@example.com</small>`), true)
 }
+
+// Part 4 polish: the pill shows the signed-in person's photo when they have
+// one, the icon when they chose initials or have none, and the viewed
+// person's photo during "View as…"
+func TestUserMenuPhoto(t *testing.T) {
+	fx := newViewAsFixture(t, 9520)
+	pill := func(session string) string {
+		_, body := groupsTabDo(t, "GET", "/files", session, "", "")
+		menu := regexp.MustCompile(`(?s)<div id="fgs-usermenu".*?</ul>`).FindString(body)
+		test.IsEqualBool(t, menu != "", true)
+		button := regexp.MustCompile(`(?s)<button type="button" class="fgs-usermenu-btn".*?</button>`).FindString(menu)
+		test.IsEqualBool(t, strings.Contains(button, `aria-label="Account menu"`), true)
+		return button
+	}
+	photoOf := func(u models.User) string { return strings.ReplaceAll(people.PhotoUrl(u), "&", "&amp;") }
+
+	// No photo: the icon, no image
+	button := pill(fx.bSession)
+	test.IsEqualBool(t, strings.Contains(button, `bi-person-fill`), true)
+	test.IsEqualBool(t, strings.Contains(button, `<img`), false)
+
+	// A photo: the image, not the icon
+	test.IsNil(t, people.StorePhoto(fx.b.Id, avatarJpeg))
+	test.IsEqualBool(t, people.PhotoUrl(fx.b) != "", true)
+	button = pill(fx.bSession)
+	test.IsEqualBool(t, strings.Contains(button, `<img class="fgs-usermenu-photo" src="`+photoOf(fx.b)+`"`), true)
+	test.IsEqualBool(t, strings.Contains(button, `bi-person-fill`), false)
+
+	// Chose initials: back to the icon
+	on, off := true, false
+	people.SetPreferences(fx.b.Id, nil, &on)
+	button = pill(fx.bSession)
+	test.IsEqualBool(t, strings.Contains(button, `<img`), false)
+	test.IsEqualBool(t, strings.Contains(button, `bi-person-fill`), true)
+	people.SetPreferences(fx.b.Id, nil, &off)
+
+	// The admin has no photo; during "View as…" b the pill is b's
+	test.IsEqualBool(t, strings.Contains(pill(fx.adminSession), `<img`), false)
+	test.IsNil(t, viewas.Start(fx.admin, fx.b.Id))
+	button = pill(fx.adminSession)
+	test.IsEqualBool(t, strings.Contains(button, `src="`+photoOf(fx.b)+`"`), true)
+}

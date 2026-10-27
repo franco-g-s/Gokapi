@@ -1,7 +1,7 @@
 > **This is a personal fork of [Forceu/Gokapi](https://github.com/Forceu/Gokapi)**, the build behind
-> share.franco.international: a private photo and file share for friends and family. The default
-> branch, `feature/collections`, holds the changes. `master` tracks upstream untouched. Everything
-> below the line is upstream's README.
+> share.franco.international: a private photo and file share for friends and family. `main` is
+> upstream's `master` as of July 2026 plus the changes below. Upstream updates come in by merging
+> `Forceu/Gokapi` `master`. Everything below the line is upstream's README.
 >
 > **What the fork adds** (PRs #1–#4; the design is in `docs/design/`, the plans in `docs/superpowers/plans/`):
 > - **Previews.** A hardened vips/ffmpeg worker makes thumbnails, views and video posters. A single access rule, `access.CanView`, governs every preview route. A shared file-list component has grid, board and list views and a full-screen viewer.

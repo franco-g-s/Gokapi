@@ -60,7 +60,7 @@ Rulings from Parts 1–3 still bind: D1–D20 in `2026-10-20-part2-groups.md`, a
 Everything in `2026-10-20-part2-groups.md` and `2026-10-21-part3-batching-photos-viewas.md` → Global Constraints still applies. Updated for Part 4:
 
 - **No Go toolchain on the host.** Every `go` command runs through `build/dev/gotest.sh`, which also runs `go generate`.
-  - It sets `DOCKER_HOST=unix:///Users/franco/.colima/default/docker.sock`, passes `-tags=test,awsmock`, and serialises runs with a lock.
+  - It sets `DOCKER_HOST=unix://$HOME/.colima/default/docker.sock`, passes `-tags=test,awsmock`, and serialises runs with a lock.
   - `internal/encryption` and `internal/configuration/setup` are killed by the VM's memory. That is known: ignore them, and delete a left-behind `internal/configuration/setup/test/`.
   - Check for `--- PASS: <TestName>`. Example: `build/dev/gotest.sh ./internal/people/ -run TestShownName -v`.
 - **Docker:** every docker command names the context: `docker --context colima`. Only one agent at a time uses port 53900 and the shared Playwright browser.
@@ -1363,7 +1363,7 @@ class Feed(unittest.TestCase):
     - start and end produce `viewas_start` and `viewas_end` rows;
     - `/settings` renders read-only under View as, and a POST to `/settings/save` gets 403.
   - **Notifier against the container:**
-    - run `deploy/notifier/gokapi_notify.py --once --from-start` with a temp config: `api_url` on 53900, `deliver: dir:~/src/Gokapi-wt/e2e-mail`, `redirect_all_to: franco@goxcoworld.com`, `quiet_minutes: 0`;
+    - run `deploy/notifier/gokapi_notify.py --once --from-start` with a temp config: `api_url` on 53900, `deliver: dir:~/src/Gokapi-wt/e2e-mail`, `redirect_all_to: <your address>`, `quiet_minutes: 0`;
     - assert an `.eml` exists for the group-created event and one summary;
     - assert every `.eml`'s `To` is the redirect.
 - **Run:** a fresh container (`-e GOKAPI_PORT=53900 -p 127.0.0.1:53900:53900`, fresh volumes, `setup_local.py`, restart). Run `part4_e2e.py`, then `groups_e2e.py`, `collections_e2e.py` and `part3_e2e.py` on the same image. Remove the container and volumes afterwards.
@@ -1390,12 +1390,12 @@ class Feed(unittest.TestCase):
 3. **Wave 2:** S2 in `p4-ui`; review; merge; regenerate.
 4. **Wave 3:** E. Then a **whole-branch review** by a fresh reviewer against this plan, the spec and the Part 1–3 rulings, then one fix round.
 5. **Preview:**
-   - copy the live volumes **read-only** into fresh volumes and switch the copy to internal auth (`Authentication.Method 0`), `ServerUrl` `https://francos-mac-mini.tail2dc5de.ts.net:8443/`;
+   - copy the live volumes **read-only** into fresh volumes and switch the copy to internal auth (`Authentication.Method 0`), `ServerUrl` `https://<host>.<tailnet>.ts.net:8443/`;
    - set a temporary password with `/app/run.sh --deployment-password <pw>` once, then recreate without it;
    - create anna and ben via `/api/user/create` + `resetPassword`; seed their display names, and a photo via `GOKAPI_E2E_SEED=1`, which is **only** on the preview;
    - run on 127.0.0.1:53910 with the compose hardening, and expose it with `tailscale serve --bg --https=8443 http://127.0.0.1:53910`; test via the tailnet IP;
    - mount a copy of the branding under `~`, with no secrets;
-   - run a **preview notifier**, `--once` by hand, with its own config and state in `~/src/Gokapi-wt/preview-notify/`: `api_url` 53910, `redirect_all_to: franco@goxcoworld.com`, the existing SMTP credentials read from `~/apps/gokapi/notify.config.json` (read-only) into that scratch config;
+   - run a **preview notifier**, `--once` by hand, with its own config and state in `~/src/Gokapi-wt/preview-notify/`: `api_url` 53910, `redirect_all_to: <your address>`, the existing SMTP credentials read from `~/apps/gokapi/notify.config.json` (read-only) into that scratch config;
    - do the Playwright walkthrough on desktop and 390×844, then hand the preview to Franco.
    - **Tell him:** on live, names and photos appear only after each person's next Google sign-in, which can take days with long sessions.
 6. **Deploy, only after Franco's yes:**

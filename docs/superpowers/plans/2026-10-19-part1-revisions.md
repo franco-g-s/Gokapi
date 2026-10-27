@@ -20,7 +20,7 @@ No new pages.
 
 Every constraint in `docs/superpowers/plans/2026-10-19-part1-previews.md` → "Global Constraints" still applies. Copied here verbatim where it matters:
 
-- **No Go toolchain on the host.** Every `go` command runs via `build/dev/gotest.sh` (Docker, `DOCKER_HOST=unix:///Users/franco/.colima/default/docker.sock`).
+- **No Go toolchain on the host.** Every `go` command runs via `build/dev/gotest.sh` (Docker, `DOCKER_HOST=unix://$HOME/.colima/default/docker.sock`).
   - Two packages are known to be killed for lack of VM memory: `internal/encryption` and `internal/configuration/setup`. Ignore those two.
   - If `internal/configuration/setup/test/` is left behind, delete it.
 - **Always `-tags=test,awsmock`** (the script does this). Check for `--- PASS: <TestName>`.

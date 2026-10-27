@@ -60,7 +60,7 @@ Franco answered D1–D5 on 2026-10-20, and D4 and D9 were changed on his say-so.
 
 Everything in `docs/superpowers/plans/2026-10-19-part1-revisions.md` → Global Constraints still applies. Verbatim where it matters:
 
-- **No Go toolchain on the host.** Every `go` command runs through `build/dev/gotest.sh`. Set `DOCKER_HOST=unix:///Users/franco/.colima/default/docker.sock`; the script defaults to it.
+- **No Go toolchain on the host.** Every `go` command runs through `build/dev/gotest.sh`. Set `DOCKER_HOST=unix://$HOME/.colima/default/docker.sock`; the script defaults to it.
   - The script serialises runs across worktrees with a lock.
   - `internal/encryption` and `internal/configuration/setup` are killed by the VM's ~4 GiB of memory. That is known: ignore those two packages.
   - If `internal/configuration/setup/test/` is left behind, delete it.

@@ -33,7 +33,7 @@ Client, BASE = seed.Client, seed.BASE
 spec4 = importlib.util.spec_from_file_location("seed_part4", os.path.join(HERE, "seed_part4.py"))
 seed4 = importlib.util.module_from_spec(spec4)
 spec4.loader.exec_module(seed4)
-REDIRECT = "franco@goxcoworld.com"
+REDIRECT = os.environ.get("GOKAPI_E2E_REDIRECT", "owner@example.com")
 MAIL_DIR = os.path.expanduser("~/src/Gokapi-wt/e2e-mail")
 CODE_INVALID_URL, CODE_INVALID_KEY, CODE_ADMIN_ONLY = 1, 2, 3
 

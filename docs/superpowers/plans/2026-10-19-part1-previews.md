@@ -18,7 +18,7 @@
 ## Global Constraints
 
 - **No Go toolchain on the host.** Every `go` command runs through `build/dev/gotest.sh` (Task 0), which uses `golang:1.26.2-alpine` with `vips-tools vips-heif ffmpeg exiftool` installed and the module cache in a named volume.
-- Docker on the mini needs `DOCKER_HOST=unix:///Users/franco/.colima/default/docker.sock`. The default socket is Docker Desktop, which does not have the gokapi container.
+- Docker on the mini needs `DOCKER_HOST=unix://$HOME/.colima/default/docker.sock`. The default socket is Docker Desktop, which does not have the gokapi container.
 - **Always pass `-tags=test,awsmock`** (the script does this). Without the tags Go prints `no test files` and exits 0, which looks like a pass. Every "run the test" step greps for its test's name with `-v` and checks for `--- PASS: <TestName>`.
 - **Tests that need `vips` or `ffmpeg` must fail, not skip, when the tools are missing.**
 - `go generate ./...` rewrites the hashed asset names in `string_constants.tmpl`, `api/VersionNumbers.go` and `js/min/*`. Commit those changes together with the change that caused them.
@@ -122,7 +122,7 @@ cd ~/src/Gokapi && git fetch -q && git checkout -b feature/previews design/group
 # builds with, plus the preview tools. There is no Go on the mini itself.
 set -eu
 cd "$(dirname "$0")/../.."
-export DOCKER_HOST="${DOCKER_HOST:-unix:///Users/franco/.colima/default/docker.sock}"
+export DOCKER_HOST="${DOCKER_HOST:-unix://$HOME/.colima/default/docker.sock}"
 if [ "$#" -eq 0 ]; then set -- ./...; fi
 exec docker run --rm \
   -v "$PWD":/src -w /src \
@@ -154,7 +154,7 @@ RUN apk update && apk add --no-cache su-exec tini ca-certificates curl tzdata vi
 - [ ] **Step 5: Build the image and smoke-test the tools.**
 
 ```bash
-export DOCKER_HOST=unix:///Users/franco/.colima/default/docker.sock
+export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock
 docker build -q -t gokapi-fgs:previews-dev . && \
 docker run --rm --entrypoint sh gokapi-fgs:previews-dev -c 'vips --version; vips -l foreign | grep -c heif; ffprobe -version | head -1'
 ```
@@ -2764,7 +2764,7 @@ This task changes nothing deployed. It produces evidence for Franco.
 - [ ] **Step 1: Start a local instance with the deployment's hardening.** Use port 53900 with fresh volumes and the real compose limits.
 
 ```bash
-export DOCKER_HOST=unix:///Users/franco/.colima/default/docker.sock
+export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock
 cd ~/src/Gokapi && docker build -q -t gokapi-fgs:previews-dev .
 docker run -d --name gokapi-previews-test -p 127.0.0.1:53900:53842 \
   --security-opt no-new-privileges:true --cap-drop ALL --pids-limit 200 --memory 1g --cpus 1.5 \
@@ -2794,7 +2794,7 @@ Save screenshots to `~/src/Gokapi/build/e2e/screens-part1/`. That directory is n
 The live volumes are `gokapi_gokapi_data` and `gokapi_gokapi_config`, with the compose project prefix. Copy **both** first. **Never mount a live volume into a second container.**
 
 ```bash
-export DOCKER_HOST=unix:///Users/franco/.colima/default/docker.sock
+export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock
 docker run --rm -v gokapi_gokapi_data:/from:ro -v gokapi-previews-realcopy:/to alpine sh -c 'cp -a /from/. /to/'
 docker run --rm -v gokapi_gokapi_config:/from:ro -v gokapi-previews-realconfig:/to alpine sh -c 'cp -a /from/. /to/'
 docker run -d --name gokapi-previews-real -p 127.0.0.1:53901:53842 \
@@ -2834,7 +2834,7 @@ docker rm -f gokapi-previews-test; docker volume rm gokapi-previews-test-data go
 
 **Do not start this task without a "yes, deploy" from Franco in the current conversation.** Since Ruling 20 the database stays at schema version 17: the new image only adds the `Previews` table (`CREATE TABLE IF NOT EXISTS`, every start), which the old image ignores. Rollback is therefore an image swap; restoring the database is a last resort, not a required step.
 
-Throughout: `export DOCKER_HOST=unix:///Users/franco/.colima/default/docker.sock`. Set `D=$(date +%Y-%m-%d)` once and reuse it.
+Throughout: `export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock`. Set `D=$(date +%Y-%m-%d)` once and reuse it.
 
 - [ ] **Step 1: Build under a new tag first**, so the container is down only for the backup and the swap. `gokapi-fgs:collections` stays available for rollback.
 

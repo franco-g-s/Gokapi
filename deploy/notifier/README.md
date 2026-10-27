@@ -126,7 +126,7 @@ never committed.** `.gitignore` here excludes `notify.config.json`,
 On the mini it runs as the launchd agent `com.franco.gokapi-notify`
 (`~/Library/LaunchAgents/com.franco.gokapi-notify.plist`):
 
-- `/usr/bin/python3 /Users/franco/apps/gokapi/gokapi-notify.py`;
+- `/usr/bin/python3 $HOME/apps/gokapi/gokapi-notify.py`;
 - `KeepAlive`, `RunAtLoad`, `ThrottleInterval` 30;
 - working directory `~/apps/gokapi`;
 - stdout and stderr to `~/apps/gokapi/notify.log`.

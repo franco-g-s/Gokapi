@@ -11,7 +11,7 @@
 # waiters can never both break it and both run.
 set -eu
 cd "$(dirname "$0")/../.."
-export DOCKER_HOST="${DOCKER_HOST:-unix:///Users/franco/.colima/default/docker.sock}"
+export DOCKER_HOST="${DOCKER_HOST:-unix://$HOME/.colima/default/docker.sock}"
 if [ "$#" -eq 0 ]; then set -- ./...; fi
 
 LOCK=/tmp/gokapi-gotest.lock

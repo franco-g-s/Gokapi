@@ -1,3 +1,20 @@
+> **This is a personal fork of [Forceu/Gokapi](https://github.com/Forceu/Gokapi)**, the build behind
+> share.franco.international: a private photo and file share for friends and family. The default
+> branch, `feature/collections`, holds the changes. `master` tracks upstream untouched. Everything
+> below the line is upstream's README.
+>
+> **What the fork adds** (PRs #1–#4; the design is in `docs/design/`, the plans in `docs/superpowers/plans/`):
+> - **Previews.** A hardened vips/ffmpeg worker makes thumbnails, views and video posters. A single access rule, `access.CanView`, governs every preview route. A shared file-list component has grid, board and list views and a full-screen viewer.
+> - **Groups.** Join by invite link or code, with creator, member and admin roles. A shared board is ordered by capture time. Exact duplicates are refused and near-copies flagged (perceptual hash). The list ticks off what you have already downloaded.
+> - **Large lists.** Keyset-paginated batches. Server-side sort, filter, search and type filters. Selection and bulk actions over the whole set. iPhone "Save to Photos" runs in measured batches. Admins get a read-only "View as…".
+> - **People.** Google sign-in profiles, display names and photos. A per-user Settings page. An email/domain blocklist enforced at sign-in, password login and API keys.
+> - **Activity feed and notifier.** An admin-only `GET /api/activity`, plus a Python notifier (`deploy/notifier/`) that batches it into quiet summaries and an optional daily digest.
+> - **Tests.** Go unit tests for every change and Playwright end-to-end scripts (`build/e2e/`). These run against seeded, synthetic users. No real data is in this repo.
+>
+> The database schema stays at upstream's version 17: new tables are created idempotently. Licensed AGPL-3.0, as upstream.
+
+---
+
 # Gokapi
 
 [![Documentation Status](https://readthedocs.org/projects/gokapi/badge/?version=latest)](https://gokapi.readthedocs.io/en/stable/?badge=stable)

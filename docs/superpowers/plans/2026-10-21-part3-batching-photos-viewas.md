@@ -50,7 +50,7 @@ Rulings from Parts 1 and 2 still bind: D1–D20 in `2026-10-20-part2-groups.md`,
 Everything in `docs/superpowers/plans/2026-10-20-part2-groups.md` → Global Constraints still applies. The parts that matter, verbatim or updated:
 
 - **No Go toolchain on the host.** Every `go` command runs through `build/dev/gotest.sh`.
-  - Set `DOCKER_HOST=unix:///Users/franco/.colima/default/docker.sock`; the script defaults to it.
+  - Set `DOCKER_HOST=unix://$HOME/.colima/default/docker.sock`; the script defaults to it.
   - It always passes `-tags=test,awsmock`, and serialises runs across worktrees with a lock.
   - `internal/encryption` and `internal/configuration/setup` are killed by the VM's ~4 GiB of memory. That is known: ignore them. If `internal/configuration/setup/test/` is left behind, delete it.
   - Check for `--- PASS: <TestName>`. Run one package with, for example, `build/dev/gotest.sh ./internal/webserver/ -run TestListQuery -v`.
@@ -889,7 +889,7 @@ docker rm -f p3e2e && docker volume rm p3e2e_data p3e2e_config
    docker run --rm -v gokapi_gokapi_config:/from:ro -v gokapi_p3_config:/to alpine cp -a /from/. /to/
    ```
 
-   - In the copy's `config.json`, set `Authentication.Method` to 0 and `ServerUrl` to `https://francos-mac-mini.tail2dc5de.ts.net:8443/`.
+   - In the copy's `config.json`, set `Authentication.Method` to 0 and `ServerUrl` to `https://<host>.<tailnet>.ts.net:8443/`.
    - Start once with `/app/run.sh --deployment-password <pw>`, then recreate the container without the flag.
    - Create `anna` and `ben` through `/api/user/create` and `resetPassword`.
    - Copy the branding to `~/src/gokapi-p3-custom/`, never with a secret in it, and mount it.

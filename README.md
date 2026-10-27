@@ -9,6 +9,7 @@
 > - **Large lists.** Keyset-paginated batches. Server-side sort, filter, search and type filters. Selection and bulk actions over the whole set. iPhone "Save to Photos" runs in measured batches. Admins get a read-only "View as…".
 > - **People.** Google sign-in profiles, display names and photos. A per-user Settings page. An email/domain blocklist enforced at sign-in, password login and API keys.
 > - **Activity feed and notifier.** An admin-only `GET /api/activity`, plus a Python notifier (`deploy/notifier/`) that batches it into quiet summaries and an optional daily digest.
+> - **Deployment.** `deploy/` holds the compose file with its hardening, the branding (`deploy/custom/`), the upload-limit script and the notifier's launchd agent.
 > - **Tests.** Go unit tests for every change and Playwright end-to-end scripts (`build/e2e/`). These run against seeded, synthetic users. No real data is in this repo.
 >
 > The database schema stays at upstream's version 17: new tables are created idempotently. Licensed AGPL-3.0, as upstream.

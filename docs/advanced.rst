@@ -610,7 +610,7 @@ Customising
 
 If you want to change the layout (e.g. add your company logo or add/disable certain features), follow these steps:
 
-1. Create a new folder named ``custom`` where your executable is. When using Docker, mount a new folder to ``/app/custom/``. Any file in this directory will be publicly available in the sub-URL ``/custom/``.
+1. Create a new folder named ``custom`` where your executable is. When using Docker, mount a new folder to ``/app/custom/``. Only the files named below (``custom.css``, ``public.js``, ``admin.js``, ``version.txt``, ``favicon.png``, ``landing.html``) are served under the sub-URL ``/custom/``; any other file there, and the directory itself, answers 404 (fork change, 2026-10-20).
 2. To have custom CSS included, create a file in the folder named ``custom.css``. The CSS will be applied to all pages.
 3. To have custom JavaScript included, create the file ``public.js`` for all public pages and/or ``admin.js`` for all admin-related pages. Please note that the ``admin.js`` will be readable to all users.
 4. In order to prevent caching issues, you can version your files by creating the file ``version.txt`` with a version number.

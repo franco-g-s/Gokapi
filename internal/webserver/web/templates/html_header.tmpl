@@ -15,6 +15,8 @@
         <link href="./css/min/gokapi.min.{{ template "css_main"}}.css" rel="stylesheet">
 	<link href="./assets/dist/icons/bootstrap-icons.min.css" rel="stylesheet">
 	<script src="./js/min/all_public.min.js"></script>
+	<script src="./js/min/media.min.{{ template "js_media_version"}}.js"></script>
+	<script src="./js/min/viewas.min.js?v={{ template "js_media_version"}}"></script>
 {{ if .IsAdminView }}
         <title>{{.PublicName}} Admin</title>
 	<script src="./assets/dist/js/dropzone.min.js?v={{ template "js_dropzone_version"}}"></script>
@@ -33,6 +35,18 @@
 		.nav-masthead {
 			float: right;
 		}
+		/* The user menu (R2, V3) */
+		.fgs-usermenu-btn { background: none; border: 0; padding: 0; color: inherit; line-height: 1; }
+		#fgs-usermenu .badge { cursor: pointer; }
+		/* Part 4 fix F3: on a phone the pill is just the icon (the name is the first line of its menu), so it never reaches the site title */
+		@media (max-width: 575.98px) { #fgs-usermenu .fgs-usermenu-label { display: none; } }
+		#fgs-usermenu .dropdown-menu { text-align: start; max-width: min(22rem, 90vw); }
+		#fgs-usermenu .fgs-usermenu-name { overflow-wrap: break-word; color: #fff; }
+		#fgs-usermenu .fgs-usermenu-name small { display: block; }
+		/* Part 4 polish: the photo in the pill. Sizes are rem, as the branding sets the badge's font-size to 0; the ID outranks its padding */
+		#fgs-usermenu .fgs-usermenu-photo { width: 1.5rem; height: 1.5rem; border-radius: 50%; object-fit: cover; display: inline-block; vertical-align: middle; flex: none; }
+		#fgs-usermenu .badge.fgs-usermenu-has-photo { padding: 0.2rem; opacity: 1 !important; }
+		#fgs-usermenu:hover .badge.fgs-usermenu-has-photo, #fgs-usermenu:focus-within .badge.fgs-usermenu-has-photo { padding: 0.2rem 0.75rem 0.2rem 0.2rem; }
 	</style>
     {{ if .CustomContent.UseCustomCss }}
 	<link  href="./custom/custom.v{{.CustomContent.Version}}.css" rel="stylesheet">
@@ -66,11 +80,21 @@
   </head>
   <body class="d-flex h-100 text-center text-white bg-dark">
 {{ if .IsAdminView }}
-   {{ if .IsUserTabAvailable }}
-<div style="position:fixed;top:0.5rem;right:0.75rem;z-index:9999;">
-  <span class="badge bg-secondary opacity-75">
-    <i class="bi bi-person-fill"></i> {{.ActiveUser.Name}}
-  </span>
+   {{ if or .IsUserTabAvailable .IsLogoutAvailable }}
+<!-- The user menu (R2, V3). The inline style and the badge are what the
+     branding styles; viewas.js moves #fgs-usermenu below its banner. -->
+<div id="fgs-usermenu" class="dropdown" style="position:fixed;top:0.5rem;right:0.75rem;z-index:9999;">
+  <button type="button" class="fgs-usermenu-btn" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Account menu">
+    {{/* Part 4 polish: the person's photo when they have one (during View as, the viewed person's); media.js turns a photo that fails to load back into the icon */}}
+    <span class="badge bg-secondary opacity-75{{ if .ActiveUserPhotoUrl }} fgs-usermenu-has-photo{{ end }}">{{ if .ActiveUserPhotoUrl }}<img class="fgs-usermenu-photo" src="{{ .ActiveUserPhotoUrl }}" alt="" referrerpolicy="no-referrer" width="24" height="24">{{ else }}<i class="bi bi-person-fill"></i>{{ end }}{{ if .IsUserTabAvailable }}<span class="fgs-usermenu-label"> {{.ActiveUserShownName}}</span>{{ end }}</span>
+  </button>
+  {{/* Part 4, S2: the shown name, the email under it, Settings, Logout */}}
+  <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">
+    {{ if .IsUserTabAvailable }}<li><span class="dropdown-item-text fgs-usermenu-name">{{.ActiveUserShownName}}{{ if .ActiveUserEmail }}<small class="text-muted">{{.ActiveUserEmail}}</small>{{ end }}</span></li>
+    <li><a class="dropdown-item" href="./settings">Settings</a></li>{{ end }}
+    {{ if and .IsUserTabAvailable .IsLogoutAvailable }}<li><hr class="dropdown-divider"></li>{{ end }}
+    {{ if .IsLogoutAvailable }}<li><a class="dropdown-item" href="#" onclick="doLogout()">Logout</a></li>{{ end }}
+  </ul>
 </div>
   {{ end }}
   <div class="d-flex w-100 h-100 p-3 mx-auto flex-column">
@@ -79,9 +103,12 @@
           <h1>{{.PublicName}}</h1>
           <nav class="nav nav-masthead justify-content-center">
             <a class="nav-link {{ if eq .ActiveView 0}}active{{ end }}" href="./admin">Upload</a>
+            <a class="nav-link {{ if eq .ActiveView 6}}active{{ end }}" href="./files">Files</a>
+            <a class="nav-link {{ if eq .ActiveView 7}}active{{ end }}" href="./groups">Groups</a>
             {{ if .ActiveUser.HasPermissionCreateFileRequests }}
             <a class="nav-link {{ if eq .ActiveView 4 }}active{{ end }}" href="./filerequests">File Requests</a>
             {{ end }}
+            <a class="nav-link {{ if eq .ActiveView 5 }}active{{ end }}" href="./collections">Collections</a>
             {{ if and .ActiveUser.HasPermissionManageUsers .IsUserTabAvailable }}
             <a class="nav-link {{ if eq .ActiveView 3 }}active{{ end }}" href="./users">Users</a>
             {{ end }}
@@ -91,7 +118,6 @@
             {{ if .ActiveUser.HasPermissionManageLogs }}
             <a class="nav-link {{ if eq .ActiveView 1 }}active{{ end }}" href="./logs">Status</a>
             {{ end }}
-            {{ if .IsLogoutAvailable }}<a class="nav-link" href="#" onclick="doLogout()">Logout</a>{{ end }}
           </nav>
         </div>
       </header>

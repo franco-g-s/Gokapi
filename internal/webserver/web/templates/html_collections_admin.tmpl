@@ -1,0 +1,431 @@
+{{define "collections_admin"}}{{template "header" .}}
+
+<div class="row">
+  <div class="col">
+    <div id="container" class="card" style="width: 80%">
+      <div class="card-body">
+        <div class="position-relative">
+          <h3 class="card-title">Collections</h3>
+          <button id="newCollectionButton" class="btn btn-sm btn-light" type="button"
+                  title="New collection">
+            <i class="bi bi-plus-lg"></i>
+          </button>
+        </div>
+        <br>
+        <p class="card-text">
+
+        {{ if not .Collections }}
+          <p class="text-muted text-center my-4">
+            No collections yet. Tick some files on the Upload page and choose
+            &ldquo;Create one link&rdquo; to share several files with a single URL.
+          </p>
+        {{ else }}
+          <div class="table-responsive">
+            <table id="collectionstable" class="table table-dark">
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Files</th>
+                  <th scope="col">Size</th>
+                  <th scope="col">Created</th>
+                  <th scope="col">Available until</th>
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{ range .Collections }}
+                <tr id="collection-{{ .Id }}">
+                  <td>
+                    {{ if .HasPassword }}<i class="bi bi-lock-fill me-1" title="Password protected"></i>{{ end }}
+                    <a class="collection-name-link" href="./c?id={{ .Id }}">{{ .Name }}</a>
+                    {{ if not .IsOwn }}<span class="badge bg-secondary ms-2">{{ .OwnerName }}</span>{{ end }}
+                  </td>
+                  <td>{{ .FileCount }}</td>
+                  <td>{{ .TotalSize }}</td>
+                  <td>{{ .Created }}</td>
+                  <td>{{ if .NeverExpires }}Unlimited{{ else }}{{ .Expiry }}{{ end }}</td>
+                  <td>
+                    <div class="btn-group text-nowrap" role="group" aria-label="Actions">
+                      <button class="btn btn-sm btn-outline-light copyurl collection-copy"
+                              type="button" data-clipboard-text="{{ .Url }}" onclick="showToast(1000, 'Share link copied')"
+                              title="Copy share link" aria-label="Copy share link">
+                        <i class="bi bi-copy"></i>
+                      </button>
+                      <button class="btn btn-sm btn-outline-light collection-rename"
+                              type="button" data-id="{{ .Id }}" data-name="{{ .Name }}"
+                              title="Rename" aria-label="Rename">
+                        <i class="bi bi-pencil"></i>
+                      </button>
+                      <button class="btn btn-sm btn-outline-light collection-password"
+                              type="button" data-id="{{ .Id }}" data-name="{{ .Name }}" data-haspassword="{{ .HasPassword }}"
+                              title="Set or change password" aria-label="Set or change password">
+                        <i class="bi bi-key"></i>
+                      </button>
+                      {{ if or .IsOwn $.ActiveUser.IsAdmin }}
+                      <button class="btn btn-sm btn-outline-light collection-togroup"
+                              type="button" data-id="{{ .Id }}" data-name="{{ .Name }}"
+                              title="Turn into a group" aria-label="Turn into a group">
+                        <i class="bi bi-people-fill"></i><span class="ms-1 d-none d-md-inline">Group</span>
+                      </button>
+                      {{ end }}
+                      <button class="btn btn-sm btn-outline-danger collection-delete"
+                              type="button" data-id="{{ .Id }}" data-name="{{ .Name }}"
+                              title="Delete" aria-label="Delete">
+                        <i class="bi bi-trash3"></i>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                {{ end }}
+              </tbody>
+            </table>
+          </div>
+          <p class="text-muted small mt-3 mb-0">
+            A collection is a view over its files: it stays available for as long as at
+            least one file in it is, and deleting it never deletes the files.
+          </p>
+        {{ end }}
+
+        </p>
+
+        {{ if .SharedWithMe }}
+          <h2 class="h5 mt-4">Shared with me</h2>
+          <div class="table-responsive">
+            <table id="sharedwithmetable" class="table table-dark">
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">From</th>
+                  <th scope="col">Files</th>
+                  <th scope="col">Size</th>
+                  <th scope="col">First opened</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{ range .SharedWithMe }}
+                <tr id="shared-{{ .Id }}">
+                  <td><a class="collection-name-link" href="./c?id={{ .Id }}">{{ .Name }}</a></td>
+                  <td>{{ .OwnerName }}</td>
+                  <td>{{ .FileCount }}</td>
+                  <td>{{ .TotalSize }}</td>
+                  <td>{{ .FirstOpened }}</td>
+                </tr>
+                {{ end }}
+              </tbody>
+            </table>
+          </div>
+        {{ end }}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="filePickerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="filePickerTitle">New collection</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="filePickerMeta" class="mb-3">
+          <input type="text" id="filePickerName" class="form-control mb-2"
+                 placeholder="Collection name" value="Shared files">
+          <div class="d-flex gap-2">
+            <input type="text" id="filePickerPassword" class="form-control"
+                   placeholder="Password (optional)">
+            <button type="button" class="btn btn-outline-light text-nowrap"
+                    id="filePickerSuggest">Suggest</button>
+          </div>
+        </div>
+        {{ if not .Items }}
+          <p class="text-muted mb-0">
+            You have no files yet. <a href="./admin">Upload some first</a>, then come back.
+          </p>
+        {{ else }}
+          <input type="text" id="filePickerFilter" class="form-control mb-3"
+                 placeholder="Filter by filename">
+          <ul class="file-picker-list">
+            {{ range .Items }}
+            <li data-name="{{ .Name }}">
+              <label>
+                <input class="form-check-input file-picker-check" type="checkbox" value="{{ .Id }}">
+                <span class="picker-name">{{ .Name }}</span>
+                <span class="picker-size">{{ .Size }}</span>
+              </label>
+            </li>
+            {{ end }}
+          </ul>
+        {{ end }}
+      </div>
+      <div class="modal-footer justify-content-between">
+        <a href="./admin" class="text-muted small">Need to upload something first?</a>
+        <div>
+          <span id="filePickerCount" class="text-muted small me-2"></span>
+          <button type="button" class="btn btn-light" id="filePickerConfirm" disabled>Confirm</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{{ template "collection_togroup_modal" }}
+
+{{ template "file_browser_support" }}
+
+<script>
+// An expired session answers with the login page rather than JSON; say so
+// instead of failing on the parse. Never rejects: callers show ErrorMessage.
+function postCollection(url, payload) {
+    return fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(payload)
+    }).then(function (r) {
+        return r.text().then(function (text) {
+            try {
+                return JSON.parse(text);
+            } catch (ignored) {
+                return { Result: "error", ErrorMessage: r.redirected || text.trim().charAt(0) === "<" ?
+                    "Your session expired — reload the page" : "Unexpected answer from the server" };
+            }
+        });
+    }, function (e) { return { Result: "error", ErrorMessage: String(e) }; });
+}
+
+document.querySelectorAll(".collection-rename").forEach(function (button) {
+    button.addEventListener("click", function () {
+        var id = button.getAttribute("data-id");
+        var name = window.prompt("New name:", button.getAttribute("data-name"));
+        if (name === null || name.trim() === "") return;
+        postCollection("./collections/modify", { id: id, name: name.trim() })
+            .then(function (data) {
+                if (data.Result !== "OK") {
+                    window.alert("Could not rename: " + (data.ErrorMessage || "unknown error"));
+                    return;
+                }
+                window.location.reload();
+            });
+    });
+});
+
+document.querySelectorAll(".collection-password").forEach(function (button) {
+    button.addEventListener("click", function () {
+        var has = button.getAttribute("data-haspassword") === "true";
+        // Passwords are stored hashed and cannot be read back, so this always
+        // sets a new one rather than showing the current one.
+        var message = has
+            ? "Set a NEW password for \"" + button.getAttribute("data-name") + "\".\n\n" +
+              "The current one cannot be shown - it is stored hashed.\n" +
+              "Leave blank to remove password protection."
+            : "Set a password for \"" + button.getAttribute("data-name") + "\".\n\n" +
+              "Leave blank for no password.";
+        var value = window.prompt(message, "");
+        if (value === null) return;
+        button.disabled = true;
+        postCollection("./collections/modify",
+                       { id: button.getAttribute("data-id"), password: value.trim() })
+            .then(function (data) {
+                if (data.Result !== "OK") {
+                    window.alert("Could not update: " + (data.ErrorMessage || "unknown error"));
+                    button.disabled = false;
+                    return;
+                }
+                window.location.reload();
+            });
+    });
+});
+
+// --- file picker for "new collection" ---------------------------------------
+(function () {
+    var modalEl = document.getElementById("filePickerModal");
+    if (!modalEl) return;
+    var modal = new bootstrap.Modal(modalEl);
+    var confirm = document.getElementById("filePickerConfirm");
+    var counter = document.getElementById("filePickerCount");
+    var filter = document.getElementById("filePickerFilter");
+    var boxes = Array.prototype.slice.call(document.querySelectorAll(".file-picker-check"));
+
+    function selectedIds() {
+        return boxes
+            .filter(function (b) { return b.checked; })
+            .map(function (b) { return b.value; });
+    }
+
+    function refresh() {
+        var n = selectedIds().length;
+        confirm.disabled = n === 0;
+        counter.textContent = n === 0 ? "" : n + " selected";
+    }
+    boxes.forEach(function (b) { b.addEventListener("change", refresh); });
+
+    if (filter) {
+        filter.addEventListener("input", function () {
+            var needle = filter.value.toLowerCase();
+            document.querySelectorAll(".file-picker-list li").forEach(function (li) {
+                var name = (li.getAttribute("data-name") || "").toLowerCase();
+                li.style.display = name.indexOf(needle) === -1 ? "none" : "";
+            });
+        });
+    }
+
+    function open() {
+        boxes.forEach(function (b) { b.checked = false; });
+        if (filter) { filter.value = ""; filter.dispatchEvent(new Event("input")); }
+        refresh();
+        modal.show();
+    }
+
+    // Word-based passphrase, easy to read out or type
+    var WORDS = ("amber anchor arrow autumn beacon bishop bottle branch bridge bronze " +
+        "cactus candle canvas castle cedar cherry cobalt comet copper coral cotton " +
+        "crimson crystal delta desert dragon ember falcon forest garnet ginger glacier " +
+        "granite harbor harvest hazel indigo island ivory jasmine jungle juniper lagoon " +
+        "lantern laurel lemon lilac linen lotus maple marble meadow meteor mirror mosaic " +
+        "nectar nickel nomad nutmeg oasis olive onyx opal orbit orchard pebble pepper " +
+        "pigeon pillar planet poplar prairie prism quartz quiver raven ribbon river " +
+        "rocket saffron sailor salmon sapphire scarlet shadow silver socket solar spruce " +
+        "stellar summit sunset thistle thunder timber topaz tulip tundra valley velvet " +
+        "village violet walnut willow winter zephyr").split(" ");
+    function randomInt(max) {
+        if (window.crypto && window.crypto.getRandomValues) {
+            var a = new Uint32Array(1);
+            var limit = Math.floor(4294967296 / max) * max;
+            do { window.crypto.getRandomValues(a); } while (a[0] >= limit);
+            return a[0] % max;
+        }
+        return Math.floor(Math.random() * max);
+    }
+    var suggestButton = document.getElementById("filePickerSuggest");
+    if (suggestButton) {
+        suggestButton.addEventListener("click", function () {
+            var parts = [];
+            for (var i = 0; i < 3; i++) parts.push(WORDS[randomInt(WORDS.length)]);
+            document.getElementById("filePickerPassword").value =
+                parts.join("-") + "-" + (randomInt(90) + 10);
+        });
+    }
+
+    var newButton = document.getElementById("newCollectionButton");
+    if (newButton) {
+        newButton.addEventListener("click", open);
+    }
+
+    confirm.addEventListener("click", function () {
+        var ids = selectedIds();
+        if (!ids.length) return;
+        confirm.disabled = true;
+
+        var nameField = document.getElementById("filePickerName");
+        var pwField = document.getElementById("filePickerPassword");
+        var name = (nameField.value || "").trim() || "Shared files";
+        var password = (pwField.value || "").trim();
+        postCollection("./collections/create",
+                       { name: name, fileIds: ids, password: password })
+            .then(function (data) {
+                if (data.Result !== "OK") {
+                    window.alert("Could not create: " + (data.ErrorMessage || "unknown error"));
+                    confirm.disabled = false;
+                    return;
+                }
+                window.location.reload();
+            });
+    });
+})();
+
+document.querySelectorAll(".collection-delete").forEach(function (button) {
+    button.addEventListener("click", function () {
+        var id = button.getAttribute("data-id");
+        if (!window.confirm("Delete the collection \"" + button.getAttribute("data-name") +
+                            "\"?\n\nThe files themselves are kept.")) {
+            return;
+        }
+        button.disabled = true;
+        fetch("./collections/delete?id=" + encodeURIComponent(id), {
+            method: "POST", credentials: "same-origin",
+            headers: { "Content-Type": "application/json" }, body: "{}"
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            if (data.Result !== "OK") {
+                window.alert("Could not delete: " + (data.ErrorMessage || "unknown error"));
+                button.disabled = false;
+                return;
+            }
+            var row = document.getElementById("collection-" + id);
+            if (row) row.remove();
+        }).catch(function (e) {
+            window.alert("Could not delete: " + e);
+            button.disabled = false;
+        });
+    });
+});
+</script>
+
+{{ template "pagename" "Collections"}}
+<script src="./js/min/admin.min.{{ template "js_admin_version"}}.js"></script>
+<script src="./js/min/collection_togroup.min.js?v={{ template "js_admin_version" }}"></script>
+{{ template "customjs" .}}
+
+{{template "footer" true}}
+{{end}}
+
+{{/* "Turn into a group", shared by the Collections tab and the owner bar of a
+     collection's own page; both load collection_togroup.js, which runs it */}}
+{{ define "collection_togroup_modal" }}
+<div class="modal fade" id="togroup-modal" tabindex="-1" aria-labelledby="togroup-title" aria-hidden="true">
+  <div class="modal-dialog gokapi-dialog">
+    <div class="modal-content gokapi-dialog text-start">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="togroup-title">Turn into a group</h1>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p id="togroup-what"></p>
+        <p class="text-muted small">
+          The collection&rsquo;s password does not carry over: people join the group by signing in.
+        </p>
+        <div class="mb-3 d-none" id="togroup-viewers">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="togroup-add-viewers" checked>
+            <label class="form-check-label" for="togroup-add-viewers">Add the people who opened this link while signed in</label>
+          </div>
+          <p class="text-muted small ms-4 mb-0" id="togroup-viewer-names"></p>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="togroup-days" id="togroup-days-30" value="30">
+          <label class="form-check-label" for="togroup-days-30">30 days</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="togroup-days" id="togroup-days-60" value="60" checked>
+          <label class="form-check-label" for="togroup-days-60">60 days (suggested)</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="togroup-days" id="togroup-days-90" value="90">
+          <label class="form-check-label" for="togroup-days-90">90 days</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="togroup-days" id="togroup-days-0" value="0">
+          <label class="form-check-label" for="togroup-days-0">Never</label>
+        </div>
+        <fieldset class="mt-3">
+          <legend class="fs-6 mb-1">Old link</legend>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="togroup-link" id="togroup-link-invite" value="invite" checked>
+            <label class="form-check-label" for="togroup-link-invite">Show the photos and invite to join</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="togroup-link" id="togroup-link-require" value="require">
+            <label class="form-check-label" for="togroup-link-require">Require signing in and joining</label>
+          </div>
+        </fieldset>
+        <div id="togroup-status" aria-live="polite"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-light" id="togroup-confirm">Turn into a group</button>
+      </div>
+    </div>
+  </div>
+</div>
+{{ end }}

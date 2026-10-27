@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.franco.gokapi-notify</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/YOU/apps/gokapi/gokapi-notify.py</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Give Colima/Docker a moment after login before the first poll. -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/YOU/apps/gokapi</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/YOU/apps/gokapi/notify.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/YOU/apps/gokapi/notify.log</string>
+</dict>
+</plist>

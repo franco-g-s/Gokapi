@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/forceu/gokapi/internal/activity"
+	"github.com/forceu/gokapi/internal/blocklist"
 	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/encryption"
@@ -17,9 +19,11 @@ import (
 	"github.com/forceu/gokapi/internal/logging"
 	"github.com/forceu/gokapi/internal/logging/serverstats"
 	"github.com/forceu/gokapi/internal/models"
+	"github.com/forceu/gokapi/internal/preview"
 	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/storage/chunking"
 	"github.com/forceu/gokapi/internal/storage/chunking/chunkreservation"
+	"github.com/forceu/gokapi/internal/storage/downloadlog"
 	"github.com/forceu/gokapi/internal/storage/filerequest"
 	"github.com/forceu/gokapi/internal/storage/presign"
 	"github.com/forceu/gokapi/internal/webserver/api/mutex/apimutex"
@@ -96,6 +100,12 @@ func apiEditFile(w http.ResponseWriter, r requestParser, user models.User, _ mod
 		sendError(w, http.StatusUnauthorized, errorcodes.NoPermission, "No permission to edit file.")
 		return
 	}
+	// D4: in a live group, expiry, download limit and password follow the group
+	if groupName, locked := storage.GroupLock(file.Id); locked && changesGroupTerms(request, file) {
+		sendError(w, http.StatusBadRequest, errorcodes.ResourceCanNotBeEdited,
+			`Expiry and download limit follow the group "`+groupName+`"`)
+		return
+	}
 	if request.UnlimitedDownloads {
 		file.UnlimitedDownloads = true
 	} else {
@@ -116,6 +126,10 @@ func apiEditFile(w http.ResponseWriter, r requestParser, user models.User, _ mod
 	if !request.KeepPassword {
 		file.PasswordHash = configuration.HashPassword(request.Password, false, "")
 		downloadPasswordToken.DeleteAllForFile(file.Id)
+	}
+
+	if request.FileName != "" {
+		file.Name = request.FileName
 	}
 
 	if file.HotlinkId != "" && !storage.IsAbleHotlink(file) {
@@ -485,6 +499,12 @@ func apiChunkComplete(w http.ResponseWriter, r requestParser, user models.User, 
 	if !ok {
 		panic("invalid parameter passed")
 	}
+	group, refusal := resolveUploadGroup(request, user)
+	if refusal != nil {
+		_ = chunking.DeleteChunk(request.Uuid)
+		sendError(w, refusal.status, refusal.code, refusal.message)
+		return
+	}
 	uploadParams := fileupload.CreateUploadConfig(request.AllowedDownloads,
 		request.ExpiryDays,
 		request.Password,
@@ -493,15 +513,16 @@ func apiChunkComplete(w http.ResponseWriter, r requestParser, user models.User, 
 		request.IsE2E,
 		request.FileSize,
 		"")
+	applyGroupExpiry(&uploadParams, group)
 	if request.IsNonBlocking {
-		go doBlockingPartCompleteChunk(nil, request.Uuid, request.FileHeader, user, uploadParams)
+		go doBlockingPartCompleteChunk(nil, request.Uuid, request.FileHeader, user, uploadParams, group)
 		_, _ = io.WriteString(w, "{\"result\":\"OK\"}")
 		return
 	}
-	doBlockingPartCompleteChunk(w, request.Uuid, request.FileHeader, user, uploadParams)
+	doBlockingPartCompleteChunk(w, request.Uuid, request.FileHeader, user, uploadParams, group)
 }
 
-func doBlockingPartCompleteChunk(w http.ResponseWriter, uuid string, fileHeader chunking.FileHeader, user models.User, uploadParameters models.UploadParameters) {
+func doBlockingPartCompleteChunk(w http.ResponseWriter, uuid string, fileHeader chunking.FileHeader, user models.User, uploadParameters models.UploadParameters, group models.Group) {
 	file, err := fileupload.CompleteChunk(uuid, fileHeader, user.Id, uploadParameters)
 	if err != nil {
 		_ = chunking.DeleteChunk(uuid)
@@ -512,7 +533,14 @@ func doBlockingPartCompleteChunk(w http.ResponseWriter, uuid string, fileHeader 
 		chunkreservation.SetComplete(uploadParameters.FileRequestId, uuid)
 	}
 	fr, _ := filerequest.Get(uploadParameters.FileRequestId)
+	if !attachToGroup(w, group, file, user) {
+		return // the copy already in the group stays; this one was deleted
+	}
+	// Logged once it is known to stay: a duplicate deleted a moment later
+	// must not mail an upload notice (M6)
 	logging.LogUpload(file, user, fr)
+	activity.Upload(file, user)
+	preview.Enqueue(file)
 	outputFileJson(w, file)
 }
 
@@ -530,11 +558,11 @@ func apiChunkUploadRequestComplete(w http.ResponseWriter, r requestParser, user 
 		0, "", true, true,
 		false, request.FileSize, fileRequest.Id)
 	if request.IsNonBlocking {
-		go doBlockingPartCompleteChunk(nil, request.Uuid, request.FileHeader, user, uploadParams)
+		go doBlockingPartCompleteChunk(nil, request.Uuid, request.FileHeader, user, uploadParams, models.Group{})
 		_, _ = io.WriteString(w, "{\"result\":\"OK\"}")
 		return
 	}
-	doBlockingPartCompleteChunk(w, request.Uuid, request.FileHeader, user, uploadParams)
+	doBlockingPartCompleteChunk(w, request.Uuid, request.FileHeader, user, uploadParams, models.Group{})
 }
 
 func apiVersionInfo(w http.ResponseWriter, _ requestParser, _ models.User, _ models.ApiKey) {
@@ -627,7 +655,7 @@ func apiDownloadSingle(w http.ResponseWriter, r requestParser, user models.User,
 	}
 	if !request.PresignUrl {
 		forceDecryption := file.Encryption.IsEncrypted && !file.Encryption.IsEndToEndEncrypted
-		storage.ServeFile(file, w, request.WebRequest, true, request.IncreaseCounter, forceDecryption, false)
+		storage.ServeFile(file, w, downloadlog.With(request.WebRequest, models.DownloadViaFile, user.Id), true, request.IncreaseCounter, forceDecryption, false)
 		return
 	}
 	createAndOutputPresignedUrl([]string{file.Id}, w, "")
@@ -651,7 +679,7 @@ func apiDownloadZip(w http.ResponseWriter, r requestParser, user models.User, _ 
 		requestedFileIds = append(requestedFileIds, file.Id)
 	}
 	if !request.PresignUrl {
-		storage.ServeFilesAsZip(requestedFiles, request.Filename, w, request.WebRequest)
+		storage.ServeFilesAsZip(requestedFiles, request.Filename, w, downloadlog.With(request.WebRequest, models.DownloadViaZip, user.Id))
 		return
 	}
 	createAndOutputPresignedUrl(requestedFileIds, w, request.Filename)
@@ -1324,6 +1352,10 @@ func isValidApiKey(key string, modifyTime bool, requiredPermissionApiKey models.
 		}
 		user, ok := database.GetUser(savedKey.UserId)
 		if !ok {
+			return models.User{}, models.ApiKey{}, false
+		}
+		// Part 4, K: a blocked person's keys stop working
+		if blocklist.Matches(user.Name) {
 			return models.User{}, models.ApiKey{}, false
 		}
 		return user, savedKey, true

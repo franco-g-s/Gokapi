@@ -392,6 +392,9 @@ func ReplaceFile(fileId, newFileContentId string, delete bool) (models.File, err
 	file.SizeBytes = newFileContent.SizeBytes
 	file.Encryption = newFileContent.Encryption
 	database.SaveMetaData(file)
+	if OnBlobAdded != nil {
+		OnBlobAdded(file)
+	}
 	if delete {
 		DeleteFile(newFileContent.Id, true)
 	}
@@ -640,6 +643,7 @@ func ServeFile(file models.File, w http.ResponseWriter, r *http.Request, forceDo
 	apimutex.Unlock(apimutex.TypeMetaData, file.Id)
 
 	logging.LogDownload(file, r, configuration.Get().SaveIp)
+	recordDownload(file, r)
 	go serverstats.AddTraffic(uint64(file.SizeBytes))
 
 	if !file.IsLocalStorage() {
@@ -718,15 +722,19 @@ func ServeFilesAsZip(files []models.File, filename string, w http.ResponseWriter
 	defer zipWriter.Close()
 	filenames := make(map[string]bool)
 	for _, file := range files {
+		realName := file.Name
 		file.Name = makeFilenameUnique(file.Name, &filenames)
 		header := &zip.FileHeader{
 			Name:     file.Name,
 			Method:   zip.Store,
-			Modified: time.Unix(file.UploadDate, 0),
+			Modified: ZipEntryTime(file),
 		}
 		entryWriter, err := zipWriter.CreateHeader(header)
 		helper.Check(err)
 		logging.LogDownload(file, r, saveIp)
+		recorded := file
+		recorded.Name = realName // the file's name, not the zip entry's "X (1).ext"
+		recordDownload(recorded, r)
 		go serverstats.AddTraffic(uint64(file.SizeBytes))
 		if !file.IsLocalStorage() {
 			statusId := downloadstatus.SetDownload(file)
@@ -807,6 +815,13 @@ func FileExists(file models.File, dataDir string) bool {
 	return exists
 }
 
+// OnBlobDeleted is called when the last file using a blob is removed. Set by
+// the preview package; nil-safe.
+var OnBlobDeleted func(sha1 string)
+
+// OnBlobAdded is called when a file's blob changes in place (ReplaceFile).
+var OnBlobAdded func(file models.File)
+
 // CleanUp removes expired files from the config and from the filesystem if they are not referenced by other files anymore
 // Will be called periodically or after a file has been manually deleted in the admin view.
 // If the parameter periodic is true, this function is recursive and calls itself every hour.
@@ -827,9 +842,15 @@ func CleanUp(periodic bool) {
 			if deleteFile && fileExists {
 				deleteSource(element, configuration.Get().DataDir)
 			}
+			if deleteFile && OnBlobDeleted != nil {
+				OnBlobDeleted(element.SHA1)
+			}
 			if element.HotlinkId != "" {
 				database.DeleteHotlink(element.HotlinkId)
 			}
+			database.RemoveFileFromCollections(element.Id)
+			database.RemoveFileFromGroups(element.Id)
+			database.DeleteDownloadsOfFile(element.Id)
 			database.DeleteMetaData(key)
 			wasItemDeleted = true
 		}
@@ -838,6 +859,8 @@ func CleanUp(periodic bool) {
 		CleanUp(false)
 	}
 	cleanOldTempFiles()
+	cleanUpCollections(timeNow)
+	cleanUpGroups(timeNow)
 	cleanHotlinks()
 	cleanInvalidApiKeys()
 	cleanInvalidFileRequests()

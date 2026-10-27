@@ -1,0 +1,46 @@
+{{ define "media_help_sheet" }}
+<div id="fgs-help-sheet" class="fgs-sheet" role="dialog" aria-modal="true" aria-labelledby="fgs-help-title">
+  <div class="fgs-sheet-card">
+    <h5 id="fgs-help-title">Downloaded to Files? Here's how to get them into Photos</h5>
+    <ol>
+      <li>Open the <b>Files</b> app and go to <b>Downloads</b>.</li>
+      <li>If it's a zip, tap it once to unzip it into a folder, then open the folder.</li>
+      <li>Tap <b>⋯</b> → <b>Select</b>, then select the photos and videos you want.</li>
+      <li>Tap <b>Share</b> → <b>Save N Images</b> (or <b>Save N Videos</b>).</li>
+    </ol>
+    <button type="button" class="btn btn-light w-100" data-fgs-help-close>Got it</button>
+  </div>
+</div>
+{{ end }}
+
+{{ define "media_download_buttons" }}
+<div class="text-center mt-4" data-fgs-downloads>
+  <button id="downloadAllButton" class="btn btn-light" type="button" data-fgs-download-all>
+    Download all {{ .Count }} files
+  </button>
+  <button type="button" class="btn btn-light ms-2 d-none" data-fgs-photos>Save to Photos</button>
+  <a class="btn btn-outline-light ms-2" href="{{ .ZipUrl }}" data-fgs-download-zip>Download as .zip</a>
+  <button type="button" class="btn btn-link text-muted d-none" data-fgs-help aria-label="How to save to Photos">
+    <i class="bi bi-question-circle"></i>
+  </button>
+  <p id="downloadAllStatus" class="text-muted small mt-2 mb-0" aria-live="polite"></p>
+</div>
+{{ end }}
+
+{{ define "media_viewer" }}
+<div id="fgs-viewer" class="fgs-viewer" role="dialog" aria-modal="true" aria-label="Viewer" hidden>
+  <button class="fgs-v-close" type="button" aria-label="Close"><i class="bi bi-x-lg"></i></button>
+  <button class="fgs-v-prev" type="button" aria-label="Previous"><i class="bi bi-chevron-left"></i></button>
+  <div class="fgs-v-stage"></div>
+  <button class="fgs-v-next" type="button" aria-label="Next"><i class="bi bi-chevron-right"></i></button>
+  <div class="fgs-v-info">
+    <div class="fgs-v-name"></div>
+    <div class="fgs-v-meta"></div>
+    <div class="fgs-v-lowres" hidden>Lower-resolution preview — download the original for full quality</div>
+    {{- /* Opened while selecting (R3, V8): the file's place in the selection */}}
+    <label class="fgs-v-select" hidden><input type="checkbox" class="form-check-input" data-fgs-v-select> Selected</label>
+    <a class="btn btn-sm btn-light fgs-v-download" download>Download original</a>
+    <button type="button" class="btn btn-sm btn-outline-light fgs-v-photos" hidden>Save to Photos</button>
+  </div>
+</div>
+{{ end }}

@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"github.com/NYTimes/gziphandler"
+	"github.com/forceu/gokapi/internal/activity"
+	"github.com/forceu/gokapi/internal/blocklist"
 	"github.com/forceu/gokapi/internal/configuration"
 	"github.com/forceu/gokapi/internal/configuration/database"
 	"github.com/forceu/gokapi/internal/encryption"
@@ -32,9 +34,11 @@ import (
 	"github.com/forceu/gokapi/internal/logging"
 	"github.com/forceu/gokapi/internal/logging/serverstats"
 	"github.com/forceu/gokapi/internal/models"
+	"github.com/forceu/gokapi/internal/people"
 	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/storage/filerequest"
 	"github.com/forceu/gokapi/internal/storage/presign"
+	"github.com/forceu/gokapi/internal/webserver/access"
 	"github.com/forceu/gokapi/internal/webserver/api"
 	"github.com/forceu/gokapi/internal/webserver/authentication"
 	"github.com/forceu/gokapi/internal/webserver/authentication/csrftoken"
@@ -48,6 +52,7 @@ import (
 	"github.com/forceu/gokapi/internal/webserver/ratelimiter"
 	"github.com/forceu/gokapi/internal/webserver/sse"
 	"github.com/forceu/gokapi/internal/webserver/ssl"
+	"github.com/forceu/gokapi/internal/webserver/viewas"
 )
 
 // TODO add 404 handler
@@ -93,6 +98,8 @@ var srv http.Server
 
 // Start the webserver on the port set in the config
 func Start() {
+	wireSignIn()
+	activity.StartWatchers(configuration.Get().DataDir) // Part 4, A: disk warning and pruning
 	initTemplates(templateFolderEmbedded)
 	webserverDir, _ := fs.Sub(staticFolderEmbedded, "web/static")
 	var err error
@@ -126,6 +133,71 @@ func Start() {
 	mux.HandleFunc("/users", requireLogin(showUserAdmin, true, false))
 	mux.Handle("/main.wasm", gziphandler.GzipHandler(http.HandlerFunc(serveDownloadWasm)))
 	mux.Handle("/e2e.wasm", gziphandler.GzipHandler(http.HandlerFunc(serveE2EWasm)))
+	mux.HandleFunc("/collections", requireLogin(showCollectionsAdmin, true, false))
+	mux.HandleFunc("/collections/create", requireLogin(createCollection, false, false))
+	mux.HandleFunc("/collections/modify", requireLogin(modifyCollection, false, false))
+	mux.HandleFunc("/collections/list", requireLogin(listCollections, false, false))
+	mux.HandleFunc("/collections/delete", requireLogin(deleteCollection, false, false))
+	mux.HandleFunc("/files", requireLogin(showFiles, true, false))
+	mux.HandleFunc("/files/download", requireLogin(downloadOwnFile, false, false))
+	mux.HandleFunc("/files/zip", requireLogin(downloadFilesZip, false, false))
+	mux.HandleFunc("/files/previewinfo", requireLogin(filePreviewInfo, false, false))
+	mux.HandleFunc("/c", showCollection)
+	mux.HandleFunc("/cd", downloadCollectionFile)
+	mux.HandleFunc("/cz", downloadCollectionZip)
+	mux.HandleFunc("/p/thumb", servePreviewFile("thumb"))
+	mux.HandleFunc("/p/view", servePreviewFile("view"))
+	mux.HandleFunc("/p/poster", servePreviewFile("poster"))
+	mux.HandleFunc("/p/video", streamVideo)
+	mux.HandleFunc("/p/info", publicPreviewInfo)
+	// Part 3, T1: list feeds
+	mux.HandleFunc("/files/list", requireLogin(fileListFeed, false, false))
+	mux.HandleFunc("/files/replacecandidates", requireLogin(replaceCandidates, false, false))
+	mux.HandleFunc("/gl", requireLogin(groupListFeed, false, false))
+	mux.HandleFunc("/cl", collectionListFeed)
+	// Part 3, V1: view as
+	mux.HandleFunc("/viewas/start", requireLogin(viewAsStart, false, false))
+	mux.HandleFunc("/viewas/end", requireLogin(viewAsEnd, false, false))
+	// Part 4, K: blocklist
+	mux.HandleFunc("/users/block", requireLogin(blockEntry, false, false))
+	mux.HandleFunc("/users/unblock", requireLogin(unblockEntry, false, false))
+	// Part 4, S1: settings and avatars
+	mux.HandleFunc("/settings", requireLogin(showSettings, true, false))
+	mux.HandleFunc("/settings/save", requireLogin(saveSettings, false, false))
+	mux.HandleFunc("/avatar", requireLogin(serveAvatar, true, false))
+	registerSeedRoutes(mux, seedRoutesEnabled())
+	// Part 2, F2: the group creator's "Check for duplicates"
+	mux.HandleFunc("/groups/neardupes", requireLogin(nearCopyCheck, false, false))
+	// Part 2, R4: a collection turned into a group, its old link's modes and stopping it
+	mux.HandleFunc("/groups/fromcollection/preview", requireLogin(groupFromCollectionPreview, false, false))
+	mux.HandleFunc("/groups/linkmode", requireLogin(setGroupLinkMode, false, false))
+	mux.HandleFunc("/groups/stoplink", requireLogin(stopGroupLink, false, false))
+	// Part 2, G10: the group page
+	mux.HandleFunc("/g", requireLogin(showGroup, true, false))
+	mux.HandleFunc("/gd", requireLogin(downloadGroupFile, false, false))
+	mux.HandleFunc("/gz", requireLogin(downloadGroupZip, false, false))
+	mux.HandleFunc("/groups/item", requireLogin(groupItem, false, false))
+	mux.HandleFunc("/groups/nearkeep", requireLogin(keepNearCopy, false, false))
+	// Part 2, G7: uploading into a group
+	mux.HandleFunc("/groups/has", requireLogin(groupHas, false, false))
+	// Part 2, G8: adding files to a group
+	mux.HandleFunc("/groups/add", requireLogin(addToGroup, false, false))
+	mux.HandleFunc("/groups/fromcollection", requireLogin(groupFromCollection, false, false))
+	// Part 2, G2: groups (shared)
+	mux.HandleFunc("/groups/list", requireLogin(listGroups, false, false))
+	// Part 2, G6: groups tab, joining, managing
+	mux.HandleFunc("/groups", requireLogin(showGroups, true, false))
+	mux.HandleFunc("/groups/create", requireLogin(createGroup, false, false))
+	mux.HandleFunc("/groups/join", requireLogin(joinGroup, false, false))
+	mux.HandleFunc("/groups/rename", requireLogin(renameGroup, false, false))
+	mux.HandleFunc("/groups/extend", requireLogin(extendGroup, false, false))
+	mux.HandleFunc("/groups/resetcode", requireLogin(resetGroupCode, false, false))
+	mux.HandleFunc("/groups/removemember", requireLogin(removeGroupMember, false, false))
+	mux.HandleFunc("/groups/leave", requireLogin(leaveGroup, false, false))
+	mux.HandleFunc("/groups/delete", requireLogin(deleteGroup, false, false))
+	mux.HandleFunc("/groups/removefiles", requireLogin(removeGroupFiles, false, false))
+	mux.HandleFunc("/join", showJoin)
+	mux.HandleFunc("/g/join", redirectGroupJoin)
 	mux.HandleFunc("/d/{id}/{filename}", redirectFromFilename)
 	mux.HandleFunc("/dh/{id}/{filename}", downloadFileWithNameInUrl)
 
@@ -142,7 +214,7 @@ func Start() {
 		Addr:         configuration.Get().Port,
 		ReadTimeout:  timeOutWebserverRead,
 		WriteTimeout: timeOutWebserverWrite,
-		Handler:      mux,
+		Handler:      viewas.Guard(mux),
 	}
 	infoMessage := "Webserver can be accessed at " + configuration.Get().ServerUrl + "admin\nPress CTRL+C to stop Gokapi"
 	if strings.Contains(configuration.Get().ServerUrl, "127.0.0.1") {
@@ -285,6 +357,11 @@ func serveE2EWasm(w http.ResponseWriter, r *http.Request) {
 
 // Handling of /logout
 func doLogout(w http.ResponseWriter, r *http.Request) {
+	// Part 3, V1: logging out ends "View as…" (the guard does too; this
+	// covers a request that never passed it)
+	if admin, _, active := viewas.Active(r); active {
+		viewas.End(admin.Id, "logout")
+	}
 	authentication.Logout(w, r)
 }
 
@@ -431,7 +508,8 @@ func showUploadRequest(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "admin")
 		return
 	}
-	err = templateFolder.ExecuteTemplate(w, "uploadreq", view)
+	pageView := newFileRequestsView(r, *view, view.ActiveUser)
+	err = templateFolder.ExecuteTemplate(w, "uploadreq", &pageView)
 	helper.CheckIgnoreTimeout(err)
 }
 
@@ -484,7 +562,7 @@ func showLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if ok {
-		redirect(w, r, "admin")
+		redirect(w, r, authentication.PopReturnTo(w, r))
 		return
 	}
 	if configuration.Get().Authentication.Method == models.AuthenticationHeader {
@@ -519,7 +597,7 @@ func showLogin(w http.ResponseWriter, r *http.Request) {
 		if validCredentials {
 			logging.LogValidLogin(user)
 			sessionmanager.CreateSession(w, false, 0, retrievedUser.Id)
-			redirect(w, r, "admin")
+			redirect(w, r, authentication.PopReturnTo(w, r))
 			return
 		}
 		if validCsfr {
@@ -558,6 +636,9 @@ type LoginView struct {
 func showDownload(w http.ResponseWriter, r *http.Request) {
 	addNoCacheHeader(w)
 	keyId := queryUrl(w, r, "id", errorHandling.TypeFileNotFound)
+	if keyId == "" {
+		return // queryUrl has already redirected
+	}
 	file, ok := storage.GetFile(keyId)
 	if !ok || file.IsFileRequest() {
 		redirectOnIncorrectId(w, r, "error")
@@ -621,6 +702,9 @@ func showDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !file.Encryption.IsEndToEndEncrypted {
+		view.Preview = previewUrls(r, file, "", "./downloadFile?id="+file.Id)
+	}
 	err := templateFolder.ExecuteTemplate(w, "download", view)
 	helper.CheckIgnoreTimeout(err)
 }
@@ -637,7 +721,7 @@ func showHotlink(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(imageExpiredPicture)
 		return
 	}
-	validFile := storage.ServeFile(file, w, r, false, true, false, true)
+	validFile := storage.ServeFile(file, w, tagDownload(r, models.DownloadViaFile), false, true, false, true)
 	if !validFile {
 		// Only called if the file has already expired during the expiry check of storage.ServeFile()
 		w.Header().Set("Content-Type", "image/svg+xml")
@@ -673,15 +757,33 @@ func showAdminMenu(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	view := (&AdminView{}).convertGlobalConfig(ViewMain, user)
+	view := UploadView{}
+	view.AdminView = *(&AdminView{}).convertGlobalConfig(ViewMain, user)
 	if len(configuration.GetEnvironment().ActiveDeprecations) > 0 {
 		if user.IsSuperAdmin() {
 			view.ShowDeprecationNotice = true
 		}
 	}
+	// Starts empty: only what is uploaded now is added, live, by
+	// admin_ui_upload.js. Stored files are on the Files tab.
+	view.Browser = newFileBrowser("fgs-upload", ctxUpload, []browserItem{}, user)
+	view.Browser.UploadSink = true
+	// Part 4, S2: "Email me when my files are downloaded", for accounts
+	// with an email address; not during "View as…", which refuses the save
+	view.ShowEmailSwitch = people.HasEmail(user) && database.SupportsGroups() && !viewasActive(r)
+	view.EmailDownloads = people.WantsDownloadEmails(user.Id)
 
-	err = templateFolder.ExecuteTemplate(w, "admin", view)
+	err = templateFolder.ExecuteTemplate(w, "admin", &view)
 	helper.CheckIgnoreTimeout(err)
+}
+
+// UploadView is the upload page: the admin view plus the shared file list of
+// the files uploaded now
+type UploadView struct {
+	AdminView
+	Browser         fileBrowser
+	ShowEmailSwitch bool // Part 4, S2
+	EmailDownloads  bool
 }
 
 // Handling of /logs
@@ -734,6 +836,7 @@ type DownloadView struct {
 	EndToEndEncryption   bool
 	UsesHttps            bool
 	CustomContent        customStatic
+	Preview              previewInfo
 }
 
 type e2ESetupView struct {
@@ -749,8 +852,14 @@ type AdminView struct {
 	Items                 []models.FileApiOutput
 	ApiKeys               []models.ApiKey
 	Users                 []userInfo
+	Blocked               []models.BlockEntry
 	FileRequests          []models.FileRequest
+	Collections           []collectionInfo
+	SharedWithMe          []sharedCollectionInfo
 	ActiveUser            models.User
+	ActiveUserShownName   string // the user menu (Part 4, S2): people.Name
+	ActiveUserEmail       string // and the account's email, "" when it is none
+	ActiveUserPhotoUrl    string // the pill's photo (Part 4 polish): people.PhotoUrl, "" for the icon
 	UserMap               map[int]*models.User
 	ServerUrl             string
 	PublicName            string
@@ -810,6 +919,12 @@ const (
 	ViewUsers
 	// ViewFileRequests is the identifier for the file request menu
 	ViewFileRequests
+	// ViewCollections is the identifier for the collections menu
+	ViewCollections
+	// ViewFiles is the identifier for the Files tab
+	ViewFiles = 6
+	// ViewGroups is the identifier for the Groups tab
+	ViewGroups = 7
 )
 
 // Converts the globalConfig variable to an AdminView struct to pass the infos to
@@ -821,10 +936,16 @@ func (u *AdminView) convertGlobalConfig(view int, user models.User) *AdminView {
 	config := configuration.Get()
 	u.IsInternalAuth = config.Authentication.Method == models.AuthenticationInternal
 	u.ActiveUser = user
+	u.ActiveUserShownName = people.Name(user)
+	u.ActiveUserPhotoUrl = people.PhotoUrl(user)
+	if people.HasEmail(user) {
+		u.ActiveUserEmail = user.Name
+	}
 	u.UserMap = getUserMap()
 	u.CustomContent = customStaticInfo
 	switch view {
-	case ViewMain:
+	// The collections page needs the same file list, for its file picker.
+	case ViewMain, ViewCollections, ViewFiles:
 		for _, element := range database.GetAllMetadata() {
 			if element.UserId != user.Id && !user.HasPermissionListOtherUploads() {
 				continue
@@ -858,11 +979,15 @@ func (u *AdminView) convertGlobalConfig(view int, user models.User) *AdminView {
 		_, u.DiskUsage, u.DiskTotal, u.DiskUsagePercent = serverstats.GetDiskInfo()
 		u.CpuLoad = serverstats.GetCpuUsage()
 	case ViewUsers:
-		uploadCounts := storage.GetUploadCounts()
+		u.Blocked = blocklist.List() // Part 4, K
+		fileStats := userFileStats()
 		u.Users = make([]userInfo, 0)
 		for _, userEntry := range database.GetAllUsers() {
 			userWithUploads := userInfo{
-				UploadCount: uploadCounts[userEntry.Id],
+				UploadCount: fileStats[userEntry.Id].Count,
+				TotalSize:   helper.ByteCountSI(fileStats[userEntry.Id].Bytes),
+				Groups:      userGroupNames(userEntry.Id),
+				ShownName:   people.Name(userEntry),
 				User:        userEntry,
 			}
 			// Otherwise the user is not shown as online, if /users is opened as first page
@@ -955,7 +1080,10 @@ func sortApiKeys(input []models.ApiKey) []models.ApiKey {
 }
 
 type userInfo struct {
-	UploadCount int
+	UploadCount int      // files the Files tab lists for this person; Size covers the same files
+	TotalSize   string   // their size, human-readable
+	Groups      []string // names of the live groups they belong to
+	ShownName   string   // people.Name, shown above the account (Part 4, S2)
 	User        models.User
 }
 
@@ -963,6 +1091,9 @@ type userInfo struct {
 func showPublicUpload(w http.ResponseWriter, r *http.Request) {
 	addNoCacheHeader(w)
 	fileRequestId := queryUrl(w, r, "id", errorHandling.TypeInvalidFileRequest)
+	if fileRequestId == "" {
+		return // queryUrl has already redirected
+	}
 	request, ok := filerequest.Get(fileRequestId)
 	if !ok {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeInvalidFileRequest)
@@ -977,6 +1108,9 @@ func showPublicUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apiKey := queryUrl(w, r, "key", errorHandling.TypeInvalidFileRequest)
+	if apiKey == "" {
+		return // queryUrl has already redirected
+	}
 	if subtle.ConstantTimeCompare([]byte(request.ApiKey), []byte(apiKey)) != 1 {
 		errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeInvalidFileRequest)
 		return
@@ -1032,6 +1166,9 @@ func downloadFileWithNameInUrl(w http.ResponseWriter, r *http.Request) {
 // Outputs the file to the user and reduces the download remaining count for the file
 func downloadFile(w http.ResponseWriter, r *http.Request) {
 	id := queryUrl(w, r, "id", errorHandling.TypeFileNotFound)
+	if id == "" {
+		return // queryUrl has already redirected
+	}
 	serveFile(id, true, w, r)
 }
 
@@ -1060,13 +1197,18 @@ func downloadPresigned(w http.ResponseWriter, r *http.Request) {
 	}
 	presign.Delete(presignedUrl.Id)
 
+	// requireLogin route: the user is in the context, in every authentication mode
+	user, err := authentication.GetUserFromRequest(r)
+	if err != nil {
+		panic(err)
+	}
 	if len(files) == 1 {
 		file := files[0]
 		forceDecryption := file.Encryption.IsEncrypted && !file.Encryption.IsEndToEndEncrypted
-		storage.ServeFile(file, w, r, true, false, forceDecryption, false)
+		storage.ServeFile(file, w, tagDownloadUser(r, models.DownloadViaFile, user.Id), true, false, forceDecryption, false)
 		return
 	}
-	storage.ServeFilesAsZip(files, presignedUrl.Filename, w, r)
+	storage.ServeFilesAsZip(files, presignedUrl.Filename, w, tagDownloadUser(r, models.DownloadViaZip, user.Id))
 }
 
 func serveFile(id string, isRootUrl bool, w http.ResponseWriter, r *http.Request) {
@@ -1091,7 +1233,7 @@ func serveFile(id string, isRootUrl bool, w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	validFile := storage.ServeFile(savedFile, w, r, true, true, false, true)
+	validFile := storage.ServeFile(savedFile, w, tagDownload(r, models.DownloadViaFile), true, true, false, true)
 	if !validFile {
 		// Only called if the file has already expired during the expiry check of storage.ServeFile()
 		if isRootUrl {
@@ -1118,6 +1260,14 @@ func requireLogin(next http.HandlerFunc, isUiCall, isPwChangeView bool) http.Han
 					return
 				}
 			}
+			// Part 3, V1: an admin in "View as…" is the target from here on,
+			// exactly when the guard decided so for this request. The
+			// password check above always runs against the real admin.
+			if target, ok := viewas.SwapFor(r, user); ok {
+				viewas.Touch(user.Id)
+				r = viewas.MarkSwapped(r, user)
+				user = target
+			}
 			r = authentication.SetUserInRequest(r, user)
 			next.ServeHTTP(w, r)
 			return
@@ -1127,6 +1277,10 @@ func requireLogin(next http.HandlerFunc, isUiCall, isPwChangeView bool) http.Han
 			w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 			_, _ = io.WriteString(w, "{\"Result\":\"error\",\"ErrorMessage\":\"Not authenticated\"}")
 			return
+		}
+		if r.URL.Path == "/g" {
+			// Part 2: a signed-out member comes back to the group (M8)
+			authentication.SetReturnTo(w, "g?id="+r.URL.Query().Get("id"))
 		}
 		redirect(w, r, "login")
 	}
@@ -1155,11 +1309,7 @@ func writeFilePwCookie(w http.ResponseWriter, file models.File) {
 
 // Checks if a cookie contains the correct token for a password-protected file
 func isValidPwCookie(r *http.Request, file models.File) bool {
-	cookie, err := r.Cookie("p" + file.Id)
-	if err != nil {
-		return false
-	}
-	return downloadPasswordToken.IsValid(cookie.Value, file.Id)
+	return access.ValidFilePwCookie(r, file.Id)
 }
 
 // Adds a header to disable external caching

@@ -262,6 +262,14 @@ var routes = []apiRoute{
 		RequestParser: &paramLogsGet{},
 	},
 	{
+		// Part 4, A: the admin's activity feed, read by the notifier
+		Url:           "/activity",
+		ApiPerm:       models.ApiPermManageLogs,
+		AdminOnly:     true,
+		execution:     apiActivityGet,
+		RequestParser: &paramActivityGet{},
+	},
+	{
 		Url:           "/e2e/get", // not published in API documentation
 		ApiPerm:       models.ApiPermUpload,
 		execution:     apiE2eGet,
@@ -421,6 +429,7 @@ type paramFilesModify struct {
 	ExpiryTimestamp    int64  `header:"expiryTimestamp"`
 	Password           string `header:"password"`
 	KeepPassword       bool   `header:"originalPassword"`
+	FileName           string `header:"filename" supportBase64:"true"`
 	UnlimitedDownloads bool
 	UnlimitedExpiry    bool
 	IsPasswordSet      bool
@@ -428,6 +437,12 @@ type paramFilesModify struct {
 }
 
 func (p *paramFilesModify) ProcessParameter(_ *http.Request) error {
+	if p.foundHeaders["filename"] {
+		p.FileName = helper.SanitiseFilename(p.FileName)
+		if p.FileName == "" {
+			return errors.New("invalid value in header filename supplied")
+		}
+	}
 	if p.foundHeaders["allowedDownloads"] && p.AllowedDownloads == 0 {
 		p.UnlimitedDownloads = true
 	}
@@ -643,6 +658,21 @@ func (p *paramLogsGet) ProcessParameter(_ *http.Request) error {
 	return nil
 }
 
+// paramActivityGet is GET /api/activity (Part 4, A). The cursor is a header,
+// because the router matches on the whole URL and a query string never routes.
+type paramActivityGet struct {
+	Since        int64 `header:"since"`
+	Limit        int   `header:"limit"`
+	foundHeaders map[string]bool
+}
+
+func (p *paramActivityGet) ProcessParameter(_ *http.Request) error {
+	if p.Since < 0 {
+		return errors.New("since must not be negative")
+	}
+	return nil
+}
+
 type paramChunkAdd struct {
 	Request *http.Request
 }
@@ -681,6 +711,7 @@ type paramChunkComplete struct {
 	Password           string `header:"password"`
 	IsE2E              bool   `header:"isE2E" unpublished:"true"` // not published in API documentation
 	IsNonBlocking      bool   `header:"nonblocking"`
+	GroupId            string `header:"groupId"` // Part 2, G7: upload into this group
 	UnlimitedDownloads bool
 	UnlimitedTime      bool
 	FileHeader         chunking.FileHeader

@@ -358,6 +358,23 @@ func (p *paramFilesModify) ParseRequest(r *http.Request) error {
 		}
 	}
 
+	// RequestParser header value "filename", required: false, has base64support
+	exists, err = checkHeaderExists(r, "filename", false, true)
+	if err != nil {
+		return err
+	}
+	p.foundHeaders["filename"] = exists
+	if exists {
+		p.FileName = r.Header.Get("filename")
+		if strings.HasPrefix(p.FileName, "base64:") {
+			decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(p.FileName, "base64:"))
+			if err != nil {
+				return err
+			}
+			p.FileName = string(decoded)
+		}
+	}
+
 	return p.ProcessParameter(r)
 }
 
@@ -880,6 +897,47 @@ func (p *paramLogsGet) New() requestParser {
 	return &paramLogsGet{}
 }
 
+// ParseRequest reads r and saves the passed header values in the paramActivityGet struct
+// In the end, ProcessParameter() is called
+func (p *paramActivityGet) ParseRequest(r *http.Request) error {
+	var err error
+	var exists bool
+	p.foundHeaders = make(map[string]bool)
+
+	// RequestParser header value "since", required: false
+	exists, err = checkHeaderExists(r, "since", false, false)
+	if err != nil {
+		return err
+	}
+	p.foundHeaders["since"] = exists
+	if exists {
+		p.Since, err = parseHeaderInt64(r, "since")
+		if err != nil {
+			return fmt.Errorf("invalid value in header since supplied")
+		}
+	}
+
+	// RequestParser header value "limit", required: false
+	exists, err = checkHeaderExists(r, "limit", false, false)
+	if err != nil {
+		return err
+	}
+	p.foundHeaders["limit"] = exists
+	if exists {
+		p.Limit, err = parseHeaderInt(r, "limit")
+		if err != nil {
+			return fmt.Errorf("invalid value in header limit supplied")
+		}
+	}
+
+	return p.ProcessParameter(r)
+}
+
+// New returns a new instance of paramActivityGet struct
+func (p *paramActivityGet) New() requestParser {
+	return &paramActivityGet{}
+}
+
 // ParseRequest parses the header file. As paramChunkAdd has no fields with the
 // tag header, this method does nothing, except calling ProcessParameter()
 func (p *paramChunkAdd) ParseRequest(r *http.Request) error {
@@ -1046,6 +1104,16 @@ func (p *paramChunkComplete) ParseRequest(r *http.Request) error {
 		if err != nil {
 			return fmt.Errorf("invalid value in header nonblocking supplied")
 		}
+	}
+
+	// RequestParser header value "groupId", required: false
+	exists, err = checkHeaderExists(r, "groupId", false, true)
+	if err != nil {
+		return err
+	}
+	p.foundHeaders["groupId"] = exists
+	if exists {
+		p.GroupId = r.Header.Get("groupId")
 	}
 
 	return p.ProcessParameter(r)

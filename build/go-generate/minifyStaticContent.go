@@ -45,6 +45,13 @@ func getPaths() []converter {
 		Name:              "Admin JS",
 	})
 	result = append(result, converter{
+		InputPath:         pathPrefix + "js/media.js",
+		OutputPath:        pathPrefix + "js/min/media.min." + jsMediaVersion + ".js",
+		GlobPreviousFiles: pathPrefix + "js/min/media.min.*.js",
+		Type:              "text/javascript",
+		Name:              "Media JS",
+	})
+	result = append(result, converter{
 		InputPath:         pathPrefix + "js/end2end_admin.js",
 		OutputPath:        pathPrefix + "js/min/end2end_admin.min." + jsE2EVersion + ".js",
 		GlobPreviousFiles: pathPrefix + "js/min/end2end_admin.min.*.js",
@@ -71,6 +78,24 @@ func getPaths() []converter {
 		Name:       "SSE Worker JS",
 	})
 	result = append(result, converter{
+		InputPath:  pathPrefix + "js/sha1.js",
+		OutputPath: pathPrefix + "js/min/sha1.min.js",
+		Type:       "text/javascript",
+		Name:       "SHA-1 JS",
+	})
+	result = append(result, converter{
+		InputPath:  pathPrefix + "js/viewas.js",
+		OutputPath: pathPrefix + "js/min/viewas.min.js",
+		Type:       "text/javascript",
+		Name:       "View as JS",
+	})
+	result = append(result, converter{
+		InputPath:  pathPrefix + "js/sha1-worker.js",
+		OutputPath: pathPrefix + "js/min/sha1-worker.min.js",
+		Type:       "text/javascript",
+		Name:       "SHA-1 Worker JS",
+	})
+	result = append(result, converter{
 		InputPath:  pathPrefix + "js/wasm_exec.js",
 		OutputPath: pathPrefix + "js/min/wasm_exec.min.js",
 		Type:       "text/javascript",
@@ -87,6 +112,18 @@ func getPaths() []converter {
 		OutputPath: pathPrefix + "js/min/public_upload.min.js",
 		Type:       "text/javascript",
 		Name:       "Public upload JS",
+	})
+	result = append(result, converter{
+		InputPath:  pathPrefix + "js/collection_owner.js",
+		OutputPath: pathPrefix + "js/min/collection_owner.min.js",
+		Type:       "text/javascript",
+		Name:       "Collection owner bar JS",
+	})
+	result = append(result, converter{
+		InputPath:  pathPrefix + "js/collection_togroup.js",
+		OutputPath: pathPrefix + "js/min/collection_togroup.min.js",
+		Type:       "text/javascript",
+		Name:       "Turn into a group JS",
 	})
 	return result
 }
@@ -172,6 +209,7 @@ func fileExists(filename string) bool {
 // Auto-generated content below, do not modify
 // Version codes can be changed in updateVersionNumbers.go
 
-const jsAdminVersion = "ccb62a8d5b"
-const jsE2EVersion = "ccb62a8d5b"
-const cssMainVersion = "ccb62a8d5b"
+const jsAdminVersion = "1510eee66e"
+const jsMediaVersion = "1510eee66e"
+const jsE2EVersion = "1510eee66e"
+const cssMainVersion = "1510eee66e"

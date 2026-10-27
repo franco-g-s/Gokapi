@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FGS</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  /* Palette and type are shared with custom.css so this page and the Gokapi
+     app look like one product. Dark only, because the app is dark only. */
+  :root {
+    --card: #1c1c1a;
+    --fg: #f2f1ee;
+    --muted: #9a9992;
+    --line: #2e2e2b;
+    --accent: #f2f1ee;
+    --accent-fg: #131312;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    /* Same background treatment as the Gokapi pages. */
+    background: #131312 url("/assets/background.jpg") no-repeat center center fixed;
+    background-size: cover;
+    color: var(--fg);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* The inset vignette Gokapi draws over its background. */
+  body::after {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    box-shadow: inset 0 0 5rem rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+    z-index: 10;
+  }
+  .card {
+    position: relative;
+    z-index: 20;
+    width: 100%;
+    max-width: 26rem;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 2.25rem 2rem;
+    text-align: center;
+    box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.45);
+  }
+  .mark {
+    font-size: 1.6rem;
+    font-weight: 650;
+    letter-spacing: 0.16em;
+    margin: 0 0 0.35rem;
+  }
+  .tag {
+    margin: 0 0 1.75rem;
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+  a.btn {
+    display: block;
+    background: var(--accent);
+    color: var(--accent-fg);
+    text-decoration: none;
+    font-weight: 550;
+    font-size: 0.95rem;
+    padding: 0.8rem 1rem;
+    border-radius: 9px;
+    transition: opacity 0.15s ease;
+  }
+  a.btn:hover { opacity: 0.86; }
+  .note {
+    margin: 1.5rem 0 0;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+  <main class="card">
+    <h1 class="mark">FGS</h1>
+    <p class="tag">Private file sharing for friends.</p>
+
+    <a class="btn" href="/admin">Sign in with Google to upload</a>
+
+    <p class="note">
+      Been sent a link? You don&rsquo;t need to sign in &mdash;
+      just open the link directly.
+    </p>
+  </main>
+</body>
+</html>

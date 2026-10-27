@@ -109,6 +109,124 @@ type Database interface {
 	// DeleteFileRequest deletes a file request with the given ID
 	DeleteFileRequest(request models.FileRequest)
 
+	// GetCollection returns the Collection or false if not found
+	GetCollection(id string) (models.Collection, bool)
+	// GetAllCollections returns all collections, newest first
+	GetAllCollections() []models.Collection
+	// SaveCollection stores the collection and its member list
+	SaveCollection(collection models.Collection)
+	// DeleteCollection deletes the collection, leaving the files untouched
+	DeleteCollection(id string)
+	// RemoveFileFromCollections drops a file from every collection it belongs to
+	RemoveFileFromCollections(fileId string)
+
+	// GetPreview returns the preview metadata for a blob hash, or false if not found
+	GetPreview(sha1 string) (models.Preview, bool)
+	// SavePreview inserts or replaces preview metadata
+	SavePreview(p models.Preview)
+	// DeletePreview removes preview metadata
+	DeletePreview(sha1 string)
+	// GetAllPreviewSha1s maps every known blob hash to its preview status
+	GetAllPreviewSha1s() map[string]string
+
+	// SupportsGroups is false on providers without group tables (Redis)
+	SupportsGroups() bool
+	// GetGroup returns the group or false if not found
+	GetGroup(id string) (models.Group, bool)
+	// GetGroupByToken returns the group with this invite token
+	GetGroupByToken(token string) (models.Group, bool)
+	// GetGroupByCode returns the group with this join code (as normalised by storage)
+	GetGroupByCode(code string) (models.Group, bool)
+	// GetAllGroups returns all groups, newest first
+	GetAllGroups() []models.Group
+	// SaveGroup inserts or replaces a group
+	SaveGroup(g models.Group)
+	// DeleteGroup removes the group, its members, its file links and its kept
+	// near-copies. Files are never touched.
+	DeleteGroup(id string)
+	// GetGroupMembers returns the members of a group, by Joined ascending
+	GetGroupMembers(groupId string) []models.GroupMember
+	// GetMembershipsOfUser returns every group membership of a user
+	GetMembershipsOfUser(userId int) []models.GroupMember
+	// SaveGroupMember inserts or replaces a membership
+	SaveGroupMember(m models.GroupMember)
+	// DeleteGroupMember removes one membership
+	DeleteGroupMember(groupId string, userId int)
+	// GetGroupFileIds returns the ids of all files in a group
+	GetGroupFileIds(groupId string) []string
+	// GetGroupIdsOfFile returns the ids of all groups a file is in
+	GetGroupIdsOfFile(fileId string) []string
+	// AddGroupFile puts a file into a group (idempotent)
+	AddGroupFile(groupId, fileId string)
+	// RemoveGroupFile takes a file out of one group
+	RemoveGroupFile(groupId, fileId string)
+	// RemoveFileFromGroups drops a file from every group
+	RemoveFileFromGroups(fileId string)
+	// SaveNearCopyKept remembers "Keep both" for a file in a group (idempotent)
+	SaveNearCopyKept(groupId, fileId string)
+	// GetNearCopiesKept returns the file ids kept in a group despite looking like another's
+	GetNearCopiesKept(groupId string) map[string]bool
+	// SaveDownload records one original file served to someone
+	SaveDownload(d models.Download)
+	// GetDownloadedFileIds is every file id the user has downloaded, by any route
+	GetDownloadedFileIds(userId int) map[string]bool
+	// DeleteDownloadsOfFile removes the download rows of a file
+	DeleteDownloadsOfFile(fileId string)
+	// CopyDownloads gives every signed-in user who downloaded fromFileId a
+	// download row for toFileId too, unless they already have one
+	CopyDownloads(fromFileId, toFileId string)
+	// SaveCollectionSeen records the first time a user opened a collection; keeps the first FirstOpened
+	SaveCollectionSeen(s models.CollectionSeen)
+	// GetCollectionsSeen returns the collections a user has opened, newest first
+	GetCollectionsSeen(userId int) []models.CollectionSeen
+	// GetCollectionViewers returns who opened a collection while signed in, first opened first
+	GetCollectionViewers(collectionId string) []models.CollectionSeen
+	// SaveCollectionGroup links a collection to the group it was turned into
+	SaveCollectionGroup(cg models.CollectionGroup)
+	// GetCollectionGroup returns the group link of a collection, or false
+	GetCollectionGroup(collectionId string) (models.CollectionGroup, bool)
+	// GetCollectionGroupsOfGroup returns the collections linked to a group
+	GetCollectionGroupsOfGroup(groupId string) []models.CollectionGroup
+	// DeleteCollectionGroup removes the group link of a collection
+	DeleteCollectionGroup(collectionId string)
+
+	// GetViewAs returns the admin's active "View as…", or false
+	GetViewAs(adminId int) (models.ViewAs, bool)
+	// GetAllViewAs returns every active "View as…"
+	GetAllViewAs() []models.ViewAs
+	// SaveViewAs inserts or replaces the admin's "View as…"
+	SaveViewAs(v models.ViewAs)
+	// DeleteViewAs ends the admin's "View as…"
+	DeleteViewAs(adminId int)
+
+	// Part 4, K: blocklist
+	// SaveBlock adds a blocklist entry (an email or "@domain"); an existing one is kept
+	SaveBlock(b models.BlockEntry)
+	// DeleteBlock removes a blocklist entry
+	DeleteBlock(entry string)
+	// IsBlocked returns true if the exact entry is on the blocklist
+	IsBlocked(entry string) bool
+	// GetAllBlocks returns every blocklist entry
+	GetAllBlocks() []models.BlockEntry
+	// Part 4, S1: profiles
+	// GetProfile returns the user's profile, or false if none is stored
+	GetProfile(userId int) (models.Profile, bool)
+	// GetProfileWithoutPhoto is GetProfile without the photo's bytes
+	GetProfileWithoutPhoto(userId int) (models.Profile, bool)
+	// SaveProfile inserts or replaces the user's profile
+	SaveProfile(profile models.Profile)
+	// DeleteProfile removes the user's profile
+	DeleteProfile(userId int)
+	// Part 4, A: activity feed
+	// SaveActivity appends one event; its Id is assigned by the database
+	SaveActivity(a models.Activity)
+	// GetActivitySince returns up to limit events with an Id above since, oldest first
+	GetActivitySince(since int64, limit int) []models.Activity
+	// ActivityBounds returns the oldest retained id (0 when empty) and the newest id ever assigned
+	ActivityBounds() (oldest, newest int64)
+	// PruneActivity deletes every event that happened before the timestamp
+	PruneActivity(before int64)
+
 	// GetStatTraffic returns the total traffic from statistics
 	GetStatTraffic() uint64
 	// SaveStatTraffic stores the total traffic

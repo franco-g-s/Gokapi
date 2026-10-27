@@ -22,7 +22,7 @@ type DatabaseProvider struct {
 }
 
 // DatabaseSchemeVersion contains the version number to be expected from the current database. If lower, an upgrade will be performed
-const DatabaseSchemeVersion = 15
+const DatabaseSchemeVersion = 17
 
 // New returns an instance
 func New(dbConfig models.DbConnection) (DatabaseProvider, error) {
@@ -114,6 +114,45 @@ func (p DatabaseProvider) Upgrade(currentDbVersion int) {
 	if currentDbVersion < 15 {
 		p.DeleteAllSessions()
 	}
+	// Collections
+	if currentDbVersion < 16 {
+		err := p.rawSqlite(`			CREATE TABLE "Collections" (
+				"Id"	TEXT NOT NULL UNIQUE,
+				"Name"	TEXT NOT NULL,
+				"UserId"	INTEGER NOT NULL,
+				"Creation"	INTEGER NOT NULL,
+				"ExpireAt"	INTEGER NOT NULL,
+				"UnlimitedTime"	INTEGER NOT NULL,
+				"DownloadsRemaining"	INTEGER NOT NULL,
+				"UnlimitedDownloads"	INTEGER NOT NULL,
+				"DownloadCount"	INTEGER NOT NULL,
+				"PasswordHash"	TEXT NOT NULL,
+				PRIMARY KEY("Id")
+			);
+			CREATE TABLE "CollectionFiles" (
+				"CollectionId"	TEXT NOT NULL,
+				"FileId"	TEXT NOT NULL,
+				"Position"	INTEGER NOT NULL,
+				PRIMARY KEY("CollectionId","FileId")
+			);`)
+		helper.Check(err)
+	}
+	// Collections became a plain view over their files - no expiry, download
+	// budget or counter of their own - so those columns are dropped. Safe to
+	// recreate: the feature is new and unreleased upstream.
+	if currentDbVersion < 17 {
+		err := p.rawSqlite(`DROP TABLE IF EXISTS Collections;
+			CREATE TABLE "Collections" (
+				"Id"	TEXT NOT NULL UNIQUE,
+				"Name"	TEXT NOT NULL,
+				"UserId"	INTEGER NOT NULL,
+				"Creation"	INTEGER NOT NULL,
+				"PasswordHash"	TEXT NOT NULL,
+				PRIMARY KEY("Id")
+			);
+			DELETE FROM CollectionFiles;`)
+		helper.Check(err)
+	}
 }
 
 // GetDbVersion gets the version number of the database
@@ -161,10 +200,32 @@ func (p DatabaseProvider) init(dbConfig models.DbConnection) (DatabaseProvider, 
 		exists, err := helper.FileExists(dbConfig.HostUrl)
 		helper.Check(err)
 		if !exists {
-			return p, p.createNewDatabase()
+			err = p.createNewDatabase()
+		} else {
+			err = p.sqliteDb.Ping()
 		}
-		err = p.sqliteDb.Ping()
-		return p, err
+		if err != nil {
+			return p, err
+		}
+		if err = p.ensurePreviewsTable(); err != nil {
+			return p, err
+		}
+		if err = p.ensureGroupTables(); err != nil {
+			return p, err
+		}
+		if err = p.ensureViewAsTable(); err != nil {
+			return p, err
+		}
+		// Part 4, S1: profiles
+		if err = p.ensureProfilesTable(); err != nil {
+			return p, err
+		}
+		// Part 4, A: activity feed
+		if err = p.ensureActivityTable(); err != nil {
+			return p, err
+		}
+		// Part 4, K: blocklist
+		return p, p.ensureBlocklistTable()
 	}
 	return p, nil
 }
@@ -261,6 +322,20 @@ func (p DatabaseProvider) createNewDatabase() error {
 			"note"	TEXT NOT NULL,
 			PRIMARY KEY("id")
 		);
+		CREATE TABLE "Collections" (
+			"Id"	TEXT NOT NULL UNIQUE,
+			"Name"	TEXT NOT NULL,
+			"UserId"	INTEGER NOT NULL,
+			"Creation"	INTEGER NOT NULL,
+			"PasswordHash"	TEXT NOT NULL,
+			PRIMARY KEY("Id")
+		);
+		CREATE TABLE "CollectionFiles" (
+			"CollectionId"	TEXT NOT NULL,
+			"FileId"	TEXT NOT NULL,
+			"Position"	INTEGER NOT NULL,
+			PRIMARY KEY("CollectionId","FileId")
+		);
 		CREATE TABLE "Statistics" (
 				"id"	INTEGER NOT NULL,
 				"type"	INTEGER NOT NULL UNIQUE,
@@ -273,6 +348,30 @@ func (p DatabaseProvider) createNewDatabase() error {
 	}
 	p.SetDbVersion(DatabaseSchemeVersion)
 	return nil
+}
+
+// ensurePreviewsTable creates the fork's preview table if it is missing. It
+// runs on every start, for new and existing databases alike, instead of an
+// Upgrade step: the fork keeps upstream's schema version (17), so the live
+// database can roll back to an older image without a version mismatch, and a
+// future upstream 17->18 migration cannot collide with ours (Ruling 20).
+// Upgrade itself cannot host this - it only runs when the stored version is
+// below DatabaseSchemeVersion, never on an up-to-date database.
+func (p DatabaseProvider) ensurePreviewsTable() error {
+	return p.rawSqlite(`CREATE TABLE IF NOT EXISTS "Previews" (
+			"Sha1"	TEXT NOT NULL UNIQUE,
+			"Status"	TEXT NOT NULL,
+			"Kind"	TEXT NOT NULL DEFAULT '',
+			"Width"	INTEGER NOT NULL DEFAULT 0,
+			"Height"	INTEGER NOT NULL DEFAULT 0,
+			"TakenAt"	INTEGER NOT NULL DEFAULT 0,
+			"DurationMs"	INTEGER NOT NULL DEFAULT 0,
+			"Color"	TEXT NOT NULL DEFAULT '',
+			"PHash"	INTEGER NOT NULL DEFAULT 0,
+			"Attempts"	INTEGER NOT NULL DEFAULT 0,
+			"Updated"	INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY("Sha1")
+		) WITHOUT ROWID;`)
 }
 
 // rawSqlite runs a raw SQL statement. Should only be used for upgrading

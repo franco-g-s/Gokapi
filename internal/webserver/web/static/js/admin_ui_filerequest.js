@@ -36,27 +36,11 @@ function deleteOrShowModal(requestId, requestName, count) {
 }
 
 
-function deleteFileFr(id, frId) {
-    document.getElementById("button-delete-" + id).disabled = true;
-    let rowFileEntry = document.getElementById("cell-listupload-"+id);
-    apiFilesDelete(id, 10)
-        .then(data => {
-            changeFileCountFr(frId, -1);
-            removeDownloadFileReference(id, frId);
-		rowFileEntry.classList.add("rowDeleting");
-		setTimeout(() => {
-		    rowFileEntry.remove();
-		}, 290);
-	 showToastFileDeletionFr(id);
-        })
-        .catch(error => {
-            alert("Unable to delete file: " + error);
-            console.error('Error:', error);
-        });
-}
-
 function changeFileCountFr(frId, change) {
 	let countCell = document.getElementById("totalFiles-fr-" + frId);
+	if (countCell === null) {
+		return;
+	}
 	let currentCount = Number(countCell.innerText) || 0;
 	let newCount = currentCount + change;
 	countCell.innerText = newCount;	
@@ -101,33 +85,68 @@ function removeDownloadFileReference(fileId, frId) {
 }
 
 
-function showToastFileDeletionFr(id) {
+// The counterpart of removeDownloadFileReference, for an undone delete: the
+// button is rebuilt from the files the request's list holds now
+function addDownloadFileReference(root, frId) {
+    const btn = document.getElementById(`download-${frId}`);
+    if (!btn) return;
+    const fileIds = Array.from(root.querySelectorAll("[data-fgs-grid] .fgs-tile"))
+        .map(tile => tile.getAttribute("data-id"))
+        .filter(id => id);
+    const row = document.getElementById("row-" + frId);
+    const recordName = ((row && row.cells[0] && row.cells[0].textContent.trim()) || "Uploaded files")
+        .replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    btn.dataset.recordName = recordName;
+    if (fileIds.length === 0) {
+        btn.classList.add('disabled');
+        btn.removeAttribute('onclick');
+    } else if (fileIds.length === 1) {
+        btn.classList.remove('disabled');
+        btn.setAttribute('onclick', `downloadFileWithPresign('${fileIds[0]}');`);
+    } else {
+        btn.classList.remove('disabled');
+        btn.setAttribute('onclick', `downloadFilesZipWithPresign('${fileIds.join(',')}', '${recordName}');`);
+    }
+}
+
+
+function showToastFileDeletionFr(id, filename) {
     let notification = document.getElementById("toastnotificationUndo");
-    let filename = document.getElementById("cell-name-" + id).innerText;
     let filenameToast = document.getElementById("toastFilename");
     let button = document.getElementById("toastUndoButton");
 
-    filenameToast.innerText = filename;
+    filenameToast.textContent = filename;
 
     button.dataset.fileid = id;
     hideToast();
     notification.classList.add("show");
 
-    clearTimeout(toastId);
-    toastId = setTimeout(() => {
+    clearTimeout(undoToastId);
+    undoToastId = setTimeout(() => {
         hideFileToast();
-    }, 5000);
+    }, UNDO_TOAST_MS);
 }
 
 
+// Puts a deleted file back into its request's list, with the row's count and
+// its "Download all" button: no reload, which would collapse the open row.
 function handleUndoFr(button) {
     hideFileToast();
-    apiFilesRestore(button.dataset.fileid)
-        .then(data => {
-            window.location.reload();
+    let label = document.getElementById("toastFilename");
+    let name = label ? label.textContent : "the file";
+    let id = button.dataset.fileid;
+    FGS.restoreFile(id)
+        .then(result => {
+            result.roots.forEach(root => {
+                if (root.id.indexOf("fr-") !== 0) return;
+                const frId = root.id.slice(3);
+                changeFileCountFr(frId, 1);
+                addDownloadFileReference(root, frId);
+            });
+            FGS.undoToast(name, result);
         })
         .catch(error => {
-            alert("Unable to restore file: " + error);
+            FGS.undoToast(name, null, error);
             console.error('Error:', error);
         });
 }
@@ -459,3 +478,182 @@ function createFileRequestRow(jsonResult, user) {
     tr.appendChild(td);
     return tr;
 }
+
+
+// --- The per-request file lists (shared file browser, context "filerequest") ---
+// Request files are downloaded through the presigned flow (a short-lived,
+// single-use link from the API), so the list's built-in download, zip and Save
+// to Photos are replaced here. Open (the viewer) is the built-in one.
+(function () {
+    if (!window.FGS || !FGS.registerFileActions) return;
+
+    function requestIdOf(root) {
+        return root.id.indexOf("fr-") === 0 ? root.id.slice(3) : "";
+    }
+
+    function requestNameOf(root) {
+        const row = document.getElementById("row-" + requestIdOf(root));
+        const text = row && row.cells[0] ? row.cells[0].textContent.trim() : "";
+        return text || "Uploaded files";
+    }
+
+    function errorText(error) {
+        return error && error.message ? error.message : String(error);
+    }
+
+    function presignUrl(id) {
+        return apiFilesListDownloadSingle(id).then(data => {
+            if (!data || !data.downloadUrl) {
+                throw new Error("Unable to get presigned key");
+            }
+            return data.downloadUrl;
+        });
+    }
+
+    function pause(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // A presigned link lives for 30 seconds and works once, so each is
+    // requested right before it is used
+    async function downloadEach(a) {
+        a.button.disabled = true;
+        const failures = [];
+        for (let i = 0; i < a.data.length; i++) {
+            const name = a.data[i].name;
+            a.status.textContent = "Starting download " + (i + 1) + " of " + a.data.length + "...";
+            try {
+                const link = document.createElement("a");
+                link.href = await presignUrl(a.ids[i]);
+                link.style.display = "none";
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+            } catch (error) {
+                failures.push(name + ": " + errorText(error));
+            }
+            // Spacing the clicks keeps the browser from dropping queued downloads
+            await pause(600);
+        }
+        a.button.disabled = false;
+        a.status.textContent = failures.length
+            ? "Could not download " + failures.length + " file(s): " + failures.join("; ")
+            : "Started " + a.data.length + " download" + (a.data.length === 1 ? "" : "s") + ".";
+    }
+
+    function download(a) {
+        if (!a.bulk) {
+            downloadFileWithPresign(a.ids[0]);
+            return;
+        }
+        downloadEach(a);
+    }
+
+    function zip(a) {
+        downloadFilesZipWithPresign(a.ids.join(","), requestNameOf(a.root));
+    }
+
+    // Save to Photos (selection bar and "⋯" menu): the list's own flow, fed
+    // with links that are only requested when each file is about to be
+    // fetched, and the dates the saved files get
+    function photos(a) {
+        const button = a.button;
+        const items = FGS.photosPending(button) ? [] : a.data.map(d => Object.assign({}, d, {
+            url: () => presignUrl(d.id)
+        }));
+        FGS.saveToPhotos(items, button, { status: a.status, zipIds: ids => a.browser.zipIds(ids) });
+    }
+
+    // Takes a deleted file out of this request's list and keeps the row's
+    // count and its "Download all" button in step
+    function forgetFile(a, id) {
+        const requestId = requestIdOf(a.root);
+        a.browser.removeItem(id);
+        changeFileCountFr(requestId, -1);
+        removeDownloadFileReference(id, requestId);
+    }
+
+    function removeFile(a, id, name) {
+        FGS.rememberDeleted(id, [a.root]);
+        forgetFile(a, id);
+        showToastFileDeletionFr(id, name);
+    }
+
+    function mayDelete(a, d) {
+        return d.mine ||
+            a.root.getAttribute("data-perm-delete-others") === "true";
+    }
+
+    function deleteOne(a) {
+        const id = a.ids[0];
+        const name = a.data[0].name;
+        a.button.disabled = true;
+        apiFilesDelete(id, UNDO_DELAY_S)
+            .then(() => removeFile(a, id, name))
+            .catch(error => {
+                alert("Unable to delete file: " + error);
+                console.error("Error:", error);
+            })
+            // The selection bar's button is reused for the next selection
+            .finally(() => { a.button.disabled = false; });
+    }
+
+    // Several files: asked first, then deleted at once (no undo), each taken
+    // out of the list as it goes. No reload: it would collapse the open row.
+    async function deleteMany(a) {
+        if (!confirm("Delete " + a.data.length + " file(s)? This cannot be undone.")) return;
+        a.button.disabled = true;
+        const failures = [];
+        let deleted = 0;
+        try {
+            for (let i = 0; i < a.data.length; i++) {
+                const name = a.data[i].name;
+                a.status.textContent = "Deleting " + (i + 1) + " of " + a.data.length + "...";
+                if (!mayDelete(a, a.data[i])) {
+                    failures.push(name + ": you may not delete this file");
+                    continue;
+                }
+                try {
+                    await apiFilesDelete(a.ids[i], 0);
+                } catch (error) {
+                    failures.push(name + ": " + errorText(error));
+                    continue;
+                }
+                // Deleted on the server: showing it must not count as a failure
+                deleted++;
+                try {
+                    forgetFile(a, a.ids[i]);
+                } catch (error) {
+                    console.error("Error:", error);
+                }
+            }
+        } finally {
+            a.button.disabled = false;
+        }
+        a.status.textContent = "Deleted " + deleted + " file(s).";
+        if (failures.length) {
+            alert("Could not delete " + failures.length + " file(s):\n" + failures.join("\n"));
+        }
+    }
+
+    FGS.registerFileActions({
+        "download": download,
+        "zip": zip,
+        "photos": photos,
+        // One selected file is the menu's Delete (10 s undo); several are
+        // confirmed and permanent
+        "delete": a => (a.ids.length > 1 ? deleteMany(a) : deleteOne(a))
+    }, "filerequest");
+
+    // The lists sit in collapsed rows: lay out and size them once shown
+    document.addEventListener("shown.bs.collapse", event => {
+        const root = event.target.querySelector("[data-fgs-browser]");
+        if (!root || !root.fgsBrowser) return;
+        root.fgsBrowser.relayout();
+        if (window.jQuery && jQuery.fn.dataTable) {
+            jQuery(root).find("table.fgs-table").each(function () {
+                if (jQuery.fn.dataTable.isDataTable(this)) jQuery(this).DataTable().columns.adjust();
+            });
+        }
+    });
+})();

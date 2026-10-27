@@ -1,0 +1,832 @@
+/* FGS - custom styling for Gokapi
+ *
+ * Matches the landing page (/custom/landing.html): same grey card, same border
+ * colour, same rounded corners, same system font stack.
+ *
+ * Served as /custom/custom.v<N>.css where N is the contents of version.txt.
+ * Responses are cached for 2 days, so BUMP version.txt after editing this file.
+ * Gokapi only detects the file at startup, so restart after creating it.
+ */
+
+:root {
+  /* Makes the browser paint native controls (number spinners, scrollbars,
+     date pickers) in their dark variant instead of the default light one. */
+  color-scheme: dark;
+
+  --fgs-card:   #1c1c1a;   /* the grey of the landing-page box */
+  --fgs-sunken: #131211;   /* disabled/uneditable fields - darker than the card */
+  --fgs-raise:  #242422;   /* slightly lifted surface: table heads, inputs */
+  --fgs-fg:     #f2f1ee;
+  --fgs-muted:  #9a9992;
+  --fgs-line:   #2e2e2b;
+  --fgs-line-2: #3a3a36;
+  --fgs-radius: 14px;
+  --fgs-sb-w:   250px;
+  --fgs-font:   -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                Helvetica, Arial, sans-serif;
+}
+
+/* ---------- Typography: the landing page's stack, everywhere ---------- */
+body,
+h1, h2, h3, h4, h5, h6,
+.card, .card-title, .card-text,
+.btn, .badge, .nav-link,
+input, select, textarea,
+table, .table, .modal-content {
+  font-family: var(--fgs-font);
+}
+
+/* ---------- Cards ----------
+ * Gokapi's own cover.css puts an opaque background on .card-body with square
+ * corners, which paints OVER the parent's rounded corners - that was the
+ * "rounded and not rounded at the same time" artifact. Make the body
+ * transparent so the card's own rounded surface is what you actually see. */
+.card,
+#container.card {
+  background-color: var(--fgs-card);
+  border: 1px solid var(--fgs-line);
+  border-radius: var(--fgs-radius);
+  color: var(--fgs-fg);
+  box-shadow: 0 0.5rem 2rem rgba(0, 0, 0, 0.35);
+}
+
+.card-body,
+.card-header,
+.card-footer {
+  background-color: transparent;
+  border-color: var(--fgs-line);
+  color: var(--fgs-fg);
+  border-radius: inherit;
+}
+
+.card-title { font-weight: 650; letter-spacing: 0.01em; }
+
+.modal-content {
+  background-color: var(--fgs-card);
+  border: 1px solid var(--fgs-line);
+  border-radius: var(--fgs-radius);
+  color: var(--fgs-fg);
+}
+.modal-header,
+.modal-footer { border-color: var(--fgs-line); }
+
+/* ---------- Tables ---------- */
+.table,
+.table-dark {
+  --bs-table-bg: transparent;
+  --bs-table-color: var(--fgs-fg);
+  --bs-table-border-color: var(--fgs-line);
+  --bs-table-striped-bg: transparent;
+  --bs-table-hover-bg: rgba(255, 255, 255, 0.045);
+  --bs-table-hover-color: var(--fgs-fg);
+  color: var(--fgs-fg);
+  border-color: var(--fgs-line);
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+}
+
+.table > :not(caption) > * > * {
+  background-color: transparent;
+  border-bottom: 1px solid var(--fgs-line);
+  padding: 0.7rem 0.75rem;
+  vertical-align: middle;
+}
+
+.table > thead > tr > th {
+  background-color: var(--fgs-raise);
+  color: var(--fgs-muted);
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--fgs-line-2);
+}
+.table > thead > tr > th:first-child { border-top-left-radius: 10px; }
+.table > thead > tr > th:last-child  { border-top-right-radius: 10px; }
+
+.table > tbody > tr:last-child > * { border-bottom: 0; }
+.table > tbody > tr { transition: background-color .12s ease; }
+.table > tbody > tr:hover > * { background-color: rgba(255, 255, 255, 0.045); }
+
+/* No container box - the table sits directly on the card, with the search row
+ * simply above it. Applies to every table, since .table-responsive is shared. */
+.table-responsive {
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
+  padding: 0;
+}
+
+/* DataTables chrome - the wrapper holds the search row above the table and the
+ * "Files stored" line below it. */
+.dataTables_wrapper { padding: 0; }
+
+.dataTables_wrapper .dataTables_filter {
+  margin: 0.35rem 0 1rem;
+  padding-bottom: 0.1rem;
+}
+.dataTables_wrapper .dataTables_filter label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0;
+}
+.dataTables_wrapper .dataTables_length { margin: 0.35rem 0 1rem; }
+
+.dataTables_wrapper .dataTables_info {
+  margin-top: 1rem;
+  padding: 0.75rem 0 0.35rem;
+  border-top: 1px solid var(--fgs-line);
+}
+.dataTables_wrapper .dataTables_paginate { margin-top: 0.85rem; }
+
+/* Action buttons per row need breathing room - they wrap onto two lines. */
+#maintable td .btn-group,
+#maintable td .btn { margin: 0.12rem 0.1rem; }
+
+.dataTables_wrapper .dataTables_filter input,
+.dataTables_wrapper .dataTables_length select {
+  background-color: var(--fgs-raise);
+  border: 1px solid var(--fgs-line);
+  border-radius: 8px;
+  color: var(--fgs-fg);
+  padding: 0.3rem 0.55rem;
+}
+.dataTables_wrapper .dataTables_info,
+.dataTables_wrapper .dataTables_length,
+.dataTables_wrapper .dataTables_filter { color: var(--fgs-muted); }
+.dataTables_wrapper .dataTables_paginate .paginate_button {
+  border-radius: 8px !important;
+  border: 1px solid transparent !important;
+  color: var(--fgs-fg) !important;
+}
+.dataTables_wrapper .dataTables_paginate .paginate_button.current,
+.dataTables_wrapper .dataTables_paginate .paginate_button:hover {
+  background: var(--fgs-raise) !important;
+  border-color: var(--fgs-line) !important;
+  color: var(--fgs-fg) !important;
+}
+
+/* ---------- Drag & drop box ---------- */
+#uploaddropzone.dropzone {
+  border: 2px dashed var(--fgs-line-2);
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.02);
+  transition: border-color .15s ease, background-color .15s ease;
+}
+#uploaddropzone.dropzone:hover {
+  border-color: #55554e;
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+/* Upload limit, shown directly beneath the drop box.
+ * admin.js injects #fgs-uploadlimit right after the dropzone. It used to hang
+ * off #uploadstatus, but uploadProgress.css gives .uploads-container
+ * `visibility: hidden` until an upload starts, so the text only showed up
+ * mid-upload.
+ * set-max-filesize.sh rewrites the figure on the next line.
+ * Literal UTF-8 middle dot: a "\00B7 " escape would swallow the space. */
+#fgs-uploadlimit::before {
+  content: "Up to 10 GB per file · links expire";
+  display: block;
+  margin: 0.85rem 0 0.15rem;
+  color: var(--fgs-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+/* Group uploads follow the group's closing date, so no "links expire" there.
+ * set-max-filesize.sh rewrites this figure too (same pattern). */
+.fgs-group-upload #fgs-uploadlimit::before {
+  content: "Up to 10 GB per file";
+}
+
+
+/* Password suggestion button (added by admin.js) */
+#fgs-suggest {
+  display: block;
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--fgs-muted);
+  background-color: transparent;
+  border: 1px solid var(--fgs-line);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color .12s ease, color .12s ease, border-color .12s ease;
+}
+#fgs-suggest:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.06);
+  border-color: var(--fgs-line-2);
+  color: var(--fgs-fg);
+}
+#fgs-suggest:disabled,
+#fgs-suggest.is-off {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---------- Form controls ---------- */
+.btn { border-radius: 9px; font-weight: 550; }
+
+.form-control,
+.form-select,
+.input-group-text,
+input[type="text"],
+input[type="number"],
+input[type="password"],
+input[type="email"],
+textarea,
+select {
+  background-color: var(--fgs-raise);
+  border: 1px solid var(--fgs-line);
+  border-radius: 9px;
+  color: var(--fgs-fg);
+}
+.form-control::placeholder,
+textarea::placeholder { color: #6f6f69; }
+
+.form-control:focus,
+.form-select:focus,
+textarea:focus,
+select:focus {
+  background-color: #2a2a27;
+  border-color: #5a5a53;
+  box-shadow: 0 0 0 3px rgba(242, 241, 238, 0.07);
+  color: var(--fgs-fg);
+  outline: none;
+}
+.input-group-text { color: var(--fgs-muted); }
+
+/* Disabled inputs - cover.css sets `background: #bababa`, a light grey that
+ * glares against the dark card (the "None" password box when unchecked). */
+.form-control:disabled,
+.form-control[readonly],
+.form-select:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  background-color: var(--fgs-sunken) !important;
+  border-color: #232320 !important;
+  color: #57574f !important;
+  opacity: 1;
+  cursor: not-allowed;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.form-control:disabled::placeholder,
+input:disabled::placeholder { color: #4c4c46 !important; }
+/* #logviewer is readonly but is not a disabled-looking field */
+textarea#logviewer[readonly] { background-color: transparent !important; }
+
+/* Number spinners.
+ * `color-scheme: dark` (set on :root) is what actually makes the browser paint
+ * the native up/down arrows in a dark style instead of the default light chip -
+ * far more robust than trying to filter/recolour the shadow-DOM button.
+ * The margin is what puts real space between the digits and the arrows. */
+input[type="number"] { padding-right: 0.5rem; }
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  margin-left: 1.1rem;
+  opacity: 1;
+}
+
+/* Checkboxes and radios */
+.form-check-input {
+  background-color: var(--fgs-raise);
+  border: 1px solid var(--fgs-line-2);
+  width: 1.05em;
+  height: 1.05em;
+  margin-top: 0.2em;
+  cursor: pointer;
+  transition: background-color .12s ease, border-color .12s ease;
+}
+.form-check-input:hover { border-color: #6a6a62; }
+.form-check-input:checked {
+  background-color: var(--fgs-fg);
+  border-color: var(--fgs-fg);
+}
+/* Tick/dot drawn in the card colour so it reads on the light fill */
+.form-check-input:checked[type="checkbox"] {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%231c1c1a' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M6 10l3 3l6-6'/%3e%3c/svg%3e");
+}
+.form-check-input:checked[type="radio"] {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='2' fill='%231c1c1a'/%3e%3c/svg%3e");
+}
+.form-check-input:focus {
+  border-color: #6a6a62;
+  box-shadow: 0 0 0 3px rgba(242, 241, 238, 0.07);
+}
+.form-check-label { color: var(--fgs-fg); }
+
+/* Switches */
+.form-switch .form-check-input { width: 2em; border-radius: 2em; }
+
+/* ---------- Account badge (top right) ----------
+ * Markup is:  <span class="badge ..."><i class="bi bi-person-fill"></i> email</span>
+ * The email is a BARE TEXT NODE with no wrapper, so it can't be targeted
+ * directly. Collapsing font-size to 0 hides it while the icon keeps its own
+ * size; hovering restores it. !important is required because Bootstrap's
+ * .bg-secondary and .opacity-75 utilities are themselves !important. */
+div[style*="z-index:9999"] span.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  font-size: 0;
+  line-height: 1;
+  padding: 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--fgs-line);
+  background-color: var(--fgs-card) !important;
+  opacity: 1 !important;
+  color: var(--fgs-fg);
+  cursor: default;
+  transition: font-size .15s ease, padding .15s ease, gap .15s ease;
+}
+div[style*="z-index:9999"] span.badge > i { font-size: 1rem; line-height: 1; }
+div[style*="z-index:9999"]:hover span.badge,
+div[style*="z-index:9999"]:focus-within span.badge {
+  font-size: 0.8rem;
+  gap: 0.4rem;
+  padding: 0.45rem 0.75rem;
+}
+
+/* ---------- Collapsible left sidebar ----------
+ * admin.js mirrors the top nav row into #fgs-sidebar and hides the original. */
+nav.nav-masthead.fgs-nav-replaced { display: none !important; }
+/* Hide the original nav from the first paint, so the tabs never flash before
+ * admin.js replaces them. If admin.js never runs, the keyframe reveals the old
+ * nav after 1.5 s so the site stays usable. */
+nav.nav-masthead:not(.fgs-nav-replaced) {
+  position: absolute; left: 0; right: 0; top: 0;
+  visibility: hidden;
+  animation: fgs-nav-fallback 0s linear 1.5s forwards;
+}
+@keyframes fgs-nav-fallback { to { visibility: visible; } }
+
+#fgs-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--fgs-sb-w);
+  z-index: 1040;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 4.25rem 1rem 1rem;
+  background: none;            /* floats over the UI - no panel, no border */
+  border: 0;
+  text-align: left;
+  pointer-events: none;
+  /* NOTE: deliberately NO transform and NO opacity animation here. Either one
+   * puts the element in its own composited layer, which makes the browser
+   * defer backdrop sampling until the animation settles - that caused first
+   * the blur, then the darkening, to pop in only at the end. Animating `left`
+   * keeps the frosted layer un-composited, so blur AND tint are correct on
+   * every frame. The fade is done on the inner nav, which is safe because a
+   * child's compositing does not affect the ::before behind it. */
+  left: calc(-1 * var(--fgs-sb-w));
+  transition: left .26s cubic-bezier(.22, .61, .36, 1);
+  overflow-y: auto;
+}
+body.fgs-sb-open #fgs-sidebar {
+  left: 0;
+  pointer-events: auto;
+}
+
+/* The frosted wash behind the words. Blur and tint are strongest at the screen
+ * edge and fade to nothing by the sidebar's inner edge, so it reads as
+ * something floating above the page rather than another grey rectangle. */
+#fgs-sidebar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  backdrop-filter: blur(64px) saturate(140%) brightness(0.72);
+  -webkit-backdrop-filter: blur(64px) saturate(140%) brightness(0.72);
+  background: linear-gradient(to right,
+              rgba(19, 19, 18, 0.86) 0%,
+              rgba(19, 19, 18, 0.62) 55%,
+              rgba(19, 19, 18, 0) 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 0%, #000 42%, rgba(0,0,0,.55) 72%, rgba(0,0,0,0) 100%);
+  mask-image: linear-gradient(to right, #000 0%, #000 42%, rgba(0,0,0,.55) 72%, rgba(0,0,0,0) 100%);
+}
+
+/* The fade lives on the nav, not on the blurred parent (see note above). */
+.fgs-sb-nav {
+  opacity: 0;
+  transition: opacity .2s ease .06s;
+}
+body.fgs-sb-open .fgs-sb-nav { opacity: 1; }
+
+body.fgs-sb-no-anim #fgs-sidebar,
+body.fgs-sb-no-anim .fgs-sb-nav { transition: none !important; }
+
+/* Right inset keeps the active pill clearly narrower than the sidebar, so its
+ * edge sits inside the strong part of the blur instead of landing where the
+ * wash fades out and giving the panel a visible boundary. */
+.fgs-sb-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding-right: 4rem;
+}
+
+.fgs-sb-link {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem 0.65rem;
+  border-radius: 9px;
+  color: #cfcec8;
+  text-decoration: none;
+  font-size: 0.92rem;
+  font-weight: 500;
+  /* keeps the words legible where the wash has faded out */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.65);
+  transition: background-color .12s ease, color .12s ease;
+}
+.fgs-sb-link i { font-size: 1rem; width: 1.15rem; text-align: center; }
+.fgs-sb-link:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--fgs-fg);
+  filter: none;              /* cover.css dims links on hover */
+}
+.fgs-sb-link.active {
+  background-color: rgba(255, 255, 255, 0.09);
+  color: var(--fgs-fg);
+}
+.fgs-sb-logout { margin-top: auto; color: #b98a86; }
+.fgs-sb-logout:hover { background-color: rgba(185, 138, 134, 0.12); color: #d9a6a1; }
+
+/* Toggle button - appearance follows sidebar state */
+#fgs-sidebar-toggle {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.85rem;
+  z-index: 1060;
+  width: 2.4rem;
+  height: 2.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--fgs-line);
+  background-color: var(--fgs-card);
+  color: var(--fgs-fg);
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+#fgs-sidebar-toggle:hover { background-color: var(--fgs-raise); border-color: var(--fgs-line-2); }
+/* Icon animates between the two glyphs admin.js swaps in. */
+#fgs-sidebar-toggle i {
+  font-size: 1.05rem;
+  line-height: 1;
+  transition: transform .26s cubic-bezier(.22, .61, .36, 1), opacity .18s ease;
+}
+body.fgs-sb-open #fgs-sidebar-toggle {
+  background-color: rgba(255, 255, 255, 0.10);
+  border-color: transparent;
+  color: var(--fgs-fg);
+}
+body.fgs-sb-open #fgs-sidebar-toggle i { transform: rotate(90deg); }
+#fgs-sidebar-toggle:active i { transform: scale(0.86); }
+
+/* The sidebar floats over the content, so nothing is pushed across. */
+
+#fgs-sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1030;
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .22s ease;
+}
+@media (max-width: 991.98px) {
+  body.fgs-sb-open #fgs-sidebar-backdrop { opacity: 1; pointer-events: auto; }
+}
+
+/* ---------- Masthead: same "FGS" treatment as the landing page ---------- */
+header.masthead .inner > h1,
+header h1 {
+  font-family: var(--fgs-font);
+  font-size: 1.6rem;
+  font-weight: 650;
+  letter-spacing: 0.16em;
+  color: var(--fgs-fg);
+  margin-bottom: 0.35rem;
+  padding-left: 3rem;       /* clear of the toggle button */
+  padding-right: 3rem;
+}
+header h1 a { text-decoration: none; }
+
+/* Tagline under FGS, matching the landing page. */
+header.masthead .inner > h1::after {
+  content: "Private file sharing for friends.";
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  color: var(--fgs-muted);
+}
+
+/* ---------- Upload progress ----------
+ * uploadProgress.css ships a light-grey track with a bright green bar, and a
+ * blue-grey container - all from the original theme. */
+.uploads-container {
+  background-color: rgba(0, 0, 0, 0.22) !important;
+  border: 1px solid var(--fgs-line) !important;
+  border-radius: 10px !important;
+}
+.upload-progress-bar {
+  background-color: rgba(255, 255, 255, 0.09);
+  border-radius: 999px;
+  height: 8px;
+}
+.upload-progress-bar-progress {
+  background-color: var(--fgs-fg);
+  border-radius: 999px;
+}
+.upload-progress-info,
+.filename { color: var(--fgs-fg); }
+.uploaderror { color: #e08b84; }
+
+/* Bootstrap progress bars (Status page stat cards) */
+.progress,
+.progress-stat {
+  background-color: rgba(255, 255, 255, 0.09) !important;
+  border-radius: 999px;
+  height: 6px;
+}
+.progress-bar {
+  background-color: var(--fgs-fg) !important;
+  border-radius: 999px;
+}
+
+/* Public-upload progress element */
+.pu-file-item progress::-webkit-progress-bar { background-color: rgba(255,255,255,0.09); }
+.pu-file-item progress::-webkit-progress-value { background-color: var(--fgs-fg); }
+.pu-file-item progress::-moz-progress-bar { background-color: var(--fgs-fg); }
+
+/* ---------- Status / System Logs page ----------
+ * The template hardcodes .bg-dark / .bg-black / .text-info, and Bootstrap's
+ * background utilities are !important, so these need !important to win. */
+.card.bg-dark,
+.card-header.bg-dark,
+.card-footer.bg-dark {
+  background-color: var(--fgs-card) !important;
+  border-color: var(--fgs-line) !important;
+}
+.card-body.bg-black { background-color: rgba(0, 0, 0, 0.28) !important; }
+
+.card.stat-card {
+  background-color: var(--fgs-card) !important;
+  border: 1px solid var(--fgs-line) !important;
+  border-radius: var(--fgs-radius);
+}
+
+.border-secondary { border-color: var(--fgs-line) !important; }
+.text-muted { color: var(--fgs-muted) !important; }
+.text-light { color: var(--fgs-fg) !important; }
+
+textarea#logviewer {
+  background-color: transparent !important;
+  color: #c9c8c1 !important;
+  border: 0 !important;
+  font-size: 0.82rem;
+}
+textarea#logviewer.text-info { color: #c9c8c1 !important; }
+
+.log-dark-input,
+select.log-dark-input {
+  background-color: var(--fgs-raise) !important;
+  border: 1px solid var(--fgs-line) !important;
+  color: var(--fgs-fg) !important;
+  border-radius: 8px;
+}
+.input-group-text-dark {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid var(--fgs-line) !important;
+  color: var(--fgs-muted) !important;
+}
+.btn-outline-light {
+  border-color: var(--fgs-line-2);
+  color: var(--fgs-fg);
+}
+.btn-outline-light:hover {
+  background-color: rgba(255, 255, 255, 0.09);
+  border-color: var(--fgs-line-2);
+  color: var(--fgs-fg);
+}
+.vr.bg-secondary { background-color: var(--fgs-line) !important; }
+
+/* ---------- Collections toolbar (added by admin.js) ---------- */
+#fgs-collection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--fgs-line);
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.025);
+}
+.fgs-col-count {
+  color: var(--fgs-muted);
+  font-size: 0.85rem;
+  flex: 1 1 auto;
+  text-align: left;
+}
+#fgs-col-create {
+  padding: 0.45rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 550;
+  color: var(--fgs-card);
+  background-color: var(--fgs-fg);
+  border: 1px solid var(--fgs-fg);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: opacity .12s ease;
+}
+#fgs-col-create:hover:not(:disabled) { opacity: 0.86; }
+#fgs-col-create:disabled { opacity: 0.35; cursor: not-allowed; }
+
+#fgs-col-result {
+  flex: 1 1 100%;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+#fgs-col-result:empty { display: none; }
+#fgs-col-result.is-error { color: #e08b84; font-size: 0.85rem; display: block; }
+#fgs-col-result.is-ok input {
+  flex: 1 1 auto;
+  font-size: 0.85rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+#fgs-col-result button {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.82rem;
+  color: var(--fgs-fg);
+  background-color: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--fgs-line);
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#fgs-col-result button:hover { background-color: rgba(255, 255, 255, 0.12); }
+
+/* Selection checkbox sits inside the first cell, not as a new column, so
+ * DataTables' column count stays intact. */
+#maintable td .fgs-col-check { margin-right: 0.6rem; vertical-align: middle; }
+
+/* Password shown alongside a newly created collection link */
+.fgs-col-pw {
+  flex: 1 1 100%;
+  margin-top: 0.4rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  color: var(--fgs-muted);
+}
+
+/* Collections: picker on the upload page */
+#fgs-col-picker {
+  max-width: 16rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  background-color: var(--fgs-raise);
+  border: 1px solid var(--fgs-line);
+  border-radius: 8px;
+  color: var(--fgs-fg);
+}
+#fgs-col-add {
+  padding: 0.45rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--fgs-fg);
+  background-color: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--fgs-line);
+  border-radius: 9px;
+  cursor: pointer;
+}
+#fgs-col-add:hover:not(:disabled) { background-color: rgba(255, 255, 255, 0.12); }
+#fgs-col-add:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* Collections page: expandable member list */
+.collection-member-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 0 0.25rem 0.5rem;
+}
+.collection-member-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--fgs-line);
+}
+.collection-member-list li:last-child { border-bottom: 0; }
+.collection-member-list .member-name { flex: 1 1 auto; }
+.collection-member-list .member-size {
+  color: var(--fgs-muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.collection-files-row > td { background-color: rgba(0, 0, 0, 0.2) !important; }
+
+/* Collections: file picker modal */
+.file-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 22rem;
+  overflow-y: auto;
+}
+.file-picker-list li { border-bottom: 1px solid var(--fgs-line); }
+.file-picker-list li:last-child { border-bottom: 0; }
+.file-picker-list label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.35rem;
+  margin: 0;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.file-picker-list label:hover { background-color: rgba(255, 255, 255, 0.05); }
+.file-picker-list .picker-name { flex: 1 1 auto; }
+.file-picker-list .picker-size {
+  color: var(--fgs-muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+/* Pinned rather than laid out in a flex row, so the card title stays centred
+   in the normal flow like every other admin page. */
+#newCollectionButton {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 8px;
+}
+
+/* Picker: files already in the collection are shown ticked but unselectable */
+.file-picker-list li.is-member label { cursor: not-allowed; opacity: 0.5; }
+.file-picker-list li.is-member label:hover { background-color: transparent; }
+.file-picker-list .picker-already {
+  color: var(--fgs-muted);
+  font-size: 0.75rem;
+  font-style: italic;
+  white-space: nowrap;
+}
+
+/* Inline create-collection form on the upload page (replaces chained prompts) */
+#fgs-col-form {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.25rem;
+}
+#fgs-col-form input { flex: 1 1 12rem; font-size: 0.85rem; }
+.fgs-col-primary,
+.fgs-col-secondary {
+  padding: 0.45rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border-radius: 9px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fgs-col-primary {
+  color: var(--fgs-card);
+  background-color: var(--fgs-fg);
+  border: 1px solid var(--fgs-fg);
+}
+.fgs-col-primary:hover:not(:disabled) { opacity: 0.86; }
+.fgs-col-secondary {
+  color: var(--fgs-fg);
+  background-color: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--fgs-line);
+}
+.fgs-col-secondary:hover { background-color: rgba(255, 255, 255, 0.12); }
+
+/* Picker: keep sizes in one column, with the note to their left */
+.file-picker-list .picker-size {
+  width: 5.5rem;
+  text-align: right;
+  flex: 0 0 auto;
+}
+.file-picker-list .picker-already { flex: 0 0 auto; margin-right: 0.25rem; }

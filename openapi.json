@@ -510,6 +510,15 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "groupId",
+            "in": "header",
+            "description": "Uploads the file into this group. The user has to be a member of the group. The group's terms replace allowedDownloads, expiryDays and password: unlimited downloads, no password, and an expiry at the group's closing time. A file whose exact copy is already in the group is deleted again; a blocking call then returns 409. Cannot be combined with end-to-end encryption.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -528,6 +537,12 @@
           },
           "401": {
             "description": "Invalid API key provided for authentication or API key does not have the required permission"
+          },
+          "403": {
+            "description": "groupId was set, but the user is not a member of that group or it has closed"
+          },
+          "409": {
+            "description": "groupId was set and the group already has a file with the same content. The new upload was deleted."
           }
         }
       }
@@ -833,6 +848,191 @@
           },
           "401": {
             "description": "Invalid API key provided for authentication"
+          }
+        }
+      }
+    },
+    "/activity": {
+      "get": {
+        "tags": [
+          "logs"
+        ],
+        "summary": "Outputs the activity feed",
+        "description": "This API call returns the events after a cursor: uploads, downloads, groups, sign-ins, warnings and View as, plus every user. Without the since header no events are returned and next is the newest id. A cursor that is too old (pruned) or newer than the newest event answers reset. Admin only. Requires API permission MANAGE_LOGS",
+        "operationId": "activityGet",
+        "security": [
+          {
+            "apikey": [
+              "MANAGE_LOGS"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "since",
+            "in": "header",
+            "description": "Optional cursor: return the events with an id above it. 0 is from the oldest retained event",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "header",
+            "description": "Optional page size, 1 to 1000, default 500",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operation successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "Result": {
+                      "type": "string"
+                    },
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer",
+                            "format": "int64",
+                            "description": "Event id, the cursor"
+                          },
+                          "at": {
+                            "type": "integer",
+                            "format": "int64",
+                            "description": "Unix time of the event"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "upload",
+                              "download",
+                              "group_created",
+                              "group_joined",
+                              "first_signin",
+                              "signin_blocked",
+                              "warning_disk",
+                              "warning_preview",
+                              "viewas_start",
+                              "viewas_end"
+                            ]
+                          },
+                          "actor": {
+                            "type": "integer",
+                            "description": "User id of who did it; 0 for someone not signed in, or the system"
+                          },
+                          "owner": {
+                            "type": "integer",
+                            "description": "User id of the file's owner; 0 when there is no file"
+                          },
+                          "file": {
+                            "type": "object",
+                            "nullable": true,
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "size": {
+                                "type": "integer",
+                                "format": "int64"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "image",
+                                  "video",
+                                  "file"
+                                ]
+                              }
+                            }
+                          },
+                          "group": {
+                            "type": "object",
+                            "nullable": true,
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "via": {
+                            "type": "string",
+                            "description": "Download route: group, collection, file or zip; empty otherwise"
+                          },
+                          "detail": {
+                            "type": "string",
+                            "description": "Free bytes for warning_disk, target=<id> [reason=<reason>] for View as events, the refused email for signin_blocked"
+                          }
+                        }
+                      }
+                    },
+                    "next": {
+                      "type": "integer",
+                      "format": "int64",
+                      "description": "The cursor for the next call"
+                    },
+                    "more": {
+                      "type": "boolean",
+                      "description": "True when limit cut the page"
+                    },
+                    "reset": {
+                      "type": "boolean",
+                      "description": "True when the cursor was invalid; carry on from next"
+                    },
+                    "users": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "email": {
+                            "type": "string",
+                            "description": "The account name"
+                          },
+                          "name": {
+                            "type": "string",
+                            "description": "The shown name"
+                          },
+                          "admin": {
+                            "type": "boolean"
+                          },
+                          "emailDownloads": {
+                            "type": "boolean",
+                            "description": "Wants an email when their files are downloaded"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Invalid API key provided for authentication or API key does not have the required permission"
           }
         }
       }
@@ -1191,6 +1391,15 @@
               "type": "boolean"
             },
             "description": "Set to true to use the original password. Field \"password\" will be ignored if set."
+          },
+          {
+            "name": "filename",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Renames the file. The name is sanitised (path separators and control characters are removed) and must not be empty afterwards. The name is unchanged if the header is not sent. If the filename includes non-ANSI characters, you can encode them with base64, by adding 'base64:' at the beginning, e.g. 'base64:ZmlsZW5hbWU='"
           }
         ],
         "responses": {

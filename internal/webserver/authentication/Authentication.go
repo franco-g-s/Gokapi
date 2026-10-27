@@ -134,7 +134,8 @@ func isGrantedHeader(r *http.Request) (models.User, bool, error) {
 	if userName == "" {
 		return models.User{}, false, errors.New("header key is not set or empty")
 	}
-	return getOrCreateUser(userName)
+	user, ok, _, err := getOrCreateUser(userName)
+	return user, ok, err
 }
 
 func matchesWithWildcard(pattern, input string) (bool, error) {
@@ -231,13 +232,18 @@ func CheckOauthUserAndRedirect(w http.ResponseWriter, r *http.Request, userInfo 
 		}
 	}
 	if isValidOauthUser(userInfo, groups) {
-		user, ok, errCreate := getOrCreateUser(userInfo.Email)
+		if runSignInGuards(userInfo.Email) != nil {
+			errorHandling.RedirectGenericErrorPage(w, r, errorHandling.TypeOAuthNotAuthorised)
+			return nil
+		}
+		user, ok, created, errCreate := getOrCreateUser(userInfo.Email)
 		if errCreate != nil {
 			return errCreate
 		}
 		if ok {
 			sessionmanager.CreateSession(w, true, authSettings.OAuthRecheckInterval, user.Id)
-			http.Redirect(w, r, "admin", http.StatusTemporaryRedirect)
+			runSignInHooks(user, userInfo.ClaimsSent, created)
+			http.Redirect(w, r, PopReturnTo(w, r), http.StatusTemporaryRedirect)
 			return nil
 		}
 	}
@@ -245,20 +251,22 @@ func CheckOauthUserAndRedirect(w http.ResponseWriter, r *http.Request, userInfo 
 	return nil
 }
 
-func getOrCreateUser(username string) (models.User, bool, error) {
+// getOrCreateUser returns the user, whether they may sign in, and whether
+// the account was created by this call
+func getOrCreateUser(username string) (models.User, bool, bool, error) {
 	user, ok := database.GetUserByName(username)
 	if ok {
-		return user, true, nil
+		return user, true, false, nil
 
 	}
 	if authSettings.OnlyRegisteredUsers {
-		return models.User{}, false, nil
+		return models.User{}, false, false, nil
 	}
 	newUser, err := users.Create(username)
 	if err != nil {
-		return models.User{}, false, err
+		return models.User{}, false, false, err
 	}
-	return newUser, true, nil
+	return newUser, true, true, nil
 }
 
 func isValidOauthUser(userInfo OAuthUserInfo, groups []string) bool {
@@ -290,6 +298,9 @@ func IsCorrectUsernameAndPassword(username, password, userCsrfToken string) (mod
 	}
 	user, ok := database.GetUserByName(username)
 	if !ok {
+		return models.User{}, false, true
+	}
+	if runSignInGuards(user.Name) != nil {
 		return models.User{}, false, true
 	}
 	isSame, isLegacy := configuration.VerifyPassword(password, user.Password, configuration.Get().Authentication.SaltAdmin)

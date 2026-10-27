@@ -1,0 +1,46 @@
+services:
+  gokapi:
+    image: gokapi-fgs:part4-2026-10-24
+    container_name: gokapi
+    restart: always
+
+    # --- Hardening -----------------------------------------------------------
+    # Gokapi never executes uploads (they are stored content-addressed as
+    # data/<SHA1>, no extension), so the realistic risk is a flaw in Gokapi
+    # itself. These limit the blast radius if that ever happened.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL                     # entrypoint execs the binary directly; binds >1024
+    pids_limit: 200
+
+    # Resource ceilings so a runaway/compromised Gokapi cannot starve SplitPro,
+    # which shares this 2-CPU / 4 GiB Colima VM.
+    mem_limit: 1g
+    cpus: 1.5
+    # Bound to loopback only — reached from the outside solely through the
+    # existing `hermes` Cloudflare tunnel (share.franco.international).
+    ports:
+      - "127.0.0.1:53842:53842"
+    volumes:
+      - gokapi_data:/app/data
+      - gokapi_config:/app/config
+      # Branding drop-in, served at /custom/. Put custom.css, public.js, admin.js,
+      # a 512x512 favicon.png and version.txt (cache busting) in here.
+      # admin.js is world-readable — never put secrets in it.
+      - ./custom:/app/custom
+    environment:
+      TZ: Europe/Zurich
+      # Cloudflare's proxy caps a single request body at 100 MB, so uploads must
+      # be chunked below that. 45 MB is Gokapi's default and is comfortably safe.
+      GOKAPI_USE_CLOUDFLARE: "true"
+      GOKAPI_CHUNK_SIZE_MB: "45"
+      # NOTE: the two limits below are read only during first-time setup and are
+      # then baked into config.json — changing them later needs a re-run of setup.
+      GOKAPI_MAX_FILESIZE: "10240"      # 10 GB per file
+      GOKAPI_MIN_FREE_SPACE: "10240"    # refuse uploads with <10 GB disk free
+      GOKAPI_LOG_STDOUT: "true"
+
+volumes:
+  gokapi_data:
+  gokapi_config:

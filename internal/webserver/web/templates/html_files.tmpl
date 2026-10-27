@@ -1,0 +1,26 @@
+{{ define "files" }}{{ template "header" . }}
+<div class="row"><div class="col"><div id="container" class="card" style="width:100%">
+<div class="card-body text-start">
+  {{ if .PersonName }}
+  <h3 class="card-title mb-1">{{ .PersonName }}'s files</h3>
+  <p class="mb-3"><a href="./users" class="link-light"><i class="bi bi-arrow-left"></i> Users</a></p>
+  {{ else }}
+  <h3 class="card-title mb-3">Files</h3>
+  {{ end }}
+  {{ template "file_browser" .Browser }}
+  {{ template "media_viewer" }}
+  {{ template "media_help_sheet" }}
+</div></div></div></div>
+
+{{ template "file_browser_dialogs" .ServerUrl }}
+{{ template "file_browser_support" }}
+
+<script src="./js/min/admin.min.{{ template "js_admin_version"}}.js"></script>
+<script>
+// Shares the upload page's event stream across tabs, so a file deleted in
+// another tab (and a download counted anywhere) shows here as it happens
+registerChangeHandler();
+</script>
+{{ template "pagename" "Files"}}
+{{ template "customjs" .}}
+{{ template "footer" true}}{{ end }}

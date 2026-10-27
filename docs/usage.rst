@@ -33,7 +33,12 @@ Once you have uploaded a file, you will see a button with the options *Copy URL*
 
 If a file does not require client-side decryption, you can also use the *Copy Hotlink* button. A hotlink is a direct URL to the raw file, bypassing the download page — it can be embedded as an image on a forum or website, or used in scripts. Each view of a hotlink counts as one download. Although Gokapi sends headers to disallow caching, some browsers or external caches may still cache the content if they are not compliant.
 
-The second button lets you share the regular URL easily. If you are accessing Gokapi with a mobile device, a tap on the button will open your device's share menu. Otherwise you can click on the drop down element and select to either share the link via email or generate a QR code.
+All sharing options live in the drop down next to *Copy URL*:
+
+* **Hotlink** — as described above, if available for this file
+* **Share...** — opens your device's share sheet. Only shown on browsers that support the Web Share API, which in practice means mobile and Safari
+* **QR Code** — generates a scannable code for the download URL
+* **Email** — opens a new mail with the download URL in the body
 
 Downloading files
 ------------------
@@ -50,6 +55,51 @@ File deletion
 
 Every hour Gokapi runs a cleanup routine which deletes all files from the storage that have been expired. If you click on the *Delete* button in the list, that file will be deleted from the disk immediately. Unproxied AWS files are deleted after 24 hours, as of right now there is no proper way to find out if a download has been completed. 
 
+
+Collections
+===================
+
+A collection groups several uploaded files behind a **single public link**. Instead of sending one URL per file, you send one URL that lists them all. Recipients do not need an account, exactly as with a normal download link.
+
+Creating a collection
+----------------------
+
+There are three ways:
+
+* **Upload menu:** tick the files in the list, then choose *Create one link*. Enter a name and, optionally, a password.
+* **Collections menu:** use the **+** button and pick the files from the list.
+* **Automatically:** enable *Combine each upload into one link* under the drop zone. Every upload of two or more files then becomes a collection on its own, and the link is shown as soon as the upload finishes. Single-file uploads are skipped, as they already have their own link.
+
+Lifetime
+----------------
+
+A collection is a *view* over its files and has no expiry or download limit of its own. This means there is only ever one clock to reason about:
+
+* it stays available for as long as **at least one** of its files is still available
+* files that expire or run out of downloads simply disappear from the listing
+* once every file is gone, the collection link stops working
+* downloading a file through a collection is exactly the same as downloading it from its own link, and uses that file's download allowance
+
+A file keeps its own separate link when it is added to a collection, and a file can belong to more than one collection.
+
+Managing collections
+---------------------
+
+The *Collections* menu lists every collection with its file count, size, creation date and the date it remains available until. From there you can copy or open the link, rename a collection, show its files and remove individual ones, add more files, set or change the password, and delete the collection. **Deleting a collection never deletes the files it contains.**
+
+Passwords
+----------------
+
+A collection can be password protected, either when it is created or afterwards from the *Collections* menu. Until the password is entered, the page reveals nothing about the contents: no file names, no sizes, no file count. Direct links to the individual files are gated as well, so the form cannot be bypassed. Attempts are rate limited.
+
+Passwords are stored hashed, exactly like file passwords, so an existing password can be replaced but **cannot be displayed again**. Setting an empty password removes the protection.
+
+Limitations
+----------------
+
+* End-to-end encrypted files cannot be added to a collection, as the recipient has no key to decrypt them with.
+* A collection must always contain at least one file. Removing the last one is refused; delete the collection instead.
+* *Download all* on the public page starts each download in turn rather than building an archive, so the recipient receives the original files. Browsers ask once for permission to download multiple files.
 
 File Request Menu
 ===================

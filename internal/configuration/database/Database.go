@@ -92,6 +92,8 @@ func Migrate(configOld, configNew models.DbConnection) {
 	for _, request := range requests {
 		dbNew.SaveFileRequest(request)
 	}
+	// Collections and previews are intentionally not copied: previews are
+	// regenerable by the worker.
 	dbOld.Close()
 	dbNew.Close()
 }
@@ -293,9 +295,10 @@ func UpdateUserLastOnline(id int) {
 	}
 }
 
-// DeleteUser deletes a user with the given ID
+// DeleteUser deletes a user with the given ID, and their profile (Part 4, S1)
 func DeleteUser(id int) {
 	db.DeleteUser(id)
+	db.DeleteProfile(id)
 }
 
 // GetSuperAdmin returns the models.User data for the super admin
@@ -357,6 +360,192 @@ func SaveFileRequest(request models.FileRequest) {
 func DeleteFileRequest(request models.FileRequest) {
 	db.DeleteFileRequest(request)
 }
+
+// GetCollection returns the Collection or false if not found
+func GetCollection(id string) (models.Collection, bool) {
+	return db.GetCollection(id)
+}
+
+// GetAllCollections returns all collections, newest first
+func GetAllCollections() []models.Collection {
+	return db.GetAllCollections()
+}
+
+// SaveCollection stores the collection and its member list
+func SaveCollection(collection models.Collection) {
+	db.SaveCollection(collection)
+}
+
+// DeleteCollection deletes the collection, leaving the files untouched
+func DeleteCollection(id string) {
+	db.DeleteCollection(id)
+}
+
+// RemoveFileFromCollections drops a file from every collection it belongs to
+func RemoveFileFromCollections(fileId string) {
+	db.RemoveFileFromCollections(fileId)
+}
+
+// GetPreview returns the preview metadata for a blob hash
+func GetPreview(sha1 string) (models.Preview, bool) { return db.GetPreview(sha1) }
+
+// SavePreview stores preview metadata
+func SavePreview(p models.Preview) { db.SavePreview(p) }
+
+// DeletePreview removes preview metadata
+func DeletePreview(sha1 string) { db.DeletePreview(sha1) }
+
+// GetAllPreviewSha1s maps blob hashes to preview status
+func GetAllPreviewSha1s() map[string]string { return db.GetAllPreviewSha1s() }
+
+// SupportsGroups is false on providers without group tables (Redis)
+func SupportsGroups() bool { return db.SupportsGroups() }
+
+// GetGroup returns the group or false if not found
+func GetGroup(id string) (models.Group, bool) { return db.GetGroup(id) }
+
+// GetGroupByToken returns the group with this invite token
+func GetGroupByToken(token string) (models.Group, bool) { return db.GetGroupByToken(token) }
+
+// GetGroupByCode returns the group with this join code (as normalised by storage)
+func GetGroupByCode(code string) (models.Group, bool) { return db.GetGroupByCode(code) }
+
+// GetAllGroups returns all groups, newest first
+func GetAllGroups() []models.Group { return db.GetAllGroups() }
+
+// SaveGroup inserts or replaces a group
+func SaveGroup(g models.Group) { db.SaveGroup(g) }
+
+// DeleteGroup removes the group, its members, its file links and its kept
+// near-copies. Files are never touched.
+func DeleteGroup(id string) { db.DeleteGroup(id) }
+
+// GetGroupMembers returns the members of a group, by Joined ascending
+func GetGroupMembers(groupId string) []models.GroupMember { return db.GetGroupMembers(groupId) }
+
+// GetMembershipsOfUser returns every group membership of a user
+func GetMembershipsOfUser(userId int) []models.GroupMember { return db.GetMembershipsOfUser(userId) }
+
+// SaveGroupMember inserts or replaces a membership
+func SaveGroupMember(m models.GroupMember) { db.SaveGroupMember(m) }
+
+// DeleteGroupMember removes one membership
+func DeleteGroupMember(groupId string, userId int) { db.DeleteGroupMember(groupId, userId) }
+
+// GetGroupFileIds returns the ids of all files in a group
+func GetGroupFileIds(groupId string) []string { return db.GetGroupFileIds(groupId) }
+
+// GetGroupIdsOfFile returns the ids of all groups a file is in
+func GetGroupIdsOfFile(fileId string) []string { return db.GetGroupIdsOfFile(fileId) }
+
+// AddGroupFile puts a file into a group (idempotent)
+func AddGroupFile(groupId, fileId string) { db.AddGroupFile(groupId, fileId) }
+
+// RemoveGroupFile takes a file out of one group
+func RemoveGroupFile(groupId, fileId string) { db.RemoveGroupFile(groupId, fileId) }
+
+// RemoveFileFromGroups drops a file from every group
+func RemoveFileFromGroups(fileId string) { db.RemoveFileFromGroups(fileId) }
+
+// SaveNearCopyKept remembers "Keep both" for a file in a group (idempotent)
+func SaveNearCopyKept(groupId, fileId string) { db.SaveNearCopyKept(groupId, fileId) }
+
+// GetNearCopiesKept returns the file ids kept in a group despite looking like another's
+func GetNearCopiesKept(groupId string) map[string]bool { return db.GetNearCopiesKept(groupId) }
+
+// SaveDownload records one original file served to someone
+func SaveDownload(d models.Download) { db.SaveDownload(d) }
+
+// GetDownloadedFileIds is every file id the user has downloaded, by any route
+func GetDownloadedFileIds(userId int) map[string]bool { return db.GetDownloadedFileIds(userId) }
+
+// DeleteDownloadsOfFile removes the download rows of a file
+func DeleteDownloadsOfFile(fileId string) { db.DeleteDownloadsOfFile(fileId) }
+
+// CopyDownloads gives every signed-in user who downloaded fromFileId a
+// download row for toFileId too, unless they already have one
+func CopyDownloads(fromFileId, toFileId string) { db.CopyDownloads(fromFileId, toFileId) }
+
+// SaveCollectionSeen records the first time a user opened a collection; keeps the first FirstOpened
+func SaveCollectionSeen(s models.CollectionSeen) { db.SaveCollectionSeen(s) }
+
+// GetCollectionsSeen returns the collections a user has opened, newest first
+func GetCollectionsSeen(userId int) []models.CollectionSeen { return db.GetCollectionsSeen(userId) }
+
+// GetCollectionViewers returns who opened a collection while signed in, first opened first
+func GetCollectionViewers(collectionId string) []models.CollectionSeen {
+	return db.GetCollectionViewers(collectionId)
+}
+
+// SaveCollectionGroup links a collection to the group it was turned into
+func SaveCollectionGroup(cg models.CollectionGroup) { db.SaveCollectionGroup(cg) }
+
+// GetCollectionGroup returns the group link of a collection, or false
+func GetCollectionGroup(collectionId string) (models.CollectionGroup, bool) {
+	return db.GetCollectionGroup(collectionId)
+}
+
+// GetCollectionGroupsOfGroup returns the collections linked to a group
+func GetCollectionGroupsOfGroup(groupId string) []models.CollectionGroup {
+	return db.GetCollectionGroupsOfGroup(groupId)
+}
+
+// DeleteCollectionGroup removes the group link of a collection
+func DeleteCollectionGroup(collectionId string) { db.DeleteCollectionGroup(collectionId) }
+
+// GetViewAs returns the admin's active "View as…", or false
+func GetViewAs(adminId int) (models.ViewAs, bool) { return db.GetViewAs(adminId) }
+
+// GetAllViewAs returns every active "View as…"
+func GetAllViewAs() []models.ViewAs { return db.GetAllViewAs() }
+
+// SaveViewAs inserts or replaces the admin's "View as…"
+func SaveViewAs(v models.ViewAs) { db.SaveViewAs(v) }
+
+// DeleteViewAs ends the admin's "View as…"
+func DeleteViewAs(adminId int) { db.DeleteViewAs(adminId) }
+
+// Part 4, K: blocklist
+
+// SaveBlock adds a blocklist entry (an email or "@domain"); an existing one is kept
+func SaveBlock(b models.BlockEntry) { db.SaveBlock(b) }
+
+// DeleteBlock removes a blocklist entry
+func DeleteBlock(entry string) { db.DeleteBlock(entry) }
+
+// IsBlocked returns true if the exact entry is on the blocklist
+func IsBlocked(entry string) bool { return db.IsBlocked(entry) }
+
+// GetAllBlocks returns every blocklist entry
+func GetAllBlocks() []models.BlockEntry { return db.GetAllBlocks() }
+
+// Part 4, S1: profiles
+
+// GetProfile returns the user's profile, or false if none is stored
+func GetProfile(userId int) (models.Profile, bool) { return db.GetProfile(userId) }
+
+// GetProfileWithoutPhoto is GetProfile without the photo's bytes, for names
+// and photo URLs
+func GetProfileWithoutPhoto(userId int) (models.Profile, bool) { return db.GetProfileWithoutPhoto(userId) }
+
+// SaveProfile inserts or replaces the user's profile
+func SaveProfile(p models.Profile) { db.SaveProfile(p) }
+
+// Part 4, A: activity feed
+
+// SaveActivity appends one event; its Id is assigned by the database
+func SaveActivity(a models.Activity) { db.SaveActivity(a) }
+
+// GetActivitySince returns up to limit events with an Id above since, oldest first
+func GetActivitySince(since int64, limit int) []models.Activity {
+	return db.GetActivitySince(since, limit)
+}
+
+// ActivityBounds returns the oldest retained id (0 when empty) and the newest id ever assigned
+func ActivityBounds() (oldest, newest int64) { return db.ActivityBounds() }
+
+// PruneActivity deletes every event that happened before the timestamp
+func PruneActivity(before int64) { db.PruneActivity(before) }
 
 // Statistics
 

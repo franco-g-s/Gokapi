@@ -196,7 +196,9 @@ async function apiAuthCreate() {
 // /chunk
 
 
-async function apiChunkComplete(uuid, filename, filesize, realsize, contenttype, allowedDownloads, expiryDays, password, isE2E, nonblocking) {
+// allowedDownloads, expiryDays and password may be null to leave them out.
+// groupId (optional) uploads into that group, whose terms then apply (G7).
+async function apiChunkComplete(uuid, filename, filesize, realsize, contenttype, allowedDownloads, expiryDays, password, isE2E, nonblocking, groupId) {
     const apiUrl = './api/chunk/complete';
     const reqPerm = 'PERM_UPLOAD';
 
@@ -209,22 +211,32 @@ async function apiChunkComplete(uuid, filename, filesize, realsize, contenttype,
         throw error;
     }
 
+    const headers = {
+        'Content-Type': 'application/json',
+        'apikey': token,
+        'uuid': uuid,
+        'filename': 'base64:' + Base64.encode(filename),
+        'filesize': filesize,
+        'realsize': realsize,
+        'contenttype': contenttype,
+        'isE2E': isE2E,
+        'nonblocking': nonblocking
+    };
+    if (allowedDownloads !== null && allowedDownloads !== undefined) {
+        headers['allowedDownloads'] = allowedDownloads;
+    }
+    if (expiryDays !== null && expiryDays !== undefined) {
+        headers['expiryDays'] = expiryDays;
+    }
+    if (password !== null && password !== undefined) {
+        headers['password'] = password;
+    }
+    if (groupId) {
+        headers['groupId'] = groupId;
+    }
     const requestOptions = {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'apikey': token,
-            'uuid': uuid,
-            'filename': 'base64:' + Base64.encode(filename),
-            'filesize': filesize,
-            'realsize': realsize,
-            'contenttype': contenttype,
-            'allowedDownloads': allowedDownloads,
-            'expiryDays': expiryDays,
-            'password': password,
-            'isE2E': isE2E,
-            'nonblocking': nonblocking
-        },
+        headers: headers,
     };
 
     try {
@@ -401,7 +413,10 @@ async function apiFilesListDownloadZip(fileIds, filename) {
 }
 
 
-async function apiFilesModify(id, allowedDownloads, expiry, password, originalPw) {
+// newName is only sent when it is not null, i.e. when the name was changed.
+// Likewise allowedDownloads and expiry: null leaves that setting as it is on
+// the server (the Files tab's "Keep as it is"); 0 still means unlimited/never.
+async function apiFilesModify(id, allowedDownloads, expiry, password, originalPw, newName = null) {
     const apiUrl = './api/files/modify';
     const reqPerm = 'PERM_EDIT';
 
@@ -414,17 +429,28 @@ async function apiFilesModify(id, allowedDownloads, expiry, password, originalPw
         throw error;
     }
 
+    const headers = {
+        'Content-Type': 'application/json',
+        'id': id,
+        'apikey': token,
+        'originalPassword': originalPw
+    };
+    // null leaves the password header out (a file whose password follows its group)
+    if (password !== null) {
+        headers['password'] = password;
+    }
+    if (allowedDownloads !== null) {
+        headers['allowedDownloads'] = allowedDownloads;
+    }
+    if (expiry !== null) {
+        headers['expiryTimestamp'] = expiry;
+    }
+    if (newName !== null) {
+        headers['filename'] = 'base64:' + Base64.encode(newName);
+    }
     const requestOptions = {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'id': id,
-            'apikey': token,
-            'allowedDownloads': allowedDownloads,
-            'expiryTimestamp': expiry,
-            'password': password,
-            'originalPassword': originalPw
-        },
+        headers: headers,
     };
     try {
         const response = await fetch(apiUrl, requestOptions);

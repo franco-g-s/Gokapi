@@ -20,6 +20,39 @@
 				</div>
 			</form>
 		
+		<div id="fgs-upload-options-area">
+		<div class="d-flex flex-wrap align-items-center column-gap-4 row-gap-2 mt-3">
+		<div id="fgs-upload-target-wrap" hidden>
+		  <div class="d-inline-flex align-items-center gap-2">
+		    <label for="fgs-upload-target" class="small text-muted text-nowrap">Upload to</label>
+		    <select id="fgs-upload-target" class="form-select form-select-sm w-auto" autocomplete="off"{{ if .EndToEndEncryption }} data-e2e="true"{{ end }}>
+		      <option value="">My files</option>
+		    </select>
+		  </div>
+		</div>
+		<div class="form-check form-switch d-inline-flex align-items-center gap-2 mb-0 fgs-combine-option">
+		  <input class="form-check-input" type="checkbox" role="switch"
+		         id="enableAutoCollection" onchange="saveAutoLinkDefault()"
+		         aria-label="Combine each upload into one link">
+		  <label class="form-check-label small text-muted" for="enableAutoCollection">
+		    Combine each upload into one link
+		  </label>
+		</div>
+		{{- /* Part 4, S2: the Settings page's download emails switch, saved at once */}}
+		{{ if .ShowEmailSwitch }}
+		<div class="form-check form-switch d-inline-flex align-items-center gap-2 mb-0 fgs-email-option">
+		  <input class="form-check-input" type="checkbox" role="switch"
+		         id="fgs-email-downloads" onchange="saveEmailDownloads(this)"{{ if .EmailDownloads }} checked{{ end }}
+		         aria-label="Email me when my files are downloaded">
+		  <label class="form-check-label small text-muted" for="fgs-email-downloads">
+		    Email me when my files are downloaded
+		  </label>
+		</div>
+		{{ end }}
+		</div>
+		<p id="fgs-upload-target-note" class="small text-muted mt-2 mb-0" hidden>Files uploaded to a group stay until the group closes and can be downloaded by its members.</p>
+		<div id="autoCollectionResult"></div>
+
 		<div id="uploadstatus" class="container uploads-container">
 		</div>		
 		<p></p>
@@ -27,27 +60,6 @@
 		<br>
 		<div class="upload-options-grid">
 
-
-		  <div class="upload-option-card">
-		    <div class="upload-option-header">
-		      <div class="d-flex align-items-center gap-2">
-		        <i class="bi bi-arrow-down-circle upload-option-icon"></i>
-		        <span class="upload-option-label">Download Limit</span>
-		      </div>
-		      <div class="form-check form-switch mb-0">
-		        <input class="form-check-input upload-option-toggle" type="checkbox" role="switch"
-		               name="enableDownloadLimit" id="enableDownloadLimit"
-		               onchange="checkBoxChanged(this, 'allowedDownloads')" checked
-		               aria-label="Enable Download Limit">
-		      </div>
-		    </div>
-		    <div class="input-group upload-option-input-group">
-		      <input type="number" class="form-control admin-input" value="1"
-		             name="allowedDownloads" id="allowedDownloads" min="1"
-		             style="text-align: right;" data-allow-regular-paste>
-		      <span class="input-group-text upload-option-suffix">Downloads</span>
-		    </div>
-		  </div>
 
 		  <div class="upload-option-card">
 		    <div class="upload-option-header">
@@ -73,6 +85,27 @@
 		  <div class="upload-option-card">
 		    <div class="upload-option-header">
 		      <div class="d-flex align-items-center gap-2">
+		        <i class="bi bi-arrow-down-circle upload-option-icon"></i>
+		        <span class="upload-option-label">Download Limit</span>
+		      </div>
+		      <div class="form-check form-switch mb-0">
+		        <input class="form-check-input upload-option-toggle" type="checkbox" role="switch"
+		               name="enableDownloadLimit" id="enableDownloadLimit"
+		               onchange="checkBoxChanged(this, 'allowedDownloads')"
+		               aria-label="Enable Download Limit">
+		      </div>
+		    </div>
+		    <div class="input-group upload-option-input-group">
+		      <input type="number" class="form-control admin-input" value="1"
+		             name="allowedDownloads" id="allowedDownloads" min="1"
+		             style="text-align: right;" data-allow-regular-paste disabled>
+		      <span class="input-group-text upload-option-suffix">Downloads</span>
+		    </div>
+		  </div>
+
+		  <div class="upload-option-card">
+		    <div class="upload-option-header">
+		      <div class="d-flex align-items-center gap-2">
 		        <i class="bi bi-key upload-option-icon"></i>
 		        <span class="upload-option-label">Password</span>
 		      </div>
@@ -89,70 +122,22 @@
 		  </div>
 
 		</div>
+		</div>
 <div id="errordiv" class="alert alert-danger" style="display:none">
   <span id="errormessage" ></span>
 </div>
 		<br><br>
-		<div class="table-responsive">
-			<table id="maintable" class="table table-dark">
-				<thead>
-					<tr>
-						<th scope="col" style="text-align: center;">Filename</th>
-						<th scope="col" style="text-align: center;">Size</th>
-						<th scope="col" style="text-align: center;">Downloads remaining</th>
-						<th scope="col" style="text-align: center;">Stored until</th>
-						<th scope="col" style="text-align: center;">Downloads</th>
-						<th scope="col" style="text-align: center;">ID</th>
-						<th scope="col" style="text-align: center; min-width:13em;">Actions</th>
-					</tr>
-				</thead>
-				<tbody id="downloadtable">
-{{ range .Items }}
-	{{ if not (or .IsPendingDeletion .IsFileRequest) }}	
-		{{ if  or (gt .ExpireAt $.TimeNow) (.UnlimitedTime) }}
-			{{ if or (gt .DownloadsRemaining 0) (.UnlimitedDownloads) }}
-					<tr id="row-{{ .Id }}">
-						<td id="cell-name-{{ .Id }}">{{ .Name }}</td>
-						<td data-order="{{ .SizeBytes }}">{{ .Size }}</td>
-				{{ if .UnlimitedDownloads }}
-						<td>Unlimited</td>
-				{{ else }}
-						<td id="cell-downloadsRemaining-{{ .Id }}">{{ .DownloadsRemaining }}</td>
-				{{ end }}
-				{{ if .UnlimitedTime }}
-						<td>Unlimited</td>
-				{{ else }}
-						<td><span id="cell-expireatstring-{{ .Id }}"></span></td>
-						 <script>insertFormattedDate({{ .ExpireAt }}, "cell-expireatstring-{{ .Id }}");</script>
-				{{ end }}
-						<td id="cell-downloads-{{ .Id }}">{{ .DownloadCount }}</td>
-						<td><a id="url-href-{{ .Id }}" target="_blank" href="{{ .UrlDownload }}">{{ .Id }}</a>{{ if .IsPasswordProtected }}  <i title="Password protected" class="bi bi-key"></i>{{ end }}</td>
-						<td>
-						<div class="btn-toolbar justify-content-end" role="toolbar" >
-						  <div class="btn-group me-2" role="group">
-						     {{ template "admin_button_copyurl" (newAdminButtonContext . $.ActiveUser)}}
-						     {{ template "admin_button_share" (newAdminButtonContext . $.ActiveUser)}}
-						  </div>
-						  <div class="btn-group" role="group">
-						     {{ template "admin_button_download" (newAdminButtonContext . $.ActiveUser) }}
-						     {{ template "admin_button_edit" (newAdminButtonContext . $.ActiveUser) }}
-						     {{ template "admin_button_delete" (newAdminButtonContext . $.ActiveUser) }}
-						 </div>
-						</div></td>
-					</tr>
-			{{ end }}
-		{{ end }}
-	{{ end }}
-{{ end }}
-				</tbody>
-			</table>
-		      </div>
+		<p class="small text-muted mt-2 mb-1">Files you upload now appear below. Everything you have shared is in <a href="./files">Files</a>.</p>
+		{{ template "file_browser" .Browser }}
+		{{ template "media_viewer" }}
+		{{ template "media_help_sheet" }}
 		  </div>
 		</div>
 	    </div>
    	 </div>
 	
 	{{ template "admin_modal_edit" }}
+	{{ template "file_browser_dialogs" .ServerUrl }}
 	
 
 	<div id="toastnotification" class="toastnotification" data-default="URL copied to clipboard">Toast Text</div>
@@ -172,39 +157,12 @@
 	
 	initDropzone();
 
-	Dropzone.options.uploaddropzone["maxFilesize"] = {{ .MaxFileSize }};
-	Dropzone.options.uploaddropzone["timeout"] = 1200000;
-	Dropzone.options.uploaddropzone["chunking"] = true;
-	Dropzone.options.uploaddropzone["chunkSize"] = {{ .ChunkSize }} * 1024 * 1024;
-	Dropzone.options.uploaddropzone["parallelUploads"] = 1;
-	Dropzone.options.uploaddropzone["parallelChunkUploads"] = {{.MaxParallelUploads}};
-	Dropzone.options.uploaddropzone["forceChunking"] = true;
-	Dropzone.options.uploaddropzone["retryChunksLimit"] = 3;
-	Dropzone.options.uploaddropzone["retryChunks"] = true;
-	Dropzone.options.uploaddropzone["previewsContainer"] = false;
-	
-	$(document).ready(function () {
-	
-	    $('#maintable').DataTable({
-	    "responsive": true,
-	    "order": [], // disables initial sorting
-	    "columnDefs": [ {
-		"targets": 6,
-		"orderable": false
-		} ],
-	    "paging": false,
-	    "language": {
-	      "info": "Files stored: _TOTAL_",
-	      "emptyTable": "No files stored yet",
-	      "infoEmpty": "",
-	    }
-	    });
-	});
+	setUploadDropzoneOptions({{ .MaxFileSize }}, {{ .ChunkSize }}, {{ .MaxParallelUploads }});
 	
 	registerChangeHandler();
-		
-	var canReplaceOwnFiles = {{.ActiveUser.HasPermissionReplace}};
 	setUploadDefaults();
+	setAutoLinkDefault();
+	initUploadTarget();
 	
 {{ if .ShowDeprecationNotice }}
 	showDeprecationNotice();
@@ -242,83 +200,6 @@
 
 
 
-{{ define "admin_button_download" }}
-			<button
-			    type="button"
-			    title="Download"
-			    class="btn btn-outline-light btn-sm {{if .CurrentFile.RequiresClientSideDecryption}}disabled{{end}}"
-			    onclick="downloadFileWithPresign('{{.CurrentFile.Id }}');">
-		   	    <i class="bi bi-download"></i>
-			</button>
-
-{{ end }}
-
-{{ define "admin_button_edit" }}
-			<button
-			    type="button"
-			    title="Edit"
-			    {{ if and (ne .ActiveUser.Id .CurrentFile.UploaderId) (not .ActiveUser.HasPermissionEditOtherUploads) }}
-			    	disabled
-			    {{ end }}
-			    class="btn btn-outline-light btn-sm"
-			    onclick="showEditModal('{{.CurrentFile.Name }}',
-			    	'{{.CurrentFile.Id}}', {{.CurrentFile.DownloadsRemaining }},
-			    	 {{.CurrentFile.ExpireAt }}, {{.CurrentFile.IsPasswordProtected}},
-			    	 {{.CurrentFile.UnlimitedDownloads }}, {{.CurrentFile.UnlimitedTime}},
-			    	 {{.CurrentFile.IsEndToEndEncrypted}},
-			    	 {{ or (and (eq .ActiveUser.Id .CurrentFile.UploaderId) (.ActiveUser.HasPermissionReplace))
-			    	 	(.ActiveUser.HasPermissionReplaceOtherUploads) }});">
-		   	    <i class="bi bi-pencil"></i>
-			</button>
-
-{{ end }}
-
-
-{{ define "admin_button_delete" }}
-			<button id="button-delete-{{ .CurrentFile.Id}}"
-			   type="button"
-			   title="Delete"
-			    {{ if and (ne .ActiveUser.Id .CurrentFile.UploaderId) (not .ActiveUser.HasPermissionDeleteOtherUploads) }}
-			    	disabled
-			    {{ end }}
-			   class="btn btn-outline-danger btn-sm"
-			   onclick="deleteFile('{{ .CurrentFile.Id }}')">
-			   <i class="bi bi-trash3"></i>
-			</button>
-{{ end }}
-
-{{ define "admin_button_copyurl" }}
-		    <button id="url-button-{{ .CurrentFile.Id }}" type="button" onclick="showToast(1000)"
-		    	data-clipboard-text="{{ .CurrentFile.UrlDownload }}" class="copyurl btn btn-outline-light btn-sm" title="Copy URL"><i class="bi bi-copy"></i> URL</button>
-		    <button type="button" class="btn btn-outline-light btn-sm dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
-		    </button>
-			<ul class="dropdown-menu dropdown-menu-end" data-bs-theme="dark" >
-	{{ if ne .CurrentFile.UrlHotlink "" }}
-			    <li style="cursor: pointer;"><a class="dropdown-item copyurl" title="Copy hotlink" onclick="showToast(1000)"
-			    	data-clipboard-text="{{ .CurrentFile.UrlHotlink }}"><i class="bi bi-copy"></i> Hotlink</a></li>
-		{{ else }}
-			    <li><a class="dropdown-item disabled">Hotlink not available</a></li>
-	{{ end }}
-			</ul>
-{{ end }}
-
-{{ define "admin_button_share" }}
-		    <button type="button" class="btn btn-outline-light btn-sm" title="Share" onclick="shareUrl(event, '{{ .CurrentFile.Id }}',
-		       '{{ .CurrentFile.UrlDownload }}')">
-		       <!-- For some reason bi-share does not always show up, using the svg fixes it -->
-		       	<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi" viewBox="0 0 16 16">
- 				 <path d="M13.5 1a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3M11 2.5a2.5 2.5 0 1 1 .603 1.628l-6.718 3.12a2.5 2.5 0 0 1 0 1.504l6.718 3.12a2.5 2.5 0 1 1-.488.876l-6.718-3.12a2.5 2.5 0 1 1 0-3.256l6.718-3.12A2.5 2.5 0 0 1 11 2.5m-8.5 4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3m11 5.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3"/>
-			</svg>
-</button>
-		    <button type="button" id="shareDropdown-{{ .CurrentFile.Id }}" class="btn btn-outline-light btn-sm dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
-		    </button>
-			<ul class="dropdown-menu dropdown-menu-end" data-bs-theme="dark" >
-			    <li style="cursor: pointer;"><a class="dropdown-item" id="qrcode-{{ .CurrentFile.Id }}" title="Open QR Code" onclick="showQrCode('{{ .CurrentFile.UrlDownload }}');"><i class="bi bi-qr-code"></i> QR Code</a></li>
-			    <li style="cursor: pointer;"><a class="dropdown-item" id="email-{{ .CurrentFile.Id }}" href="mailto:?body={{ .CurrentFile.UrlDownload | urlquery}}"
-			       target="_blank" title="Share via email"><i class="bi bi-envelope"></i> Email</a></li>
-			</ul>
-{{ end }}
-
 {{ define "admin_modal_edit" }}
 
 	<div class="modal fade" id="modaledit" tabindex="-1" aria-labelledby="m_filenamelabel" aria-hidden="true">
@@ -328,6 +209,11 @@
 		<h1 class="modal-title fs-5" id="m_filenamelabel">Filename</h1>
 	      </div>
 	      <div class="modal-body">
+		<div class="input-group mb-3">
+		  <div class="input-group-text"><i class="bi bi-tag" aria-hidden="true"></i></div>
+		  <span class="input-group-text modal-samesize-input-edit" id="edit_name">Name</span>
+		  <input type="text" id="mi_edit_name" class="form-control" maxlength="400" aria-label="Name" aria-describedby="edit_name" data-allow-regular-paste>
+		</div>
 		<div class="input-group mb-3">
 		  <div class="input-group-text">
       			<input type="checkbox" id="mc_download"  checked aria-label="Limit downloads" title="Limit downloads"  data-toggle-target="mi_edit_down" onchange="handleEditCheckboxChange(this)">

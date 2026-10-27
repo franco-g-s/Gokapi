@@ -8,7 +8,27 @@ var isE2EEnabled = false;
 
 var isUploading = false;
 
-var rowCount = -1;
+// The upload page's list of files uploaded now: the shared file list
+// (html_file_browser.tmpl) in its "upload" context, or null on every other
+// page that loads the admin bundle
+function uploadBrowser() {
+    let root = document.querySelector('[data-fgs-browser][data-context="upload"]');
+    if (root === null || !window.FGS || !FGS.initFileBrowser) {
+        return null;
+    }
+    return FGS.initFileBrowser(root);
+}
+
+// The list this page adds its finished uploads to: the upload page's list,
+// or a group page's board (data-upload-sink="true"). Only uploads made on
+// this page go there; files another tab added still use uploadBrowser().
+function uploadSinkBrowser() {
+    let root = document.querySelector('[data-fgs-browser][data-upload-sink="true"]');
+    if (root === null || !window.FGS || !FGS.initFileBrowser) {
+        return null;
+    }
+    return FGS.initFileBrowser(root);
+}
 
 
 function initDropzone() {
@@ -20,16 +40,30 @@ function initDropzone() {
         chunksUploaded: function(file, done) {
             sendChunkComplete(file, done);
         },
+        // Runs after "addedfile": a file going into a group is checked for
+        // a copy already there first (admin_ui_groupupload.js)
+        accept: function(file, done) {
+            uploadTargetAccept(file, done);
+        },
         init: function() {
             dropzoneObject = this;
             this.on("addedfile", file => {
                 file.upload.uuid = getUuid();
+                // Where it goes is fixed when it is added, not when it finishes
+                file.fgsTarget = uploadTargetDetails();
                 saveUploadDefaults();
                 addFileProgress(file);
+                addFileToUploadBatch(file);
             });
             this.on("queuecomplete", function() {
                 isUploading = false;
+                closeUploadBatch();
             });
+            // Every failure path (chunk upload, chunk-complete, server-side
+            // processing, file info lookup) ends in Dropzone's "error" event.
+            this.on("error", file => markBatchFileFailed(file));
+            this.on("canceled", file => markBatchFileFailed(file));
+            this.on("removedfile", file => markBatchFileFailed(file));
             this.on("sending", function(file, xhr, formData) {
                 isUploading = true;
             });
@@ -37,6 +71,10 @@ function initDropzone() {
             // Error handling for chunk upload, especially returning 413 error code (invalid nginx configuration)
             this.on("error", function(file, errorMessage, xhr) {
                 console.log(errorMessage);
+                if (file.fgsDuplicate === true) {
+                    uploadTargetNotice(file.upload.uuid, errorMessage);
+                    return;
+                }
                 if (xhr) {
                     if (xhr.status === 413) {
                         showError(file, "File too large to upload. If you are using a reverse proxy, make sure that the allowed body size is at least 70MB.");
@@ -109,6 +147,23 @@ function initDropzone() {
 }
 
 
+// The upload page's and a group page's Dropzone settings. Call after
+// initDropzone(), from an inline script, before Dropzone discovers the form.
+function setUploadDropzoneOptions(maxFileSize, chunkSizeMb, maxParallelUploads) {
+    let options = Dropzone.options.uploaddropzone;
+    options["maxFilesize"] = maxFileSize;
+    options["timeout"] = 1200000;
+    options["chunking"] = true;
+    options["chunkSize"] = chunkSizeMb * 1024 * 1024;
+    options["parallelUploads"] = 1;
+    options["parallelChunkUploads"] = maxParallelUploads;
+    options["forceChunking"] = true;
+    options["retryChunksLimit"] = 3;
+    options["retryChunks"] = true;
+    options["previewsContainer"] = false;
+}
+
+
 function updateProgressbar(file, progress, bytesSent) {
     let chunkId = file.upload.uuid;
     let container = document.getElementById(`us-container-${chunkId}`);
@@ -140,7 +195,11 @@ function setUploadDefaults() {
     let defaultDownloads = getLocalStorageWithDefault("defaultDownloads", 1);
     let defaultExpiry = getLocalStorageWithDefault("defaultExpiry", 14);
     let defaultPassword = getLocalStorageWithDefault("defaultPassword", "");
-    let defaultUnlimitedDownloads = getLocalStorageWithDefault("defaultUnlimitedDownloads", false) === "true";
+    // Default is now UNLIMITED downloads. The storage key is versioned so an
+    // older remembered "limit on" preference does not override the new default.
+    // Note getLocalStorageWithDefault returns the fallback as-is, so it must be
+    // the string "true" to survive the === "true" comparison below.
+    let defaultUnlimitedDownloads = getLocalStorageWithDefault("defaultUnlimitedDownloads2", "true") === "true";
     let defaultUnlimitedTime = getLocalStorageWithDefault("defaultUnlimitedTime", false) === "true";
 
     document.getElementById("allowedDownloads").value = defaultDownloads;
@@ -167,10 +226,15 @@ function setUploadDefaults() {
 }
 
 function saveUploadDefaults() {
+    // A group page has none of these settings
+    if (["allowedDownloads", "expiryDays", "password", "enableDownloadLimit", "enableTimeLimit"]
+        .some(id => document.getElementById(id) === null)) {
+        return;
+    }
     localStorage.setItem("defaultDownloads", document.getElementById("allowedDownloads").value);
     localStorage.setItem("defaultExpiry", document.getElementById("expiryDays").value);
     localStorage.setItem("defaultPassword", document.getElementById("password").value);
-    localStorage.setItem("defaultUnlimitedDownloads", !document.getElementById("enableDownloadLimit").checked);
+    localStorage.setItem("defaultUnlimitedDownloads2", !document.getElementById("enableDownloadLimit").checked);
     localStorage.setItem("defaultUnlimitedTime", !document.getElementById("enableTimeLimit").checked);
 }
 
@@ -203,17 +267,32 @@ function sendChunkComplete(file, done) {
     let filesize = file.size;
     let realsize = file.size;
     let contenttype = file.type;
-    let allowedDownloads = document.getElementById("allowedDownloads").value;
-    let expiryDays = document.getElementById("expiryDays").value;
-    let password = document.getElementById("password").value;
     let isE2E = file.isEndToEndEncrypted === true;
     let nonblocking = true;
+    let groupId = file.fgsTarget ? file.fgsTarget.id : "";
 
-    if (!document.getElementById("enableDownloadLimit").checked) {
-        allowedDownloads = 0;
-    }
-    if (!document.getElementById("enableTimeLimit").checked) {
-        expiryDays = 0;
+    // null leaves a setting out. Into a group, none is sent: the group sets
+    // them. A page without the settings sends the server's defaults.
+    let allowedDownloads = null;
+    let expiryDays = null;
+    let password = null;
+    if (groupId === "") {
+        let setting = id => document.getElementById(id);
+        if (setting("allowedDownloads") !== null) {
+            allowedDownloads = setting("allowedDownloads").value;
+        }
+        if (setting("expiryDays") !== null) {
+            expiryDays = setting("expiryDays").value;
+        }
+        if (setting("password") !== null) {
+            password = setting("password").value;
+        }
+        if (setting("enableDownloadLimit") !== null && !setting("enableDownloadLimit").checked) {
+            allowedDownloads = 0;
+        }
+        if (setting("enableTimeLimit") !== null && !setting("enableTimeLimit").checked) {
+            expiryDays = 0;
+        }
     }
 
     if (isE2E) {
@@ -222,7 +301,7 @@ function sendChunkComplete(file, done) {
         contenttype = "";
     }
 
-    apiChunkComplete(uuid, filename, filesize, realsize, contenttype, allowedDownloads, expiryDays, password, isE2E, nonblocking)
+    apiChunkComplete(uuid, filename, filesize, realsize, contenttype, allowedDownloads, expiryDays, password, isE2E, nonblocking, groupId)
         .then(data => {
             done();
             let progressText = document.getElementById(`us-progress-info-${file.upload.uuid}`);
@@ -252,14 +331,31 @@ function dropzoneGetFile(uid) {
 }
 
 function requestFileInfo(fileId, uid) {
+    let uploaded = dropzoneGetFile(uid);
+    let target = uploaded !== null && uploaded.fgsTarget ? uploaded.fgsTarget : null;
+    if (target !== null && target.id !== "") {
+        // Into a group, from a group page or the Upload page's "Upload to":
+        // shown as the group has it (its terms, GroupLock). The server may
+        // still find it a duplicate and delete it; /groups/item then never
+        // finds it, and the row says "Already in the group" (M1)
+        uploadTargetGroupItem(target, fileId, uid, 0);
+        return;
+    }
     apiFilesListById(fileId)
         .then(data => {
-            addRow(data);
-            notifyWorker({ type: "fileAdded", item: data });
+            // The list is only a view: an error drawing it must not mark an
+            // upload that is stored as failed (and with it the auto-collection batch)
+            try {
+                addUploadedFile(data);
+                notifyWorker({ type: "fileAdded", item: data });
+            } catch (error) {
+                console.error('Error showing the uploaded file:', error);
+            }
             let file = dropzoneGetFile(uid);
             if (file == null) {
                 return;
             }
+            recordBatchFileId(file, data.Id);
             if (file.isEndToEndEncrypted === true) {
                 apiE2eMutexLockUnlock(false)
                     .then(() => apiE2eGet())
@@ -351,20 +447,29 @@ function editFile() {
     button.disabled = true;
     let id = button.getAttribute('data-fileid');
 
-    let allowedDownloads = document.getElementById('mi_edit_down').value;
-    let expiryTimestamp = document.getElementById('mi_edit_expiry').value;
-    let password = document.getElementById('mi_edit_pw').value;
-    let originalPassword = (password === '(unchanged)');
+    // D4: in a live group the expiry, download limit and password follow the
+    // group. None of them is sent (null leaves the header out); the server
+    // reads a missing originalPassword as "remove the password", so it says keep.
+    let allowedDownloads = null;
+    let expiryTimestamp = null;
+    let password = null;
+    let originalPassword = true;
+    if (!button.hasAttribute('data-group-lock')) {
+        allowedDownloads = document.getElementById('mi_edit_down').value;
+        expiryTimestamp = document.getElementById('mi_edit_expiry').value;
+        password = document.getElementById('mi_edit_pw').value;
+        originalPassword = (password === '(unchanged)');
 
-    if (!document.getElementById('mc_download').checked) {
-        allowedDownloads = 0;
-    }
-    if (!document.getElementById('mc_expiry').checked) {
-        expiryTimestamp = 0;
-    }
-    if (!document.getElementById('mc_password').checked) {
-        originalPassword = false;
-        password = "";
+        if (!document.getElementById('mc_download').checked) {
+            allowedDownloads = 0;
+        }
+        if (!document.getElementById('mc_expiry').checked) {
+            expiryTimestamp = 0;
+        }
+        if (!document.getElementById('mc_password').checked) {
+            originalPassword = false;
+            password = "";
+        }
     }
 
     let replaceFile = false;
@@ -374,15 +479,27 @@ function editFile() {
         replaceFile = (replaceId != "");
     }
 
-    apiFilesModify(id, allowedDownloads, expiryTimestamp, password, originalPassword)
+    // The name is only sent when it was changed
+    let nameInput = document.getElementById('mi_edit_name');
+    let newName = null;
+    if (!nameInput.disabled && nameInput.value !== nameInput.getAttribute('data-original')) {
+        newName = nameInput.value.trim();
+        if (newName === '') {
+            alert("The name cannot be empty");
+            button.disabled = false;
+            return;
+        }
+    }
+
+    apiFilesModify(id, allowedDownloads, expiryTimestamp, password, originalPassword, newName)
         .then(data => {
             if (!replaceFile) {
-                location.reload();
+                showEditedFile(data, false);
                 return;
             }
             apiFilesReplace(id, replaceId)
                 .then(data => {
-                    location.reload();
+                    showEditedFile(data, true);
                 })
                 .catch(error => {
                     alert("Unable to edit file: " + error);
@@ -397,7 +514,42 @@ function editFile() {
         });
 }
 
-function showEditModal(filename, id, downloads, expiry, password, unlimitedown, unlimitedtime, isE2e, canReplace) {
+// After a successful edit: the file as the API now holds it, shown in place
+// in every list on the page that has it (the Files tab, the upload page's
+// uploads, a collection's files), without a reload. Replaced content has a
+// new preview, which is asked for first and polled if it is still being made.
+function showEditedFile(fileInfo, replaced) {
+    let modal = bootstrap.Modal.getInstance(document.getElementById("modaledit"));
+    if (modal != null) {
+        modal.hide();
+    }
+    let showPreview = Promise.resolve(null);
+    if (replaced) {
+        showPreview = fetch("./files/previewinfo?id=" + encodeURIComponent(fileInfo.Id), { credentials: "same-origin", cache: "no-store" })
+            .then(response => response.ok ? response.json() : null)
+            .catch(() => null);
+    }
+    showPreview.then(preview => {
+        FGS.eachFileBrowser(function(browser) {
+            if (browser.tile(fileInfo.Id) === null) {
+                return;
+            }
+            browser.updateItem(fileInfo);
+            if (preview !== null) {
+                browser.applyPreview(fileInfo.Id, preview);
+            } else if (replaced) {
+                // The new preview could not be fetched: keep what is shown
+                // and ask again until it arrives (or the poll gives up)
+                browser.pollPreview(fileInfo.Id);
+            }
+        });
+        if (isE2EEnabled) {
+            GokapiE2EDecryptMenu();
+        }
+    });
+}
+
+function showEditModal(filename, id, downloads, expiry, password, unlimitedown, unlimitedtime, isE2e, canReplace, groupLock) {
     // Cloning removes any previous values or form validation
     let originalModal = $('#modaledit').clone();
     $("#modaledit").on('hide.bs.modal', function() {
@@ -407,6 +559,14 @@ function showEditModal(filename, id, downloads, expiry, password, unlimitedown, 
     });
 
     document.getElementById("m_filenamelabel").innerText = filename;
+    let nameInput = document.getElementById("mi_edit_name");
+    nameInput.value = filename;
+    nameInput.setAttribute("data-original", filename);
+    if (isE2e) {
+        // The real name of an encrypted file lives inside the encrypted data
+        nameInput.disabled = true;
+        nameInput.title = "Renaming is not available for end-to-end encrypted files";
+    }
     document.getElementById("mc_expiry").setAttribute("data-timestamp", expiry);
     document.getElementById("mb_save").setAttribute('data-fileid', id);
     createCalendar("mi_edit_expiry", expiry);
@@ -447,12 +607,22 @@ function showEditModal(filename, id, downloads, expiry, password, unlimitedown, 
     if (canReplace) {
         document.getElementById("replaceGroup").style.display = 'flex';
         if (!isE2e) {
-            let files = getAllAvailableFiles();
-            for (let i = 0; i < files[0].length; i++) {
-                if (files[0][i] == id)
-                    continue;
-                selectReplace.add(new Option(files[1][i] + " (" + files[0][i] + ")", files[0][i]));
-            }
+            // Filled once the server has answered; a dialog closed or opened
+            // for another file meanwhile is left alone
+            let fill = ++replaceFillToken;
+            getAllAvailableFiles().then(files => {
+                if (fill !== replaceFillToken || !selectReplace.isConnected) return;
+                selectReplace.textContent = "";
+                for (let i = 0; i < files[0].length; i++) {
+                    if (files[0][i] == id)
+                        continue;
+                    // Name as text, never as markup; the id tells equal names apart
+                    let option = document.createElement("option");
+                    option.value = files[0][i];
+                    option.text = files[1][i] + " (" + files[0][i] + ")";
+                    selectReplace.add(option);
+                }
+            }).catch(error => console.error("Could not load the files to replace with:", error));
         } else {
             document.getElementById("mc_replace").disabled = true;
             document.getElementById("mc_replace").title = "Replacing content is not available for end-to-end encrypted files";
@@ -464,6 +634,18 @@ function showEditModal(filename, id, downloads, expiry, password, unlimitedown, 
         document.getElementById("replaceGroup").style.display = 'none';
     }
 
+    // D4: a file in a live group keeps the group's expiry, download limit
+    // and password; only its name and content can be changed here
+    if (groupLock) {
+        ["mc_download", "mc_expiry", "mc_password"].forEach(function(field) {
+            document.getElementById(field).closest(".input-group").classList.add("d-none");
+        });
+        let note = document.createElement("p");
+        note.className = "text-muted small";
+        note.textContent = "Expiry and download limit follow the group \u201c" + groupLock + "\u201d.";
+        nameInput.closest(".input-group").after(note);
+        document.getElementById("mb_save").setAttribute("data-group-lock", groupLock);
+    }
 
 
     new bootstrap.Modal('#modaledit', {}).show();
@@ -486,30 +668,23 @@ function add14DaysIfBeforeCurrentTime(unixTimestamp) {
     }
 }
 
+// The files "Replace content" can take its content from, from the server
+// (Part 3: a list shows only its first batch): the user's own, or anyone's
+// they may list, never end-to-end encrypted ones. Resolves to [ids, names].
+let replaceFillToken = 0;
 function getAllAvailableFiles() {
-    let ids = [];
-    let filenames = [];
-
-    let elements = document.querySelectorAll('[id^="cell-name-"]');
-    for (let element of elements) {
-        ids.push(element.id.replace("cell-name-", ""));
-        filenames.push(element.innerHTML);
-    }
-    return [ids, filenames];
-}
-
-
-function deleteFile(id) {
-    document.getElementById("button-delete-" + id).disabled = true;
-    apiFilesDelete(id, 10)
-        .then(data => {
-            changeRowCount(false, document.getElementById("row-" + id));
-            showToastFileDeletion(id);
-            notifyWorker({ type: "fileDeleted", id: id });
+    return fetch("./files/replacecandidates", { credentials: "same-origin", cache: "no-store" })
+        .then(response => {
+            if (!response.ok) throw new Error("The server answered " + response.status);
+            return response.json();
         })
-        .catch(error => {
-            alert("Unable to delete file: " + error);
-            console.error('Error:', error);
+        .then(list => {
+            let ids = [], filenames = [];
+            (Array.isArray(list) ? list : []).forEach(c => {
+                ids.push(String(c.Id));
+                filenames.push(c.Name || "");
+            });
+            return [ids, filenames];
         });
 }
 
@@ -555,12 +730,12 @@ function setNewDownloadCount(id, downloadCount, downloadsRemaining) {
         setTimeout(() => downloadCell.classList.remove("updatedDownloadCount"), 500);
     }
     if (downloadsRemaining != -1) {
-        let downloadsRemainingCell = document.getElementById("cell-downloadsRemaining-" + id);
-        if (downloadsRemainingCell != null) {
-            downloadsRemainingCell.innerText = downloadsRemaining;
-            downloadsRemainingCell.classList.add("updatedDownloadCount");
-            setTimeout(() => downloadsRemainingCell.classList.remove("updatedDownloadCount"), 500);
-        }
+        // The edit dialog opens with the remaining downloads its "⋯" menu holds
+        document.querySelectorAll('[data-fgs-file-menu][data-id="' + sanitizeId(String(id)) + '"]').forEach(menu => {
+            if (menu.hasAttribute("data-downloads")) {
+                menu.setAttribute("data-downloads", downloadsRemaining);
+            }
+        });
     }
 }
 
@@ -611,17 +786,25 @@ function registerChangeHandler() {
                    	 window.location.href = "./login";
 		     }, 1000);
                 } else if (event.data.type === "fileAdded") {
-                    // Another tab finished an upload or restored a file — add the
-                    // row if it isn't already present (guard against duplicate IDs).
-                    if (document.getElementById("row-" + sanitizeId(event.data.item.Id)) == null) {
-                        addRow(event.data.item);
+                    // Another tab finished an upload or restored a file — add it
+                    // if it isn't already listed (guard against duplicate IDs).
+                    let browser = uploadBrowser();
+                    if (browser !== null && !isRequestFile(event.data.item) && browser.tile(sanitizeId(event.data.item.Id)) === null) {
+                        addUploadedFile(event.data.item);
+                    } else if (browser === null) {
+                        addToFilesTab(sanitizeId(event.data.item.Id));
                     }
                 } else if (event.data.type === "fileDeleted") {
-                    // Another tab deleted a file — remove the row silently (no toast,
+                    // Another tab deleted a file — remove it silently (no toast,
                     // since this tab didn't initiate the deletion).
-                    let row = document.getElementById("row-" + sanitizeId(event.data.id));
-                    if (row != null) {
-                        changeRowCount(false, row);
+                    // ...from every list on this page that shows it
+                    if (window.FGS && FGS.eachFileBrowser) {
+                        let id = sanitizeId(event.data.id);
+                        FGS.eachFileBrowser(function(browser) {
+                            if (browser.tile(id) !== null) {
+                                browser.removeItem(id);
+                            }
+                        });
                     }
                 } else if (event.data.type === "log") {
                     const { level, message, detail } = event.data;
@@ -737,278 +920,55 @@ function removeFileStatus(chunkId) {
 }
 
 
-function addRow(item) {
-    let table = document.getElementById("downloadtable");
-    let row = table.insertRow(0);
+// One file uploaded now (or restored, or edited) onto the upload page's list.
+// Without a preview the tile starts pending and the list polls for it.
+function addUploadedFile(item, preview) {
+    let browser = uploadSinkBrowser();
+    if (browser === null) {
+        return null;
+    }
     item.Id = sanitizeId(item.Id);
-    row.id = "row-" + item.Id;
-    let cellFilename = row.insertCell(0);
-    let cellFileSize = row.insertCell(1);
-    let cellRemainingDownloads = row.insertCell(2);
-    let cellStoredUntil = row.insertCell(3);
-    let cellDownloadCount = row.insertCell(4);
-    let cellUrl = row.insertCell(5);
-    let cellButtons = row.insertCell(6);
-
-    cellFilename.innerText = item.Name;
-    cellFilename.id = "cell-name-" + item.Id;
-    cellDownloadCount.id = "cell-downloads-" + item.Id;
-    cellFileSize.innerText = item.Size;
-    if (item.UnlimitedDownloads) {
-        cellRemainingDownloads.innerText = "Unlimited";
-    } else {
-        cellRemainingDownloads.innerText = item.DownloadsRemaining;
-        cellRemainingDownloads.id = "cell-downloadsRemaining-" + item.Id;
-    }
-    if (item.UnlimitedTime) {
-        cellStoredUntil.innerText = "Unlimited";
-    } else {
-        cellStoredUntil.innerText = formatUnixTimestamp(item.ExpireAt);
-    }
-    cellDownloadCount.innerText = item.DownloadCount;
-
-    const link = document.createElement('a');
-    link.href = item.UrlDownload;
-    link.target = '_blank';
-    link.style.color = 'inherit';
-    link.id = 'url-href-' + item.Id;
-    link.textContent = item.Id;
-
-    cellUrl.appendChild(link);
-
-    if (item.IsPasswordProtected === true) {
-        const icon = document.createElement('i');
-        icon.className = 'bi bi-key';
-        icon.title = 'Password protected';
-        cellUrl.appendChild(document.createTextNode(' '));
-        cellUrl.appendChild(icon);
-    }
-
-    cellButtons.appendChild(createButtonGroup(item));
-
-
-    cellFilename.classList.add('newItem');
-    cellFileSize.classList.add('newItem');
-    cellRemainingDownloads.classList.add('newItem');
-    cellStoredUntil.classList.add('newItem');
-    cellDownloadCount.classList.add('newItem');
-    cellUrl.classList.add('newItem');
-    cellButtons.classList.add('newItem');
-    cellFileSize.setAttribute('data-order', item.SizeBytes);
-
-    changeRowCount(true, row);
+    browser.addItem(item, preview || undefined);
     return item.Id;
 }
 
-function createButtonGroup(item) {
-    const groupContainer = document.createElement("div");
-    groupContainer.className = "btn-toolbar justify-content-end";
-    groupContainer.setAttribute("role", "toolbar");
+// A file another tab added back (an undone delete) onto the Files tab's list:
+// its current info is fetched first, so an expired or changed file shows as
+// it is. Other pages have no list for it and ignore the message.
+// A file request's upload belongs to that request's page, on no other list
+function isRequestFile(item) {
+    return !!item && (item.IsFileRequest === true || !!item.FileRequestId);
+}
 
-    const group1 = document.createElement("div");
-    group1.className = "btn-group me-2";
-    group1.setAttribute("role", "group");
-
-    // === Button: Copy URL ===
-    const copyUrlBtn = document.createElement('button');
-    copyUrlBtn.type = 'button';
-    copyUrlBtn.className = 'copyurl btn btn-outline-light btn-sm';
-    copyUrlBtn.dataset.clipboardText = item.UrlDownload;
-    copyUrlBtn.id = 'url-button-' + item.Id;
-    copyUrlBtn.title = 'Copy URL';
-
-    const copyIcon = document.createElement('i');
-    copyIcon.className = 'bi bi-copy';
-    copyUrlBtn.appendChild(copyIcon);
-    copyUrlBtn.appendChild(document.createTextNode(' URL'));
-
-    copyUrlBtn.addEventListener('click', () => {
-        showToast(1000);
-    });
-
-    group1.appendChild(copyUrlBtn);
-
-    // Dropdown toggle for Hotlink
-    const btnDropdown1 = document.createElement("button");
-    btnDropdown1.type = "button";
-    btnDropdown1.className = "btn btn-outline-light btn-sm dropdown-toggle dropdown-toggle-split";
-    btnDropdown1.setAttribute("data-bs-toggle", "dropdown");
-    btnDropdown1.setAttribute("aria-expanded", "false");
-    group1.appendChild(btnDropdown1);
-
-    const dropdown1 = document.createElement("ul");
-    dropdown1.className = "dropdown-menu dropdown-menu-end";
-    dropdown1.setAttribute("data-bs-theme", "dark");
-
-    const liDr1 = document.createElement("li");
-    const aDr1 = document.createElement("a");
-    if (item.UrlHotlink !== "") {
-        aDr1.className = "dropdown-item copyurl";
-        aDr1.title = "Copy hotlink";
-        aDr1.style.cursor = "pointer";
-        aDr1.setAttribute("data-clipboard-text", item.UrlHotlink);
-        aDr1.onclick = () => showToast(1000);
-        aDr1.innerHTML = `<i class="bi bi-copy"></i> Hotlink`;
-    } else {
-        aDr1.className = "dropdown-item";
-        aDr1.innerText = "Hotlink not available";
+function addToFilesTab(id) {
+    let root = document.querySelector('[data-fgs-browser][data-context="files"]');
+    if (root === null || !window.FGS || !FGS.initFileBrowser) {
+        return;
     }
-    liDr1.appendChild(aDr1);
-    dropdown1.appendChild(liDr1);
-    group1.appendChild(dropdown1);
-
-    // Share button
-    const btnShare = document.createElement("button");
-    btnShare.type = "button";
-    btnShare.className = "btn btn-outline-light btn-sm";
-    btnShare.title = "Share";
-    btnShare.onclick = () => shareUrl(event, item.Id);
-    // For some reason bi-share does not always show up, using the svg fixes it 
-    btnShare.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi" viewBox="0 0 16 16">
- 				 <path d="M13.5 1a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3M11 2.5a2.5 2.5 0 1 1 .603 1.628l-6.718 3.12a2.5 2.5 0 0 1 0 1.504l6.718 3.12a2.5 2.5 0 1 1-.488.876l-6.718-3.12a2.5 2.5 0 1 1 0-3.256l6.718-3.12A2.5 2.5 0 0 1 11 2.5m-8.5 4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3m11 5.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3"/>
-			</svg>`;
-    group1.appendChild(btnShare);
-
-
-    // Dropdown toggle 
-    const btnDropdown2 = document.createElement("button");
-    btnDropdown2.type = "button";
-    btnDropdown2.className = "btn btn-outline-light btn-sm dropdown-toggle dropdown-toggle-split";
-    btnDropdown2.setAttribute("data-bs-toggle", "dropdown");
-    btnDropdown2.setAttribute("aria-expanded", "false");
-    btnDropdown2.id = `shareDropdown-${item.Id}`;
-    
-    group1.appendChild(btnDropdown2);
-
-    const dropdown2 = document.createElement("ul");
-    dropdown2.className = "dropdown-menu dropdown-menu-end";
-    dropdown2.setAttribute("data-bs-theme", "dark");
-
-    const qrLi = document.createElement("li");
-    const qrA = document.createElement("a");
-    qrA.className = "dropdown-item";
-    qrA.id = `qrcode-${item.Id}`;
-    qrA.style.cursor = "pointer";
-    qrA.title = "Open QR Code";
-    qrA.onclick = () => showQrCode(item.UrlDownload);
-    qrA.innerHTML = `<i class="bi bi-qr-code"></i> QR Code`;
-    qrLi.appendChild(qrA);
-    dropdown2.appendChild(qrLi);
-
-    const emailLi = document.createElement("li");
-    const emailA = document.createElement("a");
-    emailA.className = "dropdown-item";
-    emailA.title = "Share via email";
-    emailA.id = `email-${item.Id}`;
-    emailA.target = "_blank";
-    emailA.href = `mailto:?body=${encodeURIComponent(item.UrlDownload)}`;
-    emailA.innerHTML = `<i class="bi bi-envelope"></i> Email`;
-    emailLi.appendChild(emailA);
-    dropdown2.appendChild(emailLi);
-    group1.appendChild(dropdown2);
-
-    // Button group for Download/Edit/Delete
-    const group2 = document.createElement("div");
-    group2.className = "btn-group";
-    group2.setAttribute("role", "group");
-    
-    
-    // === Button: Download ===
-    const btnDownload = document.createElement('button');
-    btnDownload.type = 'button';
-    btnDownload.className = 'btn btn-outline-light btn-sm';
-    btnDownload.title = 'Download';
-    if (item.RequiresClientSideDecryption) {
-        btnDownload.classList.add("disabled");
+    let browser = FGS.initFileBrowser(root);
+    if (browser.tile(id) !== null) {
+        return;
     }
-
-    const downloadIcon = document.createElement('i');
-    downloadIcon.className = 'bi bi-download';
-    btnDownload.appendChild(downloadIcon);
-
-    btnDownload.addEventListener('click', () => {
-        downloadFileWithPresign(item.Id);
-    });
-
-    group2.appendChild(btnDownload);
-
-    // === Button: Edit ===
-    const btnEdit = document.createElement('button');
-    btnEdit.type = 'button';
-    btnEdit.className = 'btn btn-outline-light btn-sm';
-    btnEdit.title = 'Edit';
-
-    const editIcon = document.createElement('i');
-    editIcon.className = 'bi bi-pencil';
-    btnEdit.appendChild(editIcon);
-
-    btnEdit.addEventListener('click', () => {
-        showEditModal(
-            item.Name,
-            item.Id,
-            item.DownloadsRemaining,
-            item.ExpireAt,
-            item.IsPasswordProtected,
-            item.UnlimitedDownloads,
-            item.UnlimitedTime,
-            item.IsEndToEndEncrypted,
-            canReplaceOwnFiles
-        );
-    });
-
-    group2.appendChild(btnEdit);
-
-    // === Button: Delete ===
-    const btnDelete = document.createElement('button');
-    btnDelete.type = 'button';
-    btnDelete.className = 'btn btn-outline-danger btn-sm';
-    btnDelete.title = 'Delete';
-    btnDelete.id = 'button-delete-' + item.Id;
-
-    const deleteIcon = document.createElement('i');
-    deleteIcon.className = 'bi bi-trash3';
-    btnDelete.appendChild(deleteIcon);
-
-    btnDelete.addEventListener('click', () => {
-        deleteFile(item.Id);
-    });
-    group2.appendChild(btnDelete);
-
-    groupContainer.appendChild(group1);
-    groupContainer.appendChild(group2);
-
-    return groupContainer;
+    apiFilesListById(id)
+        .then(item => {
+            if (browser.tile(id) !== null || isRequestFile(item)) {
+                return;
+            }
+            return fetch("./files/previewinfo?id=" + encodeURIComponent(id), { credentials: "same-origin", cache: "no-store" })
+                .then(response => response.ok ? response.json() : undefined)
+                .catch(() => undefined)
+                .then(preview => {
+                    if (browser.tile(id) === null) {
+                        browser.addItem(item, preview);
+                    }
+                });
+        })
+        .catch(error => console.error("Unable to show the added file:", error));
 }
 
 function sanitizeId(str) {
     return str.replace(/[^a-zA-Z0-9]/g, '');
 }
-
-function changeRowCount(add, row) {
-    let datatable = $('#maintable').DataTable();
-    if (rowCount == -1) {
-        rowCount = datatable.rows().count();
-    }
-    if (add) {
-        rowCount = rowCount + 1;
-        datatable.row.add(row);
-    } else {
-        rowCount = rowCount - 1;
-        row.classList.add("rowDeleting");
-        setTimeout(() => {
-            datatable.row(row).remove();
-            row.remove();
-        }, 290);
-    }
-
-    let infoEmpty = document.getElementsByClassName("dataTables_empty")[0];
-    if (typeof infoEmpty !== "undefined") {
-        infoEmpty.innerText = "Files stored: " + rowCount;
-    } else {
-        document.getElementsByClassName("dataTables_info")[0].innerText = "Files stored: " + rowCount;
-    }
-}
-
 
 function hideQrCode() {
     document.getElementById("qroverlay").style.display = "none";
@@ -1042,45 +1002,29 @@ function showToastFileDeletion(id) {
     hideToast();
     notification.classList.add("show");
 
-    clearTimeout(toastId);
-    toastId = setTimeout(() => {
+    clearTimeout(undoToastId);
+    undoToastId = setTimeout(() => {
         hideFileToast();
-    }, 5000);
+    }, UNDO_TOAST_MS);
 }
 
 function hideFileToast() {
     document.getElementById("toastnotificationUndo").classList.remove("show");
 }
 
+// Restores the file and puts it back into the lists it was deleted from
+// (FGS.restoreFile). Never reloads the page: that would collapse open rows.
+// Whether it worked or not, the toast says so.
 function handleUndo(button) {
     hideFileToast();
-    apiFilesRestore(button.dataset.fileid)
-        .then(data => {
-            addRow(data.FileInfo);
-            notifyWorker({ type: "fileAdded", item: data.FileInfo });
-            if (isE2EEnabled) {
-                GokapiE2EDecryptMenu();
-            }
-        })
+    let label = document.getElementById("toastFilename");
+    let name = label ? label.textContent : "the file";
+    FGS.restoreFile(button.dataset.fileid)
+        .then(result => FGS.undoToast(name, result))
         .catch(error => {
-            alert("Unable to restore file: " + error);
+            FGS.undoToast(name, null, error);
             console.error('Error:', error);
         });
-}
-
-
-function shareUrl(event, id) {
-    if (!navigator.share) {
-         event.stopPropagation();
-    	 bootstrap.Dropdown.getOrCreateInstance(document.getElementById(`shareDropdown-${id}`)).toggle();
-        return;
-    }
-    let filename = document.getElementById("cell-name-" + id).innerText;
-    let url = document.getElementById("url-href-" + id).getAttribute("href");
-    navigator.share({
-        title: filename,
-        url: url,
-    })
 }
 
 
@@ -1090,4 +1034,183 @@ function showDeprecationNotice() {
     setTimeout(() => {
         notification.classList.remove("show");
     }, 5000);
+}
+
+
+// --- Auto-link: one shared link per upload batch -----------------------------
+// Dropzone already knows which files went up together, so a batch of several
+// files can become a single collection automatically. On by default; a saved
+// "false" keeps it off.
+//
+// A batch is every file Dropzone queued up to its "queuecomplete". That event
+// is not the moment the files have ids: chunk-complete is non-blocking, so the
+// id only arrives later through the SSE status and requestFileInfo. And it can
+// fire more than once (every late error re-emits it; in E2E mode it fires
+// before chunk-complete has even run). So the collection is created only when
+// the batch is closed AND every one of its files has either an id or failed.
+
+let currentUploadBatch = null;
+
+function addFileToUploadBatch(file) {
+    if (currentUploadBatch === null) {
+        currentUploadBatch = { files: [], closed: false, finished: false };
+        // A link still on screen belongs to the previous upload.
+        clearAutoLinkResult();
+    }
+    currentUploadBatch.files.push(file);
+    file.fgsBatch = currentUploadBatch;
+}
+
+function closeUploadBatch() {
+    let batch = currentUploadBatch;
+    if (batch === null) {
+        return;
+    }
+    currentUploadBatch = null;
+    batch.closed = true;
+    maybeCreateBatchCollection(batch);
+}
+
+function recordBatchFileId(file, id) {
+    if (!file.fgsBatch || file.fgsBatchFailed || file.fgsBatchId !== undefined) {
+        return;
+    }
+    file.fgsBatchId = id;
+    maybeCreateBatchCollection(file.fgsBatch);
+}
+
+function markBatchFileFailed(file) {
+    if (!file || !file.fgsBatch || file.fgsBatchFailed) {
+        return;
+    }
+    // A failure after the id arrived (e.g. the E2E info store) still wins.
+    file.fgsBatchFailed = true;
+    maybeCreateBatchCollection(file.fgsBatch);
+}
+
+function isAutoLinkEnabled() {
+    let toggle = document.getElementById("enableAutoCollection");
+    return toggle !== null && toggle.checked;
+}
+
+function saveAutoLinkDefault() {
+    localStorage.setItem("defaultAutoCollection", isAutoLinkEnabled());
+}
+
+// Part 4, S2: "Email me when my files are downloaded" on the Upload page,
+// the same setting as on the Settings page, saved at once. The switch is
+// disabled while saving and goes back to where it was if the save fails.
+function saveEmailDownloads(toggle) {
+    const wanted = toggle.checked;
+    toggle.disabled = true;
+    fetch("./settings/save", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        credentials: "same-origin",
+        body: JSON.stringify({emailDownloads: wanted})
+    }).then(response => response.json().catch(() => ({Result: "error"})))
+        .then(data => {
+            if (data.Result !== "OK") {
+                throw new Error(data.ErrorMessage || "Could not save");
+            }
+            showToast(1500, "Saved");
+        })
+        .catch(() => {
+            toggle.checked = !wanted;
+            showToast(2500, "Could not save the setting");
+        })
+        .finally(() => {
+            toggle.disabled = false;
+        });
+}
+
+function setAutoLinkDefault() {
+    let toggle = document.getElementById("enableAutoCollection");
+    if (toggle === null) {
+        return;
+    }
+    toggle.checked = getLocalStorageWithDefault("defaultAutoCollection", "true") === "true";
+}
+
+function maybeCreateBatchCollection(batch) {
+    if (batch.finished || !batch.closed) {
+        return;
+    }
+    let settled = batch.files.every(f => f.fgsBatchFailed || f.fgsBatchId !== undefined);
+    if (!settled) {
+        return;
+    }
+    batch.finished = true;
+    // Files that went into a group are shared there: no link is made for them
+    let ids = batch.files.filter(f => !f.fgsBatchFailed && !(f.fgsTarget && f.fgsTarget.id !== ""))
+        .map(f => f.fgsBatchId);
+    // A single file already has its own link, so there is nothing to combine.
+    if (!isAutoLinkEnabled() || ids.length < 2) {
+        return;
+    }
+    fetch("./collections/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ name: ids.length + " files", fileIds: ids })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.Result !== "OK") {
+                showAutoLinkResult(null, data.ErrorMessage || "could not create link");
+                return;
+            }
+            showAutoLinkResult(data.Url, null);
+        })
+        .catch(error => showAutoLinkResult(null, String(error)));
+}
+
+function clearAutoLinkResult() {
+    let holder = document.getElementById("autoCollectionResult");
+    if (holder === null) {
+        return;
+    }
+    holder.textContent = "";
+    holder.className = "";
+}
+
+// opts (optional): holderId and label, so the Files tab's select bar can
+// reuse this for its "Create one link" result. Defaults are the upload page's.
+function showAutoLinkResult(url, errorMessage, opts) {
+    opts = opts || {};
+    let holder = document.getElementById(opts.holderId || "autoCollectionResult");
+    if (holder === null) {
+        return;
+    }
+    holder.textContent = "";
+    if (errorMessage !== null) {
+        holder.className = "alert alert-danger mt-3";
+        holder.textContent = "Could not create a combined link: " + errorMessage;
+        return;
+    }
+    holder.className = "alert alert-success mt-3 d-flex align-items-center gap-2";
+
+    let label = document.createElement("span");
+    label.className = "text-nowrap";
+    label.textContent = opts.label || "One link for this upload:";
+    holder.appendChild(label);
+
+    let field = document.createElement("input");
+    field.type = "text";
+    field.readOnly = true;
+    field.value = url;
+    field.className = "form-control";
+    holder.appendChild(field);
+
+    let copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "btn btn-sm btn-light text-nowrap";
+    copy.textContent = "Copy";
+    copy.addEventListener("click", function () {
+        navigator.clipboard.writeText(url).then(function () {
+            copy.textContent = "Copied";
+            window.setTimeout(function () { copy.textContent = "Copy"; }, 1500);
+        });
+    });
+    holder.appendChild(copy);
 }

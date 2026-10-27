@@ -25,12 +25,14 @@ import (
 	"github.com/forceu/gokapi/internal/environment"
 	"github.com/forceu/gokapi/internal/environment/flagparser"
 	"github.com/forceu/gokapi/internal/logging"
+	"github.com/forceu/gokapi/internal/preview"
 	"github.com/forceu/gokapi/internal/storage"
 	"github.com/forceu/gokapi/internal/storage/filesystem"
 	"github.com/forceu/gokapi/internal/storage/filesystem/s3filesystem/aws"
 	"github.com/forceu/gokapi/internal/webserver"
 	"github.com/forceu/gokapi/internal/webserver/authentication"
 	"github.com/forceu/gokapi/internal/webserver/ssl"
+	"github.com/forceu/gokapi/internal/webserver/viewas"
 )
 
 // versionGokapi is the current version in readable form.
@@ -67,9 +69,13 @@ func main() {
 	createSsl(passedFlags)
 	initCloudConfig(passedFlags)
 	storage.CleanUp(true)
+	preview.Start()
 	logging.LogStartup()
 	showDeprecationWarnings()
 	serverstats.Init()
+	// Part 3, V1: a restart ends every "View as…"; idle ones end after an hour
+	viewas.SweepAtStartup()
+	viewas.StartTicker()
 	go webserver.Start()
 
 	c := make(chan os.Signal)
@@ -82,6 +88,7 @@ func main() {
 func shutdown() {
 	fmt.Println("Shutting down...")
 	webserver.Shutdown()
+	preview.Stop()
 	serverstats.Shutdown()
 	logging.LogShutdown()
 	database.Close()

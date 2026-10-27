@@ -18,3 +18,5 @@ gokapi-cli
 gokapi-cli.json
 build/e2e/screens-part1/
 build/e2e/fixtures/
+# deploy/custom is the live branding, published on purpose
+!deploy/custom/

@@ -95,8 +95,10 @@ func TestGroupsAddEndpoint(t *testing.T) {
 	}
 	test.IsEqualInt(t, len(answer.Refused), 2)
 	test.IsEqualString(t, reasons[theirs.Id], "not yours")
-	test.IsEqualString(t, names[theirs.Id], "theirs.jpg")
+	// Another user's file is refused without its name; the caller's own keeps it
+	test.IsEqualString(t, names[theirs.Id], "")
 	test.IsEqualString(t, reasons[e2e.Id], "end-to-end encrypted")
+	test.IsEqualString(t, names[e2e.Id], "secret.bin")
 	test.IsEqualBool(t, contains(database.GetGroupFileIds(g.Id), mine.Id), true)
 	test.IsEqualBool(t, contains(database.GetGroupFileIds(g.Id), theirs.Id), false)
 

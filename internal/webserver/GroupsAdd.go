@@ -75,9 +75,18 @@ func addToGroup(w http.ResponseWriter, r *http.Request) {
 		}
 		duplicates = append(duplicates, addDuplicate{FileId: d.FileId, Name: nameOf(d.FileId), Uploader: uploader})
 	}
+	// A refused id may be anyone's file, so its name is told only to its owner
+	// or an admin; otherwise the refusal would leak another user's file names
+	nameIfAllowed := func(fileId string) string {
+		f, found := database.GetMetaDataById(fileId)
+		if !found || (f.UserId != user.Id && !(user.Id != 0 && user.IsAdmin())) {
+			return ""
+		}
+		return f.Name
+	}
 	refused := make([]addRefusal, 0, len(result.Refused))
 	for _, f := range result.Refused {
-		refused = append(refused, addRefusal{FileId: f.FileId, Name: nameOf(f.FileId), Reason: f.Reason})
+		refused = append(refused, addRefusal{FileId: f.FileId, Name: nameIfAllowed(f.FileId), Reason: f.Reason})
 	}
 	writeJson(w, struct {
 		Result     string

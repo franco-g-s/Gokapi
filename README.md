@@ -1,172 +1,191 @@
-> **This is a personal fork of [Forceu/Gokapi](https://github.com/Forceu/Gokapi)**, the build behind
-> share.franco.international: a private photo and file share for friends and family. `main` is
-> upstream's `master` as of July 2026 plus the changes below. Upstream updates come in by merging
-> `Forceu/Gokapi` `master`. Everything below the line is upstream's README.
->
-> **What the fork adds** (PRs #1–#4; the design is in `docs/design/`, the plans in `docs/superpowers/plans/`):
-> - **Previews.** A hardened vips/ffmpeg worker makes thumbnails, views and video posters. A single access rule, `access.CanView`, governs every preview route. A shared file-list component has grid, board and list views and a full-screen viewer.
-> - **Groups.** Join by invite link or code, with creator, member and admin roles. A shared board is ordered by capture time. Exact duplicates are refused and near-copies flagged (perceptual hash). The list ticks off what you have already downloaded.
-> - **Large lists.** Keyset-paginated batches. Server-side sort, filter, search and type filters. Selection and bulk actions over the whole set. iPhone "Save to Photos" runs in measured batches. Admins get a read-only "View as…".
-> - **People.** Google sign-in profiles, display names and photos. A per-user Settings page. An email/domain blocklist enforced at sign-in, password login and API keys.
-> - **Activity feed and notifier.** An admin-only `GET /api/activity`, plus a Python notifier (`deploy/notifier/`) that batches it into quiet summaries and an optional daily digest.
-> - **Deployment.** `deploy/` holds the compose file with its hardening, the branding (`deploy/custom/`), the upload-limit script and the notifier's launchd agent.
-> - **Tests.** Go unit tests for every change and Playwright end-to-end scripts (`build/e2e/`). These run against seeded, synthetic users. No real data is in this repo.
->
-> The database schema stays at upstream's version 17: new tables are created idempotently. Licensed AGPL-3.0, as upstream.
+# FGS Share
 
----
+A self-hosted photo and file share for friends and family. Groups collect everyone's photos from a
+trip in one place, and anyone with a link can download without an account.
 
-# Gokapi
+FGS Share is a fork of [Gokapi](https://github.com/Forceu/Gokapi) by Marc Ole Bulling and runs
+[share.franco.international](https://share.franco.international). It keeps everything Gokapi does
+(expiring links, file requests, collections, encryption, S3, the API) and adds the parts a shared
+photo album needs: previews, groups, people, and quiet notifications.
 
-[![Documentation Status](https://readthedocs.org/projects/gokapi/badge/?version=latest)](https://gokapi.readthedocs.io/en/stable/?badge=stable)
-[![Go Report Card](https://goreportcard.com/badge/github.com/forceu/gokapi)](https://goreportcard.com/report/github.com/forceu/gokapi)
-[![Coverage](https://img.shields.io/badge/Go%20Coverage-83%25-brightgreen.svg?longCache=true&style=flat)](https://github.com/jpoles1/gopherbadger)
-[![Docker Pulls](https://img.shields.io/docker/pulls/f0rc3/gokapi.svg)](https://hub.docker.com/r/f0rc3/gokapi/)
+<p align="center">
+  <img src="docs/screenshots/group-desktop.png" alt="A group page: members, invite link and code, and a grid of everyone's photos" width="820">
+</p>
 
-**Gokapi** is a modern, self-hosted alternative to Firefox Send that puts you in control of your file sharing. Built with Go, it combines simplicity with powerful features like automatic file expiration, end-to-end encryption, and flexible cloud storage support.
-
-### Available for:
-
-- **Bare Metal** (Linux/macOS/Windows)
-- **Docker**: [View on Docker Hub](https://hub.docker.com/r/f0rc3/gokapi)
-
-## Features
-
-- **Expiring file shares:** Automatically removed after a set number of downloads or days
-- **User management with roles:** Fine-grained permission control, only registered users can upload
-- **File requests:** A shareable URL lets external parties upload files, visible only to the URL’s creator
-- **Collections:** Group several files behind a single public link, optionally password protected
-- **File deduplication:** Identical files use no extra space
-- **Cloud storage support:** AWS S3 (or S3 compatible like Backblaze B2), optional
-- **Built-in encryption:** Including end-to-end encrypted uploads
-- **OpenID Connect support:** Integrate with identity providers like Authelia or Keycloak
-- **REST API:** For automation and integration into other systems
-- **Customizable UI:** Adjust look and feel with custom CSS and JavaScript
-
----
-
-## Getting Started
-
-You can deploy Gokapi in seconds using Docker or directly on your system.
-
-[Installation Guide](https://gokapi.readthedocs.io/en/latest/setup.html)  
-[Usage Instructions](https://gokapi.readthedocs.io/en/latest/usage.html)
-
-**Want to give it a try?**
-
-Start Gokapi instantly with Docker:
-
-```bash
-docker run --rm \
-  --name gokapi \
-  -v gokapi-data:/app/data \
-  -v gokapi-config:/app/config \
-  -p 127.0.0.1:53842:53842 \
-  -e TZ=UTC \
-  docker.io/f0rc3/gokapi:latest
-```
-
-Then visit ``http://localhost:53842/setup`` and follow the setup wizard.
-
-
+> **This is a personal project.** It is published because it is free software and its users are
+> entitled to the source (AGPL-3.0). It has no releases and no Docker Hub image. Build it yourself
+> (see [Running it](#running-it)). For plain Gokapi, use [upstream](https://github.com/Forceu/Gokapi).
 
 ## Screenshots
-**Main Menu**
 
-<a href="https://github.com/user-attachments/assets/d805a88b-dc74-4c39-bed6-ec31b9c3e17f" target="_blank">
-  <img width="300" alt="image" src="https://github.com/user-attachments/assets/d805a88b-dc74-4c39-bed6-ec31b9c3e17f" />
+| | |
+|---|---|
+| <img src="docs/screenshots/viewer-desktop.png" alt="Full-screen viewer with uploader, date, size and Download original" width="420"> | <img src="docs/screenshots/collection-desktop.png" alt="A public collection page as a visitor sees it: list view with thumbnails, Download all and Download as .zip" width="420"> |
+| The viewer: swipe or arrow through a group, download the original. | A collection, as anyone with the link sees it, no account needed. |
+| <img src="docs/screenshots/users-desktop.png" alt="Users page with display names, emails, uploads, groups, View as… and the blocklist" width="420"> | <img src="docs/screenshots/landing-desktop.png" alt="Landing page: Sign in with Google to upload" width="420"> |
+| Users: names, uploads and groups per person, View as…, and the blocklist. | The landing page, from the branding in `deploy/custom/`. |
 
-</a>
+<p align="center">
+  <img src="docs/screenshots/group-mobile.png" alt="A group on a phone: three-column grid with uploader badges" width="240">
+  &nbsp;
+  <img src="docs/screenshots/settings-mobile.png" alt="Settings on a phone: display name, photo, email switch" width="240">
+</p>
 
-**File Requests**
+Every person, photo and email address in these screenshots is made up. The photos are drawn by
+[`build/readme/make_photos.py`](build/readme/make_photos.py). See [Regenerating the screenshots](#regenerating-the-screenshots).
 
-<a href="https://github.com/user-attachments/assets/a6565cf8-bd2d-4027-a150-673aa93d4502" target="_blank">
- <img width="300"  alt="image" src="https://github.com/user-attachments/assets/a6565cf8-bd2d-4027-a150-673aa93d4502" />
-</a>
+## What FGS Share adds
 
+**Previews and one file list**
+- A preview worker turns photos and videos into thumbnails, larger views and video posters with
+  `vips` and `ffmpeg`, hardened against untrusted input. It records capture time, dimensions, average
+  colour and a perceptual hash. Viewing never counts as a download.
+- One file-list component everywhere (Files, Upload, Collections, File requests, groups, public
+  collection pages): Grid, Board (in shooting order) and List views, a full-screen viewer, a "⋯" menu
+  with every action, and undo without a page reload.
+- Lists load in batches of 100. Sort, filter (person, type, "Hide what I've downloaded"), search and
+  "Select all" run on the server over the whole set, so they cover files not loaded yet.
 
+**Groups**
+- Create a group, share an invite link or code, and everyone uploads into the same board.
+- Creator, member and admin roles; rename, extend, reset the code, remove members, leave, delete.
+- Exact duplicates are refused before upload. Near-copies are flagged by perceptual hash, with
+  Compare, Keep both and Remove. Ticks show what you have already downloaded.
+- "Upload to" a group from the Upload page, "Add to group…" from any list, and "Turn into a group"
+  for an existing collection.
 
-**User Overview**
+**iPhone**
+- "Save to Photos" in measured batches, with large videos sent to a zip instead, and a help sheet.
+  Download all works through a zip or Save to Photos.
 
-<a href="https://github.com/user-attachments/assets/cbc738e4-75ae-4647-8178-da735f74a86f" target="_blank">
-  <img width="300" alt="image" src="https://github.com/user-attachments/assets/cbc738e4-75ae-4647-8178-da735f74a86f" />
-</a>
+**People**
+- Display names everywhere instead of email prefixes, and Google profile photos fetched at sign-in.
+- A Settings page: name, "Use initials" instead of the photo, and an optional daily email digest.
+- A blocklist of exact emails or whole `@domains`, checked at Google sign-in before an account
+  exists, at password login, on API keys and on every session.
+- Admin-only **View as…**: see the site as another user, read-only, with every start and end logged.
 
+**Activity and notifications**
+- An `Activity` table and an admin-only `GET /api/activity` feed: uploads, downloads, groups,
+  first and blocked sign-ins, disk and preview warnings, View as.
+- A notifier ([`deploy/notifier/`](deploy/notifier/)) that reads the feed and emails the admin
+  only when something matters. New people, new groups and warnings are sent at once; everything else
+  is summarised after an hour of quiet. Friends can opt into one email a day, at 19:00, when
+  someone downloaded their files.
 
-**API Overview**
+**Deployment and hardening**
+- [`deploy/`](deploy/) holds the compose file as it runs (`no-new-privileges`, all capabilities
+  dropped, memory, CPU and process limits, loopback-only port), the branding, and the notifier's
+  launchd agent.
+- Group and collection endpoints accept only `POST` with JSON. The join form checks the request's
+  origin. `/custom/` serves only the named branding files.
 
-<a href="https://github.com/user-attachments/assets/c480af8e-772c-4f8b-9f0e-28c8aceb9b49" target="_blank">
-  <img width="300" alt="image" src="https://github.com/user-attachments/assets/c480af8e-772c-4f8b-9f0e-28c8aceb9b49" />
-</a>
+The schema stays at upstream's version 17. New tables are created with `IF NOT EXISTS`, so an
+older image still runs on the same database.
 
-**Status Overview**
+The full guide is in [`docs/fgs-share.rst`](docs/fgs-share.rst).
 
-<a href="https://github.com/user-attachments/assets/70d5ab07-e60f-48d5-8739-fa038129e5ae" target="_blank">
-<img width="300" alt="image" src="https://github.com/user-attachments/assets/70d5ab07-e60f-48d5-8739-fa038129e5ae" />
-</a>
+## Inherited from Gokapi
 
+- Expiring shares, removed after a number of downloads or days
+- Users with roles and fine-grained permissions; only registered users upload
+- File requests: a link that lets others upload to you
+- Collections: several files behind one link, optionally password protected
+- Deduplication, server-side and end-to-end encryption
+- AWS S3 and S3-compatible storage
+- OpenID Connect sign-in (Google, Authelia, Keycloak, Entra…)
+- A REST API and a CLI client
+- Custom CSS and JavaScript without recompiling
 
-**Download Link**
+## Running it
 
-<a href="https://github.com/user-attachments/assets/fd9c032b-733d-4657-9f42-f751b2634e02" target="_blank">
-  <img width="300" alt="image" src="https://github.com/user-attachments/assets/fd9c032b-733d-4657-9f42-f751b2634e02" />
+There is no published image. Build one from this repository:
 
-</a>
+```bash
+git clone https://github.com/franco-g-s/fgs-share.git
+cd fgs-share
+docker build -t fgs-share .
+docker run -d --name fgs-share \
+  -v fgs-data:/app/data -v fgs-config:/app/config \
+  -p 127.0.0.1:53842:53842 -e TZ=Europe/Zurich \
+  fgs-share
+```
 
----
+Then open `http://localhost:53842/setup` and follow the setup wizard. The image includes `vips` and
+`ffmpeg` for previews. A native build needs `vips`, `vipsheader`, `ffmpeg` and `ffprobe` on the
+`PATH`; without them files still upload and download, but get no previews.
 
-## System Requirements
+For the setup this fork is built around (Google sign-in, Cloudflare Tunnel, the hardened compose file
+and branding), see [`deploy/README.md`](deploy/README.md) and the [setup guide](docs/setup.rst).
 
-### Minimum
-- **CPU**: 1 core
-- **RAM**: 256 MB
-- **Storage**: 100 MB + file storage
-- **OS**: Linux, macOS, Windows
+**Requirements:** upstream's minimum is 1 CPU core and 256 MB RAM. Preview generation needs more:
+the live instance runs with a 1 GB, 1.5-CPU limit. Previews are made only for files on local
+storage that are not end-to-end encrypted.
 
-### Recommended  
-- **CPU**: 2+ cores
-- **RAM**: 512 MB+
-- **Storage**: SSD strongly recommended
+## Documentation
+
+The guide is in [`docs/`](docs/), as reStructuredText that renders on GitHub:
+[setup](docs/setup.rst), [usage](docs/usage.rst), [what FGS Share adds](docs/fgs-share.rst),
+[updating](docs/update.rst), [advanced](docs/advanced.rst),
+[troubleshooting](docs/troubleshooting.rst) and the [changelog](docs/changelog.rst). To build it
+as HTML:
+
+```bash
+pip install -r docs/requirements.txt
+make -C docs html
+```
+
+The design and the implementation plans for each part are in [`docs/design/`](docs/design/) and
+[`docs/superpowers/plans/`](docs/superpowers/plans/). Each plan ends with the decisions taken
+during the work and its deploy record.
 
 ## Development
 
-### Building from Source
+There is no Go toolchain on the server this runs on, so tests run in Docker, in the same Alpine
+toolchain the Dockerfile builds with:
 
 ```bash
-# Clone the repository
-git clone https://github.com/Forceu/gokapi.git
-cd gokapi
-
-# Build the binary
-make build
-
-# Run tests
-make test
-
-# Build Docker image
-docker build -t gokapi:local .
+build/dev/gotest.sh ./...                  # go generate + go test -tags=test,awsmock
 ```
 
-## License
+Without `-tags=test`, `go test` reports "no test files" and exits successfully, which looks like a pass.
 
-This project is licensed under the AGPL3 - see the [LICENSE.md](LICENSE.md) file for details
+The end-to-end scripts in [`build/e2e/`](build/e2e/) drive a throwaway container on
+`127.0.0.1:53900` (`setup_local.py` first, then `groups_e2e.py`, `collections_e2e.py`,
+`part3_e2e.py`, `part4_e2e.py`). The notifier has its own tests:
+`cd deploy/notifier && python3 -m unittest`.
 
-## Contributors
-<a href="https://github.com/forceu/gokapi/graphs/contributors">
-  <img src="https://contributors-img.web.app/image?repo=forceu/gokapi" />
-</a>
+### Regenerating the screenshots
 
+1. Build the image, run it on `127.0.0.1:53900` with `-e GOKAPI_PORT=53900 -e GOKAPI_E2E_SEED=1`
+   and `deploy/custom` mounted at `/app/custom`, and run `build/e2e/setup_local.py`.
+2. `python3 build/readme/make_photos.py work/png`, then convert to JPEG with `vips copy` inside the
+   image. Add one MP4 made with `ffmpeg` from one of the photos, named `Boat across the lake.mp4`.
+3. `python3 build/readme/seed_readme.py work/jpg` creates the people, the group and the collection.
+4. Take the screenshots at 1280×800 (the group page at 1280×1110) and 390×844 into `docs/screenshots/`.
 
+### Staying in sync with upstream
 
-## Donations
+`main` started from Gokapi's `master` (v2.2.5-dev, July 2026). To bring in upstream changes:
 
-As with all Free software, the power is less in the finances and more in the collective efforts. I really appreciate every pull request and bug report offered up by our users! If however, you're not one for coding/design/documentation, and would like to contribute financially, you can do so with the link below. Every help is very much appreciated!
+```bash
+git remote add upstream https://github.com/Forceu/Gokapi.git
+git fetch upstream
+git merge upstream/master
+```
 
-[![paypal](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=donate@bulling.mobi&lc=US&item_name=BarcodeBuddy&no_note=0&cn=&currency_code=EUR&bn=PP-DonationsBF:btn_donateCC_LG.gif:NonHosted) [![LiberaPay](https://img.shields.io/badge/Donate-LiberaPay-green.svg)](https://liberapay.com/MBulling/donate)
+## Security
 
-Powered by [Jetbrains](https://jb.gg/OpenSourceSupport)
+Report vulnerabilities privately through
+[GitHub's private reporting](https://github.com/franco-g-s/fgs-share/security/advisories/new),
+not in a public issue. See [SECURITY.md](SECURITY.md). If the problem is in upstream Gokapi code
+rather than this fork's changes, report it to [upstream](https://github.com/Forceu/Gokapi/security) as well.
 
+## License and credits
 
+AGPL-3.0, as upstream. See [LICENSE.md](LICENSE.md). Running a modified copy as a public service
+means offering its users the source; the site's footer links here for that reason.
 
-
-
+Gokapi is written by [Marc Ole Bulling](https://github.com/Forceu) and its
+[contributors](https://github.com/Forceu/Gokapi/graphs/contributors). If you find it useful, consider
+[supporting the original project](https://liberapay.com/MBulling/donate).

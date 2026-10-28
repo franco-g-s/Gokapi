@@ -17,12 +17,12 @@
 
 # -- Project information -----------------------------------------------------
 
-project = 'Gokapi Documentation'
-copyright = '2025, Marc Ole Bulling'
-author = 'Marc Ole Bulling'
+project = 'FGS Share Documentation'
+copyright = '2025, Marc Ole Bulling; 2026, Franco Gómez Schumacher'
+author = 'Marc Ole Bulling, Franco Gómez Schumacher'
 
 # The full version, including alpha/beta/rc tags
-release = '1.8.0'
+release = '2.2.5-dev'
 
 
 # -- General configuration ---------------------------------------------------

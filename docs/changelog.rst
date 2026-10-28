@@ -7,6 +7,66 @@ Changelog
 Overview of all changes
 -----------------------
 
+FGS Share's changes come first. Below them is Gokapi's own changelog, unchanged; FGS Share's ``main`` started
+from Gokapi's ``master`` after v2.2.4 (v2.2.5-dev, July 2026).
+
+
+FGS Share, 2026-10-28
+^^^^^^^^^^^^^^^^^^^^^
+
+* Renamed the repository to ``fgs-share``
+* The footer links to this repository's source as well as Gokapi
+* ``deploy/`` holds the live compose file, branding, upload-limit script and notifier agent
+* Rewrote the README and this documentation
+
+
+FGS Share, 2026-10-27
+^^^^^^^^^^^^^^^^^^^^^
+
+⚠️ **Security fix.** ``POST /groups/add`` returned the name of another user's file when refusing it, to a
+signed-in user who knew that file's id. A refused file's name is now given only to its owner or an admin.
+
+The repository was made public the same day, after the fix was deployed.
+
+
+FGS Share Part 4, 2026-10-24
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* Activity feed: an ``Activity`` table and an admin-only ``GET /api/activity`` (Manage logs key, cursor in a ``since`` header)
+* The notifier reads the feed: urgent events at once, the rest in summaries after an hour of quiet, and an optional 19:00 email for friends
+* Display names everywhere, Google profile photos, and a Settings page
+* A blocklist of emails and domains, checked at sign-in, password login, API keys and every session
+
+
+FGS Share Part 3, 2026-10-22
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* File lists load in batches of 100; sort, filters, search, counts and selection run on the server over the whole set
+* A *Type* filter (photos, videos, other) and one *Sort & filter* menu per list
+* Save to Photos in measured batches, with large videos sent to a zip
+* Admin-only, read-only *View as…*
+* Logout moved into the user menu; the Users tab cleaned up
+
+
+FGS Share Part 2, 2026-10-21
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* Groups: invite link and code, roles, a shared board in shooting order, duplicate and near-copy detection, downloaded ticks
+* *Upload to* a group, *Add to group…*, and *Turn into a group* for collections; *Shared with me*
+* Users page shows files, size and groups per person
+* Every download of an original is recorded
+* Group and collection endpoints accept only JSON ``POST``; ``/custom/`` serves only the named branding files
+
+
+FGS Share Part 1, 2026-10-20
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* A preview worker (``vips``, ``ffmpeg``): thumbnails, views, posters, capture time and perceptual hash
+* One access rule for every preview; viewing never counts as a download
+* One shared file list everywhere: Grid, Board and List, a viewer, a "⋯" menu, select mode and undo
+* iPhone: Download all through a zip or Save to Photos
+
+
 
 v2.2.4 (2026-03-10)
 ^^^^^^^^^^^^^^^^^^^

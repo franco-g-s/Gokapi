@@ -5,9 +5,38 @@
 Contributions
 =============
 
-All contributions are very welcome! If you have an issue or would like to add a pull request, please visit our Github page:
+FGS Share is a personal fork, maintained for one instance. Its source is at
+https://github.com/franco-g-s/fgs-share.
 
-https://github.com/Forceu/gokapi
+* A change that would help every Gokapi user belongs in `Gokapi <https://github.com/Forceu/Gokapi>`_ itself. It
+  reaches FGS Share when upstream is merged in (see :ref:`update`).
+* A security problem in either goes through private reporting, never a public issue (``SECURITY.md``).
+
+The notes below apply to both.
+
+Running the tests
+=================
+
+The server FGS Share runs on has no Go toolchain, so ``build/dev/gotest.sh`` runs ``go generate`` and
+``go test -tags=test,awsmock`` inside the same Alpine toolchain the Dockerfile builds with, one run at a time:
+
+.. code-block:: bash
+
+   build/dev/gotest.sh ./...
+   build/dev/gotest.sh ./internal/webserver/ ./internal/storage/
+
+The end-to-end scripts in ``build/e2e/`` drive a throwaway container on ``127.0.0.1:53900``:
+
+.. code-block:: bash
+
+   docker run -d --name fgs-e2e -e GOKAPI_PORT=53900 -e GOKAPI_E2E_SEED=1 \
+     -p 127.0.0.1:53900:53900 -v fgs-e2e-data:/app/data -v fgs-e2e-config:/app/config fgs-share
+   python3 build/e2e/setup_local.py && docker restart fgs-e2e
+   python3 build/e2e/part4_e2e.py && python3 build/e2e/groups_e2e.py \
+     && python3 build/e2e/collections_e2e.py && python3 build/e2e/part3_e2e.py
+   docker rm -f fgs-e2e && docker volume rm fgs-e2e-data fgs-e2e-config
+
+The notifier's tests run on the host's Python: ``cd deploy/notifier && python3 -m unittest``.
 
 Working on the upload menu
 ==========================

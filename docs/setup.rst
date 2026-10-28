@@ -5,61 +5,55 @@ Setup
 =====
 
 .. note::
-   **Most users:** pull the Docker image, run the container, open the setup URL in your browser.
-   Jump straight to :ref:`quickstart_docker` if that describes you.
+   **Most users:** build the Docker image from this repository, run the container, open the setup URL in your
+   browser. Jump straight to :ref:`quickstart_docker` if that describes you.
    The sections below cover every option in full detail.
+
+FGS Share is published as source only: there are no releases and no image on Docker Hub. The images and
+binaries Gokapi publishes (``f0rc3/gokapi``, the GitHub releases) are plain Gokapi, without anything in
+:ref:`fgsshare`. The server program and its settings are still called Gokapi throughout this guide.
 
 
 *****************************
 Installation
 *****************************
 
-There are two deployment methods (Docker and native) and two release tracks (stable and unstable).
-**Stable + Docker is the recommended combination for most users.**
+There are two deployment methods, Docker and native. **Docker is recommended**: the image includes ``vips``
+and ``ffmpeg``, which previews need.
 
 Docker
 ^^^^^^^
 
-Pull the latest stable image:
+Build the image from a clone of the repository:
 
 .. code-block:: bash
 
-   docker pull docker.io/f0rc3/gokapi:latest
+   git clone https://github.com/franco-g-s/fgs-share.git
+   cd fgs-share
+   docker build -t fgs-share .
 
-For the unstable (development) build, use ``latest-dev`` instead of ``latest``.
-
-If you prefer to build the image yourself, the Dockerfile is available on the `GitHub project page <https://github.com/Forceu/gokapi>`_.
+The examples in this guide use the tag ``fgs-share``.
 
 
 Native Deployment
 ^^^^^^^^^^^^^^^^^^
 
-Stable version
-""""""""""""""
-
-`Download the latest release <https://github.com/Forceu/gokapi/releases/latest>`_ and copy the executable into a new folder with write permissions.
-
-Choose the binary that matches your system:
-
-* **Windows:** ``gokapi-windows_amd64``
-* **Mac (Intel):** ``gokapi-darwin_amd64``
-* **Mac (Apple Silicon):** ``gokapi-darwin_arm64``
-* **Linux:** ``gokapi-linux_<arch>`` matching your architecture
-
-.. note::
-   ``gokapi-XXX`` is the main server application. ``gokapi-cli-XXX`` is the optional command-line upload/download tool — you do not need it to run the server.
-
-Unstable version
-""""""""""""""""
-
-Only recommended if you are comfortable with the command line. Requires Go 1.25 or newer.
+Requires Go 1.25 or newer.
 
 .. code-block:: bash
 
-   git clone https://github.com/Forceu/Gokapi.git .
+   git clone https://github.com/franco-g-s/fgs-share.git .
    make
 
-This compiles the source and produces a ``gokapi`` executable from the latest code.
+This compiles the source and produces a ``gokapi`` executable.
+
+For previews, install ``vips`` (with HEIF support for iPhone photos) and ``ffmpeg``, so that ``vips``,
+``vipsheader``, ``ffmpeg`` and ``ffprobe`` are on the ``PATH``. Without them everything else works, and photos
+and videos show a file icon instead of a preview.
+
+.. note::
+   ``gokapi`` is the server. The optional command-line upload/download tool is Gokapi's own ``gokapi-cli``,
+   which works unchanged against FGS Share — see :ref:`clitool`.
 
 
 *****************************
@@ -79,7 +73,7 @@ The standard run command:
 .. code-block:: bash
 
    docker run -v gokapi-data:/app/data -v gokapi-config:/app/config \
-     -p 127.0.0.1:53842:53842 -e TZ=UTC f0rc3/gokapi:latest
+     -p 127.0.0.1:53842:53842 -e TZ=UTC fgs-share
 
 * ``-p 127.0.0.1:53842:53842`` — binds to localhost only, which is correct when using a reverse proxy.
   Replace with ``-p 53842:53842`` only if you need direct access without a proxy — note that without SSL, traffic is unencrypted.
@@ -91,7 +85,7 @@ Running as a non-root user:
 
    docker run --user "1000:1000" \
      -v ./gokapi-data:/app/data -v ./gokapi-config:/app/config \
-     -p 127.0.0.1:53842:53842 -e TZ=UTC f0rc3/gokapi:latest
+     -p 127.0.0.1:53842:53842 -e TZ=UTC fgs-share
 
 Replace ``1000:1000`` with the desired ``uid:gid``. Note that this form uses bind mounts (``./gokapi-data``) instead of named volumes — make sure the host directories exist and the user has read/write access.
 
@@ -100,13 +94,18 @@ See :ref:`deprecation_nonroot` if you are migrating from the old ``DOCKER_NONROO
 Docker Compose
 """"""""""""""
 
-Download ``docker-compose.yaml`` and ``.env.dist`` from the repository. Rename ``.env.dist`` to ``.env`` and edit as needed.
+In a clone of the repository, copy ``.env.dist`` to ``.env`` and edit as needed. ``docker-compose.yaml`` builds
+the image from the clone.
 
 The ``gokapi-data`` and ``gokapi-config`` folders are created automatically in the current directory. Start with:
 
 .. code-block:: bash
 
-   docker compose up -d
+   docker compose up -d --build
+
+``deploy/docker-compose.yml`` is the file share.franco.international runs with. It adds container hardening
+(``no-new-privileges``, all capabilities dropped, process, memory and CPU limits) and the branding mount, and is
+a better starting point for a public deployment. See ``deploy/README.md``.
 
 By default the container restarts automatically on boot (``restart: always``). Change to ``restart: unless-stopped`` if you only want automatic restart after a crash.
 
@@ -215,6 +214,13 @@ Use this to delegate authentication to an OIDC server such as Google, Authelia, 
 .. note::
    If a user is disabled in the OIDC provider, they can still log in to Gokapi until the *Recheck identity* interval expires.
    To revoke access immediately, delete the user's Gokapi account from the Users page.
+   If *Only existing users* is unchecked, a deleted user simply signs in again and gets a new account. In FGS
+   Share, add them to the blocklist on the Users page instead: it is checked on every request, including
+   existing sessions (see :ref:`fgsshare`).
+
+.. note::
+   **FGS Share and Google sign-in.** The ``profile`` scope Gokapi already requests carries each person's name
+   and photo (the ``picture`` claim). FGS Share uses them as the default display name and profile photo.
 
 .. note::
    If the OIDC provider remembers consent, logging out through the Gokapi interface may not fully log the user out.
@@ -395,7 +401,7 @@ Docker:
 
    docker run --rm -p 127.0.0.1:53842:53842 \
      -v gokapi-data:/app/data -v gokapi-config:/app/config \
-     f0rc3/gokapi:latest /app/run.sh --reconfigure
+     fgs-share /app/run.sh --reconfigure
 
 .. note::
    Stop the ``--reconfigure`` container and restart your normal container after completing the setup. All users will be logged out.
@@ -468,6 +474,6 @@ The ``DOCKER_NONROOT`` environment variable is deprecated. To migrate to ``docke
    # Start a new container as the current user
    docker run --user "$(id -u):$(id -g)" \
      -v ./gokapi-data:/app/data -v ./gokapi-config:/app/config \
-     -p 127.0.0.1:53842:53842 -e TZ=UTC f0rc3/gokapi:latest
+     -p 127.0.0.1:53842:53842 -e TZ=UTC fgs-share
 
 Replace ``gokapi`` with your actual container name if different. Replace ``$(id -u):$(id -g)`` with explicit IDs if you want a specific user. Ensure the bind-mount directories are owned by that user.

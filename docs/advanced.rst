@@ -37,7 +37,7 @@ Docker
 Pass the variable with the ``-e`` argument. Example for setting the port in use to *12345* and the chunk size to *60MB*:
 ::
 
- docker run -it -e GOKAPI_PORT=12345 -e GOKAPI_CHUNK_SIZE_MB=60 f0rc3/gokapi:latest
+ docker run -it -e GOKAPI_PORT=12345 -e GOKAPI_CHUNK_SIZE_MB=60 fgs-share
 
 
 Native Deployment
@@ -155,6 +155,12 @@ Available environment variables
 
 .. [*] Variables that are persistent must be submitted during the first start when Gokapi creates a new config file. They can be omitted afterwards. Non-persistent variables need to be set on every start.
 
+.. warning::
+   **FGS Share, tests only:** ``GOKAPI_E2E_SEED=1`` enables ``POST /seed/photo``, which sets any user's profile
+   photo, for the end-to-end tests and the README screenshots. **Never set it on a real instance.** It is not in
+   the table above because the table is generated from ``internal/environment/Environment.go``, and this
+   variable is read separately.
+
 
 
 All values that are described in :ref:`cloudstorage` can be passed as environment variables as well. No values are persistent; therefore, they need to be set on every start.
@@ -208,7 +214,7 @@ all existing data, except for user sessions, will be transferred to the new data
 For Docker users, the command is:
 ::
 
- docker run --rm -v gokapi-data:/app/data f0rc3/gokapi:latest /app/run.sh migrate-database --source [old Database URL] --destination [new Database URL]
+ docker run --rm -v gokapi-data:/app/data fgs-share /app/run.sh migrate-database --source [old Database URL] --destination [new Database URL]
 
 
 .. _databaseUrl:
@@ -495,6 +501,13 @@ Example: Deleting a file
 
  curl -X DELETE "https://your.gokapi.url/api/files/delete" -H "accept: */*" -H "id: PFnh2DlQRS2PVKM" -H "apikey: secret"
 
+Example (FGS Share): reading the activity feed. It needs an admin's API key with the *Manage logs* permission,
+and the cursor goes in the ``since`` header; a ``?since=`` query string is refused. ``since: 0`` reads from the
+beginning, and leaving the header out starts from now. See :ref:`fgsshare`.
+::
+
+ curl -X GET "https://your.gokapi.url/api/activity" -H "apikey: secret" -H "since: 0"
+
 
 
 .. _chunksizes:
@@ -599,7 +612,7 @@ If you are using internal username/password authentication, run the binary with 
 
 If you are using a Docker image, this has to be done by starting a container with the entrypoint ``/app/run.sh``, for example: ::
 
- docker run --rm -v gokapi-data:/app/data -v gokapi-config:/app/config  f0rc3/gokapi:latest /app/run.sh --deployment-password newPassword
+ docker run --rm -v gokapi-data:/app/data -v gokapi-config:/app/config  fgs-share /app/run.sh --deployment-password newPassword
 
 
 .. _customising:

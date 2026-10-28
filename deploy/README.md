@@ -1,6 +1,6 @@
 # Deployment
 
-How this fork runs on share.franco.international: a Docker container on a Mac mini (Colima), bound to
+How FGS Share runs on share.franco.international: a Docker container on a Mac mini (Colima), bound to
 loopback and reached from outside only through a Cloudflare Tunnel.
 
 | Path | What it is |

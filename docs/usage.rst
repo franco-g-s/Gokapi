@@ -4,6 +4,11 @@
 Usage
 =====
 
+.. note::
+   FGS Share adds a **Groups** tab, a **Settings** page in the user menu, previews and a viewer in every file
+   list, and a blocklist and *View as…* on the Users page. They are described in :ref:`fgsshare`; this page
+   covers what FGS Share shares with Gokapi.
+
 Upload Menu
 ================
 
@@ -25,6 +30,10 @@ Uploading new files
 To upload, drag and drop a file, folder or multiple files to the Upload Zone. You can also directly paste an image or text from the clipboard. If you want to change the default expiry conditions, this has to be done before uploading. For each file an entry in the table will appear with a download link.
 
 Identical files are deduplicated, which means if you upload a file twice, it will only be stored once.
+
+In FGS Share, the Upload page has an *Upload to* switch: *My files*, or one of your groups. Uploads into a group
+follow the group's lifetime instead of the expiry fields. An *Email me when my files are downloaded* switch sits
+next to it.
 
 Sharing files
 ---------------
@@ -205,12 +214,16 @@ General
 
 The user table displays a high-level summary of all accounts on the server:
 
-* **User**: The display name or username of the account.
-* **Group**: The account type (e.g., "Admin" or "User").
+* **User**: The display name, with the account's email or username below it, and *View as…* (FGS Share).
+* **User type**: The account type (e.g., "Super Admin", "Admin" or "User").
 * **Last Online**: A timestamp indicating the last time the user logged into the system.
-* **Uploads**: The total number of files currently owned by that user.
-* **Permissions**: A quick-view grid of icons representing specific rights.
-* **Actions**: Tools to reset passwords, promote/demote ranks, or delete accounts.
+* **Uploads** and **Size**: The number of files currently owned by that user, and their total size.
+* **Groups** (FGS Share): The groups the user belongs to.
+* **Actions**: A *Permissions* menu, and a "⋯" menu to reset the password, change the user type or delete the
+  account.
+
+Below the table, FGS Share adds the **Blocked** list: exact email addresses or whole ``@domains`` that may not
+sign in. See :ref:`fgsshare`.
 
 Managing Permissions
 ---------------------

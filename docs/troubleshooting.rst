@@ -4,7 +4,7 @@
 Troubleshooting
 ===============
 
-This page covers the most common problems reported by users. If your issue is not listed here, check the :ref:`changelog` for breaking changes in recent versions and open a `GitHub issue <https://github.com/Forceu/Gokapi/issues>`_ if needed.
+This page covers the most common problems. If your issue is not listed here, check the :ref:`changelog` for breaking changes in recent versions. Problems with Gokapi's own features can be raised as a `Gokapi issue <https://github.com/Forceu/Gokapi/issues>`_, but only if they also happen on plain Gokapi; everything in :ref:`fgsshare` belongs to `FGS Share <https://github.com/franco-g-s/fgs-share>`_.
 
 ----
 
@@ -122,7 +122,7 @@ See :ref:`availenvvar`.
 Docker container loses data after update
 -----------------------------------------
 
-**Symptom:** After pulling a new image and restarting the container, files and settings are gone.
+**Symptom:** After rebuilding the image and restarting the container, files and settings are gone.
 
 **Cause:** The container was started without volume mounts, so data was stored inside the container's writable layer, which is discarded when the container is removed.
 
@@ -133,4 +133,42 @@ Docker container loses data after update
    docker run -v gokapi-data:/app/data -v gokapi-config:/app/config ...
 
 See :ref:`quickstart_docker` for the full run command.
+
+
+Photos and videos show a file icon instead of a preview
+-------------------------------------------------------
+
+**Symptom:** FGS Share shows a generic file icon where a thumbnail should be.
+
+**Cause:** One of these:
+
+* the file is on S3 or end-to-end encrypted, and those never get previews;
+* a native install is missing ``vips``, ``vipsheader``, ``ffmpeg`` or ``ffprobe`` (the Docker image has them);
+* the worker gave up on the file: it was not a readable image or video, or took longer than the time limit.
+
+**Fix:** For a native install, install the tools (see :ref:`setup`). Failed previews are recorded as warnings
+in the activity feed (:ref:`fgsshare`), and the container's log has one line per failure.
+
+
+Names or profile photos do not appear
+-------------------------------------
+
+**Symptom:** Some people still show as their email prefix or as initials.
+
+**Cause:** Display names and Google photos are taken at sign-in. People who have not signed in again since
+the update keep the old name and no photo; with long sessions that can take days. A photo is also not shown if
+its owner turned on *Use initials instead of my Google photo*, and a failed photo download is retried at most
+once a day.
+
+**Fix:** Nothing is needed; it fills in on each person's next sign-in. Anyone can set a display name on the
+*Settings* page straight away.
+
+
+"View as…" refuses to change anything
+--------------------------------------
+
+**Symptom:** While viewing as another user, uploads, edits, deletions and downloads are refused.
+
+**Cause:** By design. View as is read-only and denies every change and every download. Exit it from the banner
+to act as yourself.
 

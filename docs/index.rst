@@ -1,14 +1,29 @@
 .. _index:
 
 ===========================
-Gokapi
+FGS Share
 ===========================
 
-Gokapi is a lightweight server to share files that expire after a set number of downloads or days. It is similar to the discontinued Firefox Send, with the difference that only authenticated users are allowed to upload files — anonymous visitors can only download.
+FGS Share is a self-hosted photo and file share for friends and family. It is a fork of
+`Gokapi <https://github.com/Forceu/Gokapi>`_, a lightweight server for files that expire after a set number of
+downloads or days, similar to the discontinued Firefox Send: only registered users upload, and anyone with a
+link can download.
 
-This lets companies or individuals share files easily and have them removed automatically afterwards, saving disk space and keeping control over who can access the content.
+The fork adds what a shared photo album needs: previews and a viewer, groups that several people upload into,
+display names and photos, a blocklist, and an activity feed with quiet email notifications. It runs
+share.franco.international. The source is at https://github.com/franco-g-s/fgs-share.
 
-Key features:
+What FGS Share adds (see :ref:`fgsshare`):
+
+* **Previews** — thumbnails, a full-screen viewer and video posters, made with ``vips`` and ``ffmpeg``
+* **Groups** — a shared board joined by link or code, with duplicate and near-copy detection
+* **Large lists** — batches of 100 with server-side sort, filter, search and selection
+* **iPhone** — Save to Photos in measured batches
+* **People** — display names, Google photos, a Settings page and a blocklist
+* **View as…** — admins see the site as another user, read-only
+* **Activity feed** — ``GET /api/activity`` and a notifier that emails only what matters
+
+Inherited from Gokapi:
 
 * **Expiring links** — files are deleted after a configurable number of downloads or after a set number of days
 * **File Requests** — generate a link that lets external users upload files to your server
@@ -20,6 +35,9 @@ Key features:
 * **REST API** — full API for scripting and third-party integrations
 * **Easy customisation** — change the look with plain CSS and JavaScript, no recompilation needed
 
+Most of this guide is Gokapi's own documentation and applies unchanged. Where FGS Share behaves differently,
+the page says so.
+
 
 Contents
 ========
@@ -29,6 +47,7 @@ Contents
 
    setup
    usage
+   fgs-share
    update
    advanced
    troubleshooting

@@ -1,7 +1,10 @@
 version: '3.3'
 services:
   gokapi:
-    image: f0rc3/gokapi:latest
+    # FGS Share has no published image: this builds one from the clone.
+    # deploy/docker-compose.yml is the hardened file the live instance uses.
+    build: .
+    image: fgs-share
     container_name: gokapi
     ports:
       - "127.0.0.1:53842:53842"

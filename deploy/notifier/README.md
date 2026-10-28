@@ -1,6 +1,6 @@
-# Gokapi email notifier
+# FGS Share email notifier
 
-`gokapi_notify.py` polls Gokapi's `GET /api/activity` feed once a minute and
+`gokapi_notify.py` polls FGS Share's `GET /api/activity` feed once a minute and
 sends a few clear emails instead of one per upload. It is Python 3.9, stdlib
 only, and runs on the Mac mini under `/usr/bin/python3`.
 
@@ -133,7 +133,7 @@ On the mini it runs as the launchd agent `com.franco.gokapi-notify`
 
 ## Cutover from the log.txt notifier
 
-1. Deploy the Gokapi image that has the `Activity` table and `/api/activity`.
+1. Deploy the FGS Share image that has the `Activity` table and `/api/activity`.
    The table is new, so it holds only events since the swap.
 2. Create the admin API key with `ManageLogs` on live, and put it in
    `~/apps/gokapi/notify.config.json` as `api_key`. Leave the SMTP values as

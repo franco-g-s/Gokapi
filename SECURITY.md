@@ -1,42 +1,32 @@
 # Security Policy
 
-## Supported Versions
+FGS Share is a personal fork of [Gokapi](https://github.com/Forceu/Gokapi), maintained for one
+instance, share.franco.international. Only the current `main` branch is supported; there are no
+releases.
 
-We currently support the latest stable version of Gokapi. Security updates are provided on a best-effort basis for the most recent release.
+## Reporting a vulnerability
 
-| Version | Supported          |
-| ------- | ------------------ |
-| Latest  | Yes                |
-| Older   | No                 |
+Please **do not open a public issue**. Use GitHub's
+[**Report a vulnerability**](https://github.com/franco-g-s/fgs-share/security/advisories/new)
+on this repository (the **Security** tab), which keeps the report private.
 
-## Reporting a Vulnerability
+Include what you found, how to reproduce it, and what it exposes. Please do not test against
+share.franco.international: it holds real people's files. Run your own copy instead (see the README).
 
-If you discover a security vulnerability in Gokapi, please **do not open a public issue**.
+Reports are handled on a best-effort basis by one person.
 
-Instead, use GitHub’s [**"Report a vulnerability"**](https://github.com/Forceu/Gokapi/security/advisories/new) feature on this repository. This ensures your report stays private and will be reviewed promptly by the maintainers.
+## Which project to report to
 
-To report a vulnerability:
+- **In FGS Share's own changes** (previews, groups, collections pages, profiles, the blocklist,
+  View as…, the activity feed, the notifier, `deploy/`): report here.
+- **In code FGS Share inherits unchanged from Gokapi**: report to
+  [Gokapi](https://github.com/Forceu/Gokapi/security/advisories/new). You are welcome to tell this
+  repository too, so the fix can be merged in sooner.
 
-1. Go to the **Security** tab of the Gokapi repository.
-2. Click on **"Report a vulnerability"**.
-3. Fill out the form with as much detail as possible.
+Vulnerabilities in third-party dependencies should go to their maintainers.
 
-We aim to acknowledge valid reports within **3 business days** and address them as quickly as possible.
+## Known history
 
-## Disclosure Policy
-
-Once a vulnerability is reported, we will:
-
-1. Acknowledge receipt within 72 hours.
-2. Investigate and validate the issue.
-3. Develop a fix or mitigation strategy.
-4. Coordinate a release with credit to the reporter (unless anonymity is requested).
-5. Publish a security advisory via GitHub once the fix is released.
-
-## Scope
-
-This policy applies to the Gokapi codebase and documentation in this repository. Vulnerabilities in third-party dependencies should be reported to the appropriate maintainers.
-
----
-
-Thank you for helping keep Gokapi secure!
+- **2026-10-27:** `POST /groups/add` returned the name of another user's file when refusing to add it,
+  to a signed-in user who already knew that file's id. Fixed in `0aae65f` and deployed the same
+  day, before the repository was made public.

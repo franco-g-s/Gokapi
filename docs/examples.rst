@@ -306,6 +306,12 @@ Gokapi Configuration
 |                           | automatically create a new account or restore a deleted one |                                  |
 +---------------------------+-------------------------------------------------------------+----------------------------------+
 
+.. note::
+   **FGS Share** runs share.franco.international on Google sign-in with *Only allow existing users* unchecked,
+   so any Google account can sign in and upload. Each person's Google name and photo become their default
+   display name and profile photo. To keep someone out, add their address or domain to the blocklist on the
+   Users page; deleting their account is not enough (see :ref:`fgsshare`).
+
 
 
 .. _oidcconfig_entra:

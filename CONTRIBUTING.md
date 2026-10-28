@@ -1,25 +1,36 @@
-# Contributing to Gokapi
+# Contributing to FGS Share
 
-First off, thanks for taking the time to contribute! Gokapi is built to be a lightweight, secure way to share files, and community help is what keeps this project running.
+FGS Share is a personal fork of [Gokapi](https://github.com/Forceu/Gokapi), maintained for one
+instance. Pull requests are welcome, but the scope is narrow: changes to what the fork adds
+(previews, groups, profiles, the blocklist, the activity feed, the notifier, `deploy/`).
 
-## Security First
-If you find a security vulnerability, please **do not** open a public issue. Instead, report it at https://github.com/Forceu/Gokapi/security to allow for a responsible disclosure.
+**A change that would help every Gokapi user belongs in [Gokapi](https://github.com/Forceu/Gokapi)
+itself.** It reaches FGS Share when upstream is merged in.
 
-## Getting Started
-1. **Fork** the repository and clone it locally.
-2. Ensure you have **Go 1.25+** (or the version specified in `go.mod`) installed.
-3. Install dependencies: `go mod download`.
-4. Create a new branch for your fix or feature: `git checkout -b feat/new-pr-name`.
+## Security first
 
-## Coding Standards
-- **Style:** Run `go fmt ./...` before committing. We follow standard Go idioms.
-- **Tests:** If you add a feature, please add a corresponding test in the relevant `_test.go` file.
-- **Documentation:** Update the `README.md` or `/docs` if you change application behaviours or procedures.
+Do **not** open a public issue for a vulnerability. Report it privately; see [SECURITY.md](SECURITY.md).
+
+## Getting started
+
+1. Fork the repository and clone it.
+2. Use Go 1.25+ (or the version in `go.mod`), or run everything in Docker with `build/dev/gotest.sh`.
+3. Create a branch for your change.
+
+## Standards
+
+- **Style:** `go fmt ./...`, standard Go idioms, and code that reads like the code around it.
+- **Tests:** every change comes with a test. Run `build/dev/gotest.sh ./...`. `go test` needs
+  `-tags=test`, or it reports "no test files" and looks like a pass. Behaviour you can see in a browser
+  also gets a line in the relevant `build/e2e/` script.
+- **Static assets:** run `go generate ./...` (the test script does) and commit the regenerated minified files.
+- **Schema:** never bump the database schema. New tables are created with `CREATE TABLE IF NOT EXISTS`,
+  so an older image still runs on the same database.
+- **Documentation:** update `README.md` and `docs/` when behaviour or procedures change.
+- **No real data:** this repository is public. Never commit secrets, real people's names, emails or files, or
+  copies of a live database. Tests and screenshots use made-up people and generated images.
 
 ## Submitting a PR
-- Ensure your PR description follows our [PR Template](.github/PULL_REQUEST_TEMPLATE.md).
-- Keep PRs focused. If you have two unrelated fixes, please open two PRs.
-- Make sure all CI checks pass before requesting a review.
 
-## Community & Communication
-If you're unsure about an implementation detail, feel free to open a "Draft PR" or start a GitHub Discussion to get feedback early!
+- Keep each PR to one change, and describe what changed, why, and how you tested it.
+- Make sure the tests pass.

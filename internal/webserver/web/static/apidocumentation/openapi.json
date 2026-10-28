@@ -1,8 +1,8 @@
 {
   "openapi": "3.0.0",
   "info": {
-    "title": "Gokapi",
-    "description": "[https://github.com/Forceu/Gokapi](https://github.com/Forceu/Gokapi)\n",
+    "title": "FGS Share",
+    "description": "FGS Share, a fork of Gokapi: [https://github.com/franco-g-s/fgs-share](https://github.com/franco-g-s/fgs-share). Based on [https://github.com/Forceu/Gokapi](https://github.com/Forceu/Gokapi).\n",
     "version": "2.2.5-dev"
   },
   "servers": [
